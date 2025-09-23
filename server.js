@@ -1,4 +1,3 @@
-// server.js
 const fs = require('fs');
 const { PassThrough } = require('stream');
 const express = require('express');
