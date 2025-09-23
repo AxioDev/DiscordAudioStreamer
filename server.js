@@ -14,7 +14,7 @@ require('dotenv').config();
 
 const BOT_TOKEN = process.env.BOT_TOKEN || 'TON_TOKEN_ICI'; // mieux via env
 const GUILD_ID = process.env.GUILD_ID || 'ID_GUILD';
-const VOICE_CHANNEL_ID = process.env.VOICE_CHANNEL_ID || 'ID_VOICE_CHANNEL';
+const VOICE_CHANNEL_ID = process.env.CHANNEL_ID || 'ID_VOICE_CHANNEL';
 
 const app = express();
 const PORT = 3000;
