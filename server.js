@@ -22,71 +22,203 @@ const OPUS_BITRATE = process.env.OPUS_BITRATE || '64000';
 const MP3_BITRATE = process.env.MP3_BITRATE || '96000';
 const MIX_FRAME_MS = parseInt(process.env.MIX_FRAME_MS || '20', 10);
 
-// Validate
 if (!BOT_TOKEN) {
-  console.error('BOT_TOKEN manquant dans .env');
+  console.error('Erreur: BOT_TOKEN manquant dans .env');
   process.exit(1);
 }
 
-// PCM params
+// audio constants
 const SAMPLE_RATE = 48000;
 const CHANNELS = 2;
-const BYTES_PER_SAMPLE = 2; // s16le
-const FRAME_SAMPLES = Math.floor(SAMPLE_RATE * (MIX_FRAME_MS / 1000)); // ex: 960 for 20ms
-const FRAME_BYTES = FRAME_SAMPLES * CHANNELS * BYTES_PER_SAMPLE; // bytes per mix frame
+const BYTES_PER_SAMPLE = 2; // s16le Int16
+const FRAME_SAMPLES = Math.floor(SAMPLE_RATE * (MIX_FRAME_MS / 1000)); // e.g. 960 @20ms
+const FRAME_BYTES = FRAME_SAMPLES * CHANNELS * BYTES_PER_SAMPLE;
 
-console.log(`Config: ${FRAME_SAMPLES} samples/frame (${MIX_FRAME_MS}ms), ${FRAME_BYTES} bytes/frame`);
+console.log(`Config audio: ${FRAME_SAMPLES} samples/frame (${MIX_FRAME_MS}ms), ${FRAME_BYTES} bytes/frame`);
 
-// Broadcast stream (flux encodé sortie ffmpeg)
-const encodedBroadcast = new PassThrough();
+const encodedBroadcast = new PassThrough(); // flux encodé (ffmpeg stdout -> clients)
+let currentFfmpeg = null; // référence ffmpeg
+let ffmpegRestarting = false;
 
-// start ffmpeg (Opus in Ogg or MP3)
-let ffmpeg = null;
+// --- Mixer: buffer par source, mix périodique et écriture sur writable (ffmpeg.stdin) ---
+class Mixer {
+  constructor(frameBytes) {
+    this.frameBytes = frameBytes;
+    this.sources = new Map(); // userId -> { buffer: Buffer }
+    this.timer = null;
+    this.output = null; // writable (ffmpeg.stdin)
+    this.running = false;
+  }
+
+  setOutput(writable) {
+    this.output = writable;
+  }
+
+  addSource(id) {
+    if (!this.sources.has(id)) this.sources.set(id, { buffer: Buffer.alloc(0) });
+  }
+
+  removeSource(id) {
+    this.sources.delete(id);
+  }
+
+  pushToSource(id, chunk) {
+    const entry = this.sources.get(id);
+    if (!entry) return;
+    entry.buffer = Buffer.concat([entry.buffer, chunk]);
+    const maxCap = this.frameBytes * 200; // cap to avoid runaway memory (200 frames buffer)
+    if (entry.buffer.length > maxCap) {
+      entry.buffer = entry.buffer.slice(entry.buffer.length - maxCap);
+    }
+  }
+
+  readFrameForSource(id) {
+    const entry = this.sources.get(id);
+    if (!entry) return Buffer.alloc(this.frameBytes);
+    if (entry.buffer.length >= this.frameBytes) {
+      const f = entry.buffer.slice(0, this.frameBytes);
+      entry.buffer = entry.buffer.slice(this.frameBytes);
+      return f;
+    }
+    // not enough data -> return silence
+    return Buffer.alloc(this.frameBytes);
+  }
+
+  start() {
+    if (this.running) return;
+    this.running = true;
+    this.timer = setInterval(() => {
+      const ids = Array.from(this.sources.keys());
+      const n = ids.length;
+
+      // produce silence if no sources
+      if (n === 0) {
+        const silence = Buffer.alloc(this.frameBytes);
+        if (this.output && this.output.writable) this.output.write(silence);
+        return;
+      }
+
+      const sampleCount = this.frameBytes / BYTES_PER_SAMPLE; // interleaved samples
+      const mixedFloat = new Float32Array(sampleCount);
+      for (let i = 0; i < sampleCount; i++) mixedFloat[i] = 0.0;
+
+      // sum samples from each source (convert Int16 -> float)
+      for (const id of ids) {
+        const frameBuf = this.readFrameForSource(id);
+        for (let i = 0; i < sampleCount; i++) {
+          const s = frameBuf.readInt16LE(i * 2);
+          mixedFloat[i] += s / 32768.0;
+        }
+      }
+
+      // normalize by number of active sources (simple)
+      for (let i = 0; i < sampleCount; i++) mixedFloat[i] = mixedFloat[i] / n;
+
+      // clamp and convert back to Int16LE buffer
+      const out = Buffer.alloc(this.frameBytes);
+      for (let i = 0; i < sampleCount; i++) {
+        let v = Math.max(-1, Math.min(1, mixedFloat[i]));
+        const val = Math.round(v * 32767);
+        out.writeInt16LE(val, i * 2);
+      }
+
+      // write to ffmpeg stdin
+      if (this.output && this.output.writable) {
+        const ok = this.output.write(out);
+        if (!ok) {
+          // backpressure: let it be handled naturally
+          // optionally we could pause mixing for a tick
+        }
+      }
+    }, MIX_FRAME_MS);
+  }
+
+  stop() {
+    if (this.timer) clearInterval(this.timer);
+    this.running = false;
+  }
+}
+
+const mixer = new Mixer(FRAME_BYTES);
+mixer.start();
+
+// --- ffmpeg spawn / restart management ---
 function startFfmpeg() {
-  console.log('Lancement ffmpeg, format:', OUT_FORMAT);
-  const args = [];
-
-  // input: raw PCM s16le 48k stereo from stdin
-  args.push('-f', 's16le', '-ar', String(SAMPLE_RATE), '-ac', String(CHANNELS), '-i', 'pipe:0');
+  if (ffmpegRestarting) return;
+  ffmpegRestarting = true;
+  console.log('Démarrage ffmpeg, format=', OUT_FORMAT);
+  const args = [
+    '-f', 's16le',
+    '-ar', String(SAMPLE_RATE),
+    '-ac', String(CHANNELS),
+    '-i', 'pipe:0',
+    '-loglevel', 'info'
+  ];
 
   if (OUT_FORMAT === 'opus') {
-    // output Ogg (Opus)
     args.push('-c:a', 'libopus', '-b:a', String(OPUS_BITRATE), '-f', 'ogg', 'pipe:1');
   } else {
-    // mp3 fallback
     args.push('-c:a', 'libmp3lame', '-b:a', String(MP3_BITRATE), '-f', 'mp3', 'pipe:1');
   }
 
-  ffmpeg = spawn(FFMPEG_PATH, args, { stdio: ['pipe', 'pipe', 'inherit'] });
+  const ff = spawn(FFMPEG_PATH, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+  currentFfmpeg = ff;
+  ffmpegRestarting = false;
 
-  ffmpeg.stdout.on('data', (chunk) => encodedBroadcast.write(chunk));
-  ffmpeg.on('exit', (code, sig) => {
-    console.warn('ffmpeg exited', code, sig, ' -> restart in 1s');
-    setTimeout(startFfmpeg, 1000);
+  // attach mixer output to ffmpeg.stdin
+  mixer.setOutput(ff.stdin);
+
+  ff.stdout.on('data', (chunk) => {
+    // push encoded bytes to broadcast
+    encodedBroadcast.write(chunk);
+    // lightweight dot logger to show live activity in console
+    process.stdout.write('.');
   });
-  ffmpeg.on('error', (err) => console.error('ffmpeg error', err));
-}
-startFfmpeg();
 
-// Express server
+  ff.stderr.on('data', (chunk) => {
+    // useful to debug ffmpeg failures
+    process.stderr.write(chunk.toString());
+  });
+
+  ff.on('exit', (code, signal) => {
+    console.warn(`ffmpeg exited code=${code} signal=${signal} — restart in 800ms`);
+    try { mixer.setOutput(null); } catch (e) {}
+    setTimeout(() => startFfmpeg(), 800);
+  });
+
+  ff.on('error', (err) => {
+    console.error('ffmpeg spawn error', err);
+    try { mixer.setOutput(null); } catch (e) {}
+    setTimeout(() => startFfmpeg(), 2000);
+  });
+
+  console.log('ffmpeg lancé, pid=', ff.pid);
+}
+
+startFfmpeg(); // start immediately
+
+// --- Express HTTP server ---
 const app = express();
 app.use(express.static('public'));
 
-// two endpoints: one for opus (ogg) and one for mp3 fallback
 app.get('/stream', (req, res) => {
-  if (OUT_FORMAT === 'opus') {
-    res.set({
-      'Content-Type': 'audio/ogg',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-    });
-  } else {
-    res.set({
-      'Content-Type': 'audio/mpeg',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-    });
-  }
+  const contentType = (OUT_FORMAT === 'opus') ? 'audio/ogg' : 'audio/mpeg';
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Transfer-Encoding', 'chunked');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
+  // make sure headers are flushed immediately
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  // small kick: write a tiny chunk to prompt some clients/proxies to start
+  try {
+    const kick = Buffer.alloc(32, 0);
+    res.write(kick);
+  } catch (e) {}
+
+  console.log('Client connecté au stream:', req.ip);
 
   const clientStream = new PassThrough();
   encodedBroadcast.pipe(clientStream);
@@ -97,125 +229,16 @@ app.get('/stream', (req, res) => {
       encodedBroadcast.unpipe(clientStream);
       clientStream.end();
     } catch (e) {}
+    console.log('Client déconnecté du stream:', req.ip);
   });
 });
 
 app.get('/', (req, res) => res.sendFile(__dirname + '/public/index.html'));
 
-app.listen(PORT, () => console.log(`HTTP server: http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`HTTP running on http://localhost:${PORT}`));
 
-// --- Mixer implementation ---
-class Mixer {
-  constructor(frameBytes) {
-    this.frameBytes = frameBytes;
-    this.sources = new Map(); // userId => { buffer: Buffer }
-    this.timer = null;
-    this.running = false;
-  }
-
-  addSource(id) {
-    if (!this.sources.has(id)) {
-      this.sources.set(id, { buffer: Buffer.alloc(0) });
-    }
-  }
-
-  removeSource(id) {
-    this.sources.delete(id);
-  }
-
-  pushToSource(id, chunk) {
-    const entry = this.sources.get(id);
-    if (!entry) return;
-    // append chunk
-    entry.buffer = Buffer.concat([entry.buffer, chunk]);
-    // keep buffer size reasonable (avoid memory leak) - cap at e.g. 5 frames
-    const maxCap = this.frameBytes * 50;
-    if (entry.buffer.length > maxCap) {
-      entry.buffer = entry.buffer.slice(entry.buffer.length - maxCap);
-    }
-  }
-
-  readFrameForSource(id) {
-    const entry = this.sources.get(id);
-    if (!entry) return null;
-    if (entry.buffer.length >= this.frameBytes) {
-      const frame = entry.buffer.slice(0, this.frameBytes);
-      entry.buffer = entry.buffer.slice(this.frameBytes);
-      return frame;
-    }
-    // not enough data -> return silence of frameBytes
-    return Buffer.alloc(this.frameBytes);
-  }
-
-  start(outputWritable) {
-    if (this.running) return;
-    this.running = true;
-    // mix every frame interval
-    this.timer = setInterval(() => {
-      const activeIds = Array.from(this.sources.keys());
-      const n = activeIds.length;
-
-      // if no sources, write silence
-      if (n === 0) {
-        const silence = Buffer.alloc(this.frameBytes);
-        if (outputWritable && outputWritable.writable) outputWritable.write(silence);
-        return;
-      }
-
-      // accumulate as floats
-      // We'll convert each source frame to float [-1,1], sum, then divide by n (simple normalize)
-      const sampleCount = this.frameBytes / BYTES_PER_SAMPLE; // interleaved samples (L,R,L,R,...)
-      const mixedFloat = new Float32Array(sampleCount);
-      for (let i = 0; i < sampleCount; i++) mixedFloat[i] = 0.0;
-
-      for (const id of activeIds) {
-        const frameBuf = this.readFrameForSource(id);
-        // interpret as Int16LE samples
-        for (let i = 0; i < sampleCount; i++) {
-          const s = frameBuf.readInt16LE(i * 2);
-          mixedFloat[i] += s / 32768.0; // to [-1,1]
-        }
-      }
-
-      // average (simple normalization)
-      for (let i = 0; i < sampleCount; i++) mixedFloat[i] = mixedFloat[i] / n;
-
-      // convert back to Int16LE buffer
-      const outBuf = Buffer.alloc(this.frameBytes);
-      for (let i = 0; i < sampleCount; i++) {
-        // clamp
-        let v = Math.max(-1, Math.min(1, mixedFloat[i]));
-        // scale
-        const int = Math.round(v * 32767);
-        outBuf.writeInt16LE(int, i * 2);
-      }
-
-      // write to ffmpeg stdin (PCM)
-      if (outputWritable && outputWritable.writable) {
-        const ok = outputWritable.write(outBuf);
-        if (!ok) {
-          // if backpressure, could log or handle. We'll rely on Node stream backpressure.
-        }
-      }
-    }, MIX_FRAME_MS);
-  }
-
-  stop() {
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = null;
-    }
-    this.running = false;
-  }
-}
-
-// initialize mixer
-const mixer = new Mixer(FRAME_BYTES);
-mixer.start(ffmpeg.stdin);
-
-// --- Discord bot receive & wiring to mixer ---
+// --- Discord bot: receive Opus per user and feed mixer --- 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
-
 let voiceConnection = null;
 
 async function joinVoice(guildId, channelId) {
@@ -228,54 +251,45 @@ async function joinVoice(guildId, channelId) {
     channelId,
     guildId,
     adapterCreator: guild.voiceAdapterCreator,
-    selfDeaf: false,
+    selfDeaf: false
   });
 
   await entersState(connection, VoiceConnectionStatus.Ready, 15000);
   voiceConnection = connection;
+  console.log('Voice connection ready');
 
   const receiver = connection.receiver;
-  // when user starts speaking
+
   receiver.speaking.on('start', (userId) => {
     try {
       console.log('start speaking', userId);
       mixer.addSource(userId);
 
-      // subscribe to opus stream for user
+      // subscribe returns Opus stream
       const opusStream = receiver.subscribe(userId, {
-        end: { behavior: EndBehaviorType.AfterSilence, duration: 1000 },
+        end: { behavior: EndBehaviorType.AfterSilence, duration: 1000 }
       });
 
-      // decode opus -> PCM s16le 48k stereo
+      // decode Opus -> PCM s16le 48k stereo
       const decoder = new prism.opus.Decoder({ frameSize: 960, channels: CHANNELS, rate: SAMPLE_RATE });
 
       opusStream.pipe(decoder);
 
       decoder.on('data', (chunk) => {
-        // chunk are PCM s16le. push into mixer source buffer
+        // chunk = PCM s16le -> feed the mixer
         mixer.pushToSource(userId, chunk);
       });
 
       const cleanup = () => {
-        try {
-          opusStream.destroy();
-        } catch (e) {}
-        try {
-          decoder.destroy();
-        } catch (e) {}
+        try { opusStream.destroy(); } catch (e) {}
+        try { decoder.destroy(); } catch (e) {}
         mixer.removeSource(userId);
-        console.log('cleaned up', userId);
+        console.log('cleanup done for', userId);
       };
 
       opusStream.on('end', cleanup);
-      opusStream.on('error', (e) => {
-        console.warn('opusStream error', e);
-        cleanup();
-      });
-      decoder.on('error', (e) => {
-        console.warn('decoder error', e);
-        cleanup();
-      });
+      opusStream.on('error', (e) => { console.warn('opusStream err', e); cleanup(); });
+      decoder.on('error', (e) => { console.warn('decoder err', e); cleanup(); });
 
     } catch (err) {
       console.error('subscribe error', err);
@@ -283,7 +297,6 @@ async function joinVoice(guildId, channelId) {
   });
 
   receiver.speaking.on('end', (userId) => {
-    // speaking end may fire; we still rely on opusStream end events and silence end behavior
     console.log('speaking end', userId);
   });
 
@@ -294,58 +307,57 @@ async function joinVoice(guildId, channelId) {
     }
   });
 
-  console.log('joined voice');
   return connection;
 }
 
 client.once(Events.ClientReady, async () => {
-  console.log('Connecté en tant que', client.user.tag);
+  console.log('Discord bot connecté en tant que', client.user.tag);
   if (GUILD_ID && VOICE_CHANNEL_ID) {
     try {
       await joinVoice(GUILD_ID, VOICE_CHANNEL_ID);
-    } catch (e) { console.error('auto join error', e); }
+      console.log('Auto-join effectué.');
+    } catch (e) {
+      console.error('Auto-join error', e);
+    }
   } else {
-    console.log('Aucun GUILD_ID/VOICE_CHANNEL_ID fourni (oups). Utilise !joinVoice en chat.');
+    console.log('GUILD_ID / VOICE_CHANNEL_ID non fournis; utilise !joinVoice <guildId> <channelId>.');
   }
 });
 
 client.on('messageCreate', async (msg) => {
   if (msg.author.bot) return;
-  const content = msg.content.trim();
+  const content = (msg.content || '').trim();
   if (content.startsWith('!joinVoice')) {
     const parts = content.split(/\s+/);
     const guildId = parts[1] || msg.guildId;
     const channelId = parts[2];
-    if (!guildId || !channelId) {
-      msg.reply('Usage: !joinVoice <guildId> <voiceChannelId>');
-      return;
-    }
+    if (!guildId || !channelId) { msg.reply('Usage: !joinVoice <guildId> <voiceChannelId>'); return; }
     try {
       await joinVoice(guildId, channelId);
       msg.reply('Rejoint le salon vocal ✅');
     } catch (e) {
       console.error(e);
-      msg.reply('Erreur join: check logs.');
+      msg.reply('Erreur en rejoignant le salon — check logs.');
     }
   }
   if (content === '!leaveVoice') {
     if (voiceConnection) {
       voiceConnection.destroy();
       voiceConnection = null;
-      msg.reply('Déconnecté.');
+      msg.reply('Déconnecté du salon vocal ✅');
     } else {
-      msg.reply('Je suis pas connecté.');
+      msg.reply('Je ne suis pas connecté.');
     }
   }
 });
 
 client.login(BOT_TOKEN).catch(err => console.error('login error', err));
 
-// clean
+// graceful shutdown
 function shutdown() {
   console.log('shutdown');
   try { if (voiceConnection) voiceConnection.destroy(); } catch(e){}
-  try { if (ffmpeg && !ffmpeg.killed) { ffmpeg.stdin.end(); ffmpeg.kill('SIGTERM'); } } catch(e){}
+  try { if (currentFfmpeg && !currentFfmpeg.killed) { currentFfmpeg.stdin.end(); currentFfmpeg.kill('SIGTERM'); } } catch(e){}
   try { encodedBroadcast.end(); } catch(e){}
   process.exit(0);
 }
