@@ -1,17 +1,370 @@
-<!doctype html>
-<html>
+<!DOCTYPE html>
+<html lang="fr">
   <head>
     <meta charset="utf-8" />
-    <title>Discord Voice Stream</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Discord Audio Stream</title>
+    <meta
+      name="description"
+      content="Écoute le salon vocal Discord en direct avec une interface Preact + Tailwind et vois qui parle en temps réel."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'system-ui', 'sans-serif'],
+            },
+            boxShadow: {
+              glow: '0 0 50px rgba(129, 140, 248, 0.35)',
+            },
+          },
+        },
+      };
+    </script>
     <style>
-      body { font-family: Arial, Helvetica, sans-serif; margin: 2rem; }
-      audio { width: 100%; max-width: 800px; }
+      body {
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      }
     </style>
   </head>
-  <body>
-    <h1>Discord → HTML5 Audio</h1>
-    <p>Flux : <code>/stream.mp3</code></p>
-    <audio id="player" controls autoplay src="/stream.mp3"></audio>
-    <p>Remarques : si tu n'entends rien, vérifie que le bot est bien dans le salon vocal et que quelqu'un parle.</p>
+  <body class="min-h-screen bg-slate-950 text-slate-100 antialiased">
+    <div id="app" class="min-h-screen"></div>
+
+    <script type="module">
+      import { h, render } from 'https://esm.sh/preact@10.19.2';
+      import { useEffect, useMemo, useState } from 'https://esm.sh/preact@10.19.2/hooks';
+      import htm from 'https://esm.sh/htm@3.1.1?deps=preact@10.19.2';
+
+      const html = htm.bind(h);
+
+      const STATUS_LABELS = {
+        connecting: {
+          label: 'Connexion…',
+          ring: 'bg-amber-400/20 text-amber-200 border-amber-400/50',
+          dot: 'bg-amber-300',
+        },
+        connected: {
+          label: 'En direct',
+          ring: 'bg-emerald-400/15 text-emerald-200 border-emerald-400/40',
+          dot: 'bg-emerald-300',
+        },
+        reconnecting: {
+          label: 'Reconnexion…',
+          ring: 'bg-sky-400/15 text-sky-200 border-sky-400/40',
+          dot: 'bg-sky-300',
+        },
+        error: {
+          label: 'Hors ligne',
+          ring: 'bg-rose-500/20 text-rose-100 border-rose-400/50',
+          dot: 'bg-rose-300',
+        },
+      };
+
+      const formatDuration = (ms) => {
+        if (!ms || Number.isNaN(ms)) return '';
+        const totalSeconds = Math.max(0, Math.round(ms / 1000));
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        if (minutes === 0) return `${seconds}s`;
+        if (minutes >= 60) {
+          const hours = Math.floor(minutes / 60);
+          const remMinutes = minutes % 60;
+          return `${hours}h ${remMinutes}m`;
+        }
+        return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+      };
+
+      const formatRelative = (timestamp, now) => {
+        if (!timestamp) return '—';
+        const diff = Math.max(0, now - timestamp);
+        if (diff < 30_000) return 'il y a quelques secondes';
+        if (diff < 5 * 60_000) return 'il y a moins de 5 min';
+        return new Date(timestamp).toLocaleTimeString('fr-FR', {
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+      };
+
+      const StatusBadge = ({ status }) => {
+        const config = STATUS_LABELS[status] ?? STATUS_LABELS.connecting;
+        return html`
+          <div class=${`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium backdrop-blur ${config.ring}`}>
+            <span class=${`h-2.5 w-2.5 rounded-full shadow-md ${config.dot}`}></span>
+            <span>${config.label}</span>
+          </div>
+        `;
+      };
+
+      const SpeakerCard = ({ speaker, now }) => {
+        const since = speaker.startedAt ? formatDuration(now - speaker.startedAt) : '';
+        return html`
+          <article
+            class="group relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-indigo-500/20 via-slate-950 to-fuchsia-500/20 p-5 shadow-xl shadow-indigo-900/30 transition duration-300 hover:border-fuchsia-400/60 hover:shadow-glow"
+          >
+            <div class="absolute -right-14 -top-14 h-32 w-32 rounded-full bg-fuchsia-500/40 blur-3xl transition-opacity duration-300 group-hover:opacity-100"></div>
+            <div class="relative flex items-center gap-5">
+              <div class="relative h-20 w-20 flex-shrink-0">
+                <div class="absolute inset-0 rounded-full bg-gradient-to-br from-fuchsia-500 via-indigo-400 to-sky-400 opacity-60 blur-xl transition group-hover:opacity-90"></div>
+                <img
+                  src=${speaker.avatar}
+                  alt=${`Avatar de ${speaker.displayName}`}
+                  class="relative h-20 w-20 rounded-full border-2 border-white/70 object-cover shadow-lg shadow-fuchsia-900/30"
+                  loading="lazy"
+                />
+                <div class="absolute -bottom-1 -right-1 flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wider text-emerald-900 shadow-lg">
+                  <span class="relative flex h-2 w-2">
+                    <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-200 opacity-75"></span>
+                    <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-800"></span>
+                  </span>
+                  En live
+                </div>
+              </div>
+              <div class="relative flex flex-1 flex-col gap-2">
+                <div class="flex flex-wrap items-baseline gap-2">
+                  <h3 class="text-2xl font-semibold text-white">${speaker.displayName}</h3>
+                  <span class="text-sm text-slate-300">@${speaker.username}</span>
+                </div>
+                <div class="flex flex-wrap items-center gap-3 text-xs text-slate-200">
+                  ${since
+                    ? html`<span class="flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 backdrop-blur">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          class="h-3.5 w-3.5"
+                        >
+                          <circle cx="12" cy="12" r="9"></circle>
+                          <path d="M12 7v5l2.5 2.5"></path>
+                        </svg>
+                        ${since}
+                      </span>`
+                    : null}
+                  <span class="rounded-full bg-white/5 px-3 py-1 uppercase tracking-[0.2em] text-[0.7rem] text-fuchsia-200">
+                    En train de parler
+                  </span>
+                </div>
+              </div>
+            </div>
+          </article>
+        `;
+      };
+
+      const SpeakersSection = ({ speakers, now }) => {
+        if (!speakers.length) {
+          return html`
+            <div class="mt-6 flex flex-col items-center justify-center gap-4 rounded-3xl border border-white/10 bg-black/40 px-8 py-12 text-center text-sm text-slate-300 backdrop-blur">
+              <div class="flex h-14 w-14 items-center justify-center rounded-full bg-white/10 text-fuchsia-200">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="h-7 w-7"
+                >
+                  <circle cx="12" cy="12" r="9"></circle>
+                  <path d="M12 8v5l3 1.5"></path>
+                </svg>
+              </div>
+              <p class="max-w-sm text-base text-slate-300">
+                Personne ne parle pour le moment. Le panneau se mettra à jour dès que quelqu’un prendra la parole dans le salon.
+              </p>
+            </div>
+          `;
+        }
+
+        return html`
+          <div class="mt-6 grid gap-6 sm:grid-cols-2">
+            ${speakers.map((speaker) => html`<${SpeakerCard} key=${speaker.id} speaker=${speaker} now=${now} />`)}
+          </div>
+        `;
+      };
+
+      const App = () => {
+        const [status, setStatus] = useState('connecting');
+        const [speakersMap, setSpeakersMap] = useState(() => new Map());
+        const [streamInfo, setStreamInfo] = useState({ path: '/stream', format: 'opus', mimeType: 'audio/ogg' });
+        const [lastUpdate, setLastUpdate] = useState(null);
+        const [now, setNow] = useState(Date.now());
+
+        useEffect(() => {
+          const id = setInterval(() => setNow(Date.now()), 1000);
+          return () => clearInterval(id);
+        }, []);
+
+        useEffect(() => {
+          const source = new EventSource('/events');
+          source.onopen = () => setStatus('connected');
+          source.onerror = () => {
+            if (source.readyState === EventSource.CONNECTING) {
+              setStatus('reconnecting');
+            } else if (source.readyState === EventSource.CLOSED) {
+              setStatus('error');
+            }
+          };
+
+          const applyState = (payload) => {
+            if (!payload || !Array.isArray(payload.speakers)) return;
+            setSpeakersMap(() => {
+              const map = new Map();
+              for (const speaker of payload.speakers) {
+                map.set(speaker.id, speaker);
+              }
+              return map;
+            });
+            setLastUpdate(Date.now());
+          };
+
+          source.addEventListener('state', (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              applyState(data);
+            } catch (err) {
+              console.error('state event parse error', err);
+            }
+          });
+
+          source.addEventListener('speaking', (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              if (data?.type === 'start' && data.user) {
+                setSpeakersMap((prev) => {
+                  const next = new Map(prev);
+                  next.set(data.user.id, data.user);
+                  return next;
+                });
+              } else if (data?.type === 'end' && data.userId) {
+                setSpeakersMap((prev) => {
+                  if (!prev.has(data.userId)) return prev;
+                  const next = new Map(prev);
+                  next.delete(data.userId);
+                  return next;
+                });
+              }
+              setLastUpdate(Date.now());
+            } catch (err) {
+              console.error('speaking event parse error', err);
+            }
+          });
+
+          source.addEventListener('info', (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              setStreamInfo((prev) => ({
+                path: data?.path ?? prev.path,
+                format: data?.format ?? prev.format,
+                mimeType: data?.mimeType ?? prev.mimeType,
+              }));
+            } catch (err) {
+              console.error('info event parse error', err);
+            }
+          });
+
+          return () => source.close();
+        }, []);
+
+        const speakers = useMemo(
+          () => Array.from(speakersMap.values()).sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0)),
+          [speakersMap]
+        );
+
+        const lastUpdateLabel = lastUpdate ? formatRelative(lastUpdate, now) : 'Synchronisation…';
+        const audioKey = `${streamInfo.path}|${streamInfo.mimeType}`;
+
+        return html`
+          <div class="relative flex min-h-screen flex-col overflow-hidden">
+            <div class="pointer-events-none absolute inset-0 overflow-hidden">
+              <div class="absolute -left-24 -top-24 h-[24rem] w-[24rem] rounded-full bg-indigo-500/30 blur-3xl"></div>
+              <div class="absolute -right-20 bottom-[-8rem] h-[28rem] w-[28rem] rounded-full bg-fuchsia-500/25 blur-[120px]"></div>
+              <div class="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(99,102,241,0.08)_0,_transparent_55%)]"></div>
+            </div>
+            <div class="relative z-10 flex flex-1 flex-col">
+              <header class="px-6 pt-10 sm:px-10">
+                <div class="mx-auto flex max-w-5xl flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                  <div class="space-y-4">
+                    <p class="text-xs uppercase tracking-[0.35em] text-slate-400">Discord Audio Stream</p>
+                    <h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">
+                      Salon vocal en direct ultra stylé
+                    </h1>
+                    <p class="max-w-xl text-base text-slate-300">
+                      Lance le flux audio du salon Discord et surveille l’activité du vocal. Les avatars et pseudos s’allument en
+                      temps réel lorsque quelqu’un prend la parole.
+                    </p>
+                  </div>
+                  <div class="flex flex-col items-end gap-3 text-right">
+                    <${StatusBadge} status=${status} />
+                    <p class="text-xs text-slate-400">Dernière mise à jour&nbsp;: ${lastUpdateLabel}</p>
+                  </div>
+                </div>
+              </header>
+
+              <main class="px-6 pb-16 pt-8 sm:px-10">
+                <div class="mx-auto flex max-w-5xl flex-col gap-10">
+                  <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl">
+                    <div class="pointer-events-none absolute -right-20 bottom-0 h-56 w-56 rounded-full bg-indigo-400/30 blur-3xl"></div>
+                    <div class="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                      <div class="space-y-2">
+                        <h2 class="text-2xl font-semibold text-white">Flux audio en direct</h2>
+                        <p class="text-sm text-slate-300">
+                          Clique sur lecture si le flux ne démarre pas automatiquement. Volume conseillé&nbsp;: casque 💜
+                        </p>
+                      </div>
+                      <div class="flex flex-col items-start gap-2 text-sm text-slate-300 lg:items-end">
+                        <span class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-4 py-1.5 text-xs uppercase tracking-[0.3em] text-fuchsia-200">
+                          ${streamInfo.format === 'mp3' ? 'MP3' : 'OPUS'}
+                        </span>
+                        <span class="text-xs text-slate-400">Endpoint&nbsp;: ${streamInfo.path}</span>
+                      </div>
+                    </div>
+                    <div class="relative mt-6 overflow-hidden rounded-2xl border border-white/10 bg-black/50 p-4 shadow-2xl shadow-slate-950/60">
+                      <audio key=${audioKey} class="w-full accent-fuchsia-400" controls autoplay preload="auto">
+                        <source src=${streamInfo.path} type=${streamInfo.mimeType} />
+                        Ton navigateur ne supporte pas la balise audio.
+                      </audio>
+                    </div>
+                  </section>
+
+                  <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl">
+                    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h2 class="text-2xl font-semibold text-white">Intervenants en temps réel</h2>
+                        <p class="text-sm text-slate-300">
+                          Les avatars s’animent instantanément lorsqu’une voix est détectée sur le salon.
+                        </p>
+                      </div>
+                      <div class="flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-4 py-1.5 text-xs uppercase tracking-[0.3em] text-indigo-200">
+                        <span class="h-2 w-2 rounded-full bg-indigo-300"></span>
+                        ${speakers.length} en direct
+                      </div>
+                    </div>
+                    <${SpeakersSection} speakers=${speakers} now=${now} />
+                  </section>
+                </div>
+              </main>
+
+              <footer class="px-6 pb-10 text-center text-xs text-slate-500 sm:px-10">
+                Propulsé par <span class="font-semibold text-slate-300">DiscordAudioStreamer</span>
+              </footer>
+            </div>
+          </div>
+        `;
+      };
+
+      render(html`<${App} />`, document.getElementById('app'));
+    </script>
   </body>
 </html>
