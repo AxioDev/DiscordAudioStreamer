@@ -39,6 +39,97 @@ console.log(`Config audio: ${FRAME_SAMPLES} samples/frame (${MIX_FRAME_MS}ms), $
 // Broadcast encodé
 const encodedBroadcast = new PassThrough(); // ffmpeg.stdout -> encodedBroadcast -> clients
 
+const STREAM_ENDPOINT = '/stream';
+const MIME_TYPES = {
+  opus: 'audio/ogg',
+  mp3: 'audio/mpeg',
+};
+
+const sseClients = new Set();
+const currentSpeakers = new Map();
+const userProfiles = new Map();
+const pendingProfileFetches = new Set();
+
+function getMimeTypeForFormat(format) {
+  return MIME_TYPES[format] || 'application/octet-stream';
+}
+
+function broadcastEvent(eventName, payload) {
+  const data = `event: ${eventName}\n` + `data: ${JSON.stringify(payload)}\n\n`;
+  for (const client of Array.from(sseClients)) {
+    try {
+      client.write(data);
+    } catch (err) {
+      sseClients.delete(client);
+      try {
+        client.end();
+      } catch (e) {}
+    }
+  }
+}
+
+function broadcastState() {
+  broadcastEvent('state', { speakers: Array.from(currentSpeakers.values()) });
+}
+
+async function fetchUserProfile(userId) {
+  if (userProfiles.has(userId)) return userProfiles.get(userId);
+
+  const fallbackIndexRaw = Number(String(userId).slice(-1));
+  const fallbackIndex = Number.isFinite(fallbackIndexRaw) ? fallbackIndexRaw % 5 : 0;
+  let username = `Utilisateur ${userId}`;
+  let displayName = username;
+  let avatar = `https://cdn.discordapp.com/embed/avatars/${fallbackIndex}.png`;
+
+  try {
+    const user = await client.users.fetch(userId);
+    if (user) {
+      username = user.username ?? username;
+      displayName = user.globalName || user.username || displayName;
+      if (typeof user.displayAvatarURL === 'function') {
+        avatar = user.displayAvatarURL({ extension: 'png', size: 128 });
+      }
+    }
+  } catch (err) {
+    console.warn('Unable to fetch user profile', userId, err?.message || err);
+  }
+
+  const profile = { id: userId, username, displayName, avatar };
+  userProfiles.set(userId, profile);
+  return profile;
+}
+
+async function handleSpeakingStart(userId) {
+  if (currentSpeakers.has(userId) || pendingProfileFetches.has(userId)) return;
+  pendingProfileFetches.add(userId);
+  try {
+    const profile = await fetchUserProfile(userId);
+    const payload = { ...profile, startedAt: Date.now() };
+    currentSpeakers.set(userId, payload);
+    broadcastEvent('speaking', { type: 'start', user: payload });
+    broadcastState();
+  } catch (err) {
+    console.error('handleSpeakingStart error', err);
+  } finally {
+    pendingProfileFetches.delete(userId);
+  }
+}
+
+function handleSpeakingEnd(userId) {
+  if (!currentSpeakers.has(userId)) return;
+  currentSpeakers.delete(userId);
+  broadcastEvent('speaking', { type: 'end', userId });
+  broadcastState();
+}
+
+function getStreamInfoPayload() {
+  return {
+    format: OUT_FORMAT,
+    path: STREAM_ENDPOINT,
+    mimeType: getMimeTypeForFormat(OUT_FORMAT),
+  };
+}
+
 // Header buffer : on conserve les premiers octets émis par ffmpeg (utile pour nouvelles connexions)
 let headerBuffer = Buffer.alloc(0);
 const HEADER_BUFFER_MAX = 256 * 1024; // conserve jusqu'à 256 KB d'init (ajuste si besoin)
@@ -156,7 +247,44 @@ startFfmpeg();
 const app = express();
 app.use(express.static('public'));
 
-app.get('/stream', (req, res) => {
+app.get('/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  try { req.socket.setKeepAlive(true); } catch (err) {}
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  sseClients.add(res);
+
+  const infoPayload = getStreamInfoPayload();
+  const initialState = { speakers: Array.from(currentSpeakers.values()) };
+
+  try {
+    res.write(`event: info\n`);
+    res.write(`data: ${JSON.stringify(infoPayload)}\n\n`);
+    res.write(`event: state\n`);
+    res.write(`data: ${JSON.stringify(initialState)}\n\n`);
+  } catch (err) {
+    console.warn('SSE initial send failed', err);
+  }
+
+  const keepAlive = setInterval(() => {
+    try {
+      res.write(':keepalive\n\n');
+    } catch (err) {
+      clearInterval(keepAlive);
+      sseClients.delete(res);
+      try { res.end(); } catch (e) {}
+    }
+  }, 20000);
+
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    sseClients.delete(res);
+  });
+});
+
+app.get(STREAM_ENDPOINT, (req, res) => {
   const contentType = (OUT_FORMAT === 'opus') ? 'audio/ogg' : 'audio/mpeg';
   res.setHeader('Content-Type', contentType);
   res.setHeader('Cache-Control', 'no-cache');
@@ -168,7 +296,7 @@ app.get('/stream', (req, res) => {
   try { req.socket.setNoDelay(true); } catch(e){}
   if (typeof res.flushHeaders === 'function') res.flushHeaders();
 
-  console.log('New client for /stream', req.ip, 'headerBuffer:', headerBuffer.length);
+  console.log(`New client for ${STREAM_ENDPOINT}`, req.ip, 'headerBuffer:', headerBuffer.length);
 
   // if we have a headerBuffer (init segment) send it first (important for clients)
   if (headerBuffer && headerBuffer.length > 0) {
@@ -225,18 +353,28 @@ async function joinVoice(guildId, channelId) {
     try {
       console.log('start speaking', userId);
       mixer.addSource(userId);
+      handleSpeakingStart(userId);
       const opusStream = receiver.subscribe(userId, { end: { behavior: EndBehaviorType.AfterSilence, duration: 1000 } });
       const decoder = new prism.opus.Decoder({ frameSize: 960, channels: CHANNELS, rate: SAMPLE_RATE });
       opusStream.pipe(decoder);
       decoder.on('data', (chunk) => mixer.pushToSource(userId, chunk));
-      const cleanup = () => { try{ opusStream.destroy(); }catch{} try{ decoder.destroy(); }catch{} mixer.removeSource(userId); console.log('clean', userId); };
+      const cleanup = () => {
+        try { opusStream.destroy(); } catch {}
+        try { decoder.destroy(); } catch {}
+        mixer.removeSource(userId);
+        handleSpeakingEnd(userId);
+        console.log('clean', userId);
+      };
       opusStream.on('end', cleanup);
       opusStream.on('error', (e)=>{ console.warn('opusstream err', e); cleanup(); });
       decoder.on('error', (e)=>{ console.warn('decoder err', e); cleanup(); });
     } catch (err) { console.error('subscribe err', err); }
   });
 
-  receiver.speaking.on('end', (userId) => console.log('speaking end', userId));
+  receiver.speaking.on('end', (userId) => {
+    console.log('speaking end', userId);
+    handleSpeakingEnd(userId);
+  });
   connection.on('stateChange', (o,n) => { console.log('voice state', o.status,'->', n.status); });
   return connection;
 }
@@ -266,5 +404,21 @@ client.on('messageCreate', async (msg) => {
 
 client.login(BOT_TOKEN).catch(err => console.error('login err', err));
 
-function shutdown(){ try{ if (voiceConnection) voiceConnection.destroy(); }catch{} try{ if (currentFfmpeg && !currentFfmpeg.killed){ currentFfmpeg.stdin.end(); currentFfmpeg.kill('SIGTERM'); } }catch{} try{ encodedBroadcast.end(); }catch{} process.exit(0); }
+function shutdown(){
+  try { if (voiceConnection) voiceConnection.destroy(); } catch {}
+  try {
+    if (currentFfmpeg && !currentFfmpeg.killed) {
+      currentFfmpeg.stdin.end();
+      currentFfmpeg.kill('SIGTERM');
+    }
+  } catch {}
+  try { encodedBroadcast.end(); } catch {}
+  try {
+    for (const client of Array.from(sseClients)) {
+      sseClients.delete(client);
+      try { client.end(); } catch {}
+    }
+  } catch {}
+  process.exit(0);
+}
 process.on('SIGINT', shutdown); process.on('SIGTERM', shutdown);
