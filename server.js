@@ -16,7 +16,7 @@ const GUILD_ID = process.env.GUILD_ID || 'ID_GUILD';
 const VOICE_CHANNEL_ID = process.env.CHANNEL_ID || 'ID_VOICE_CHANNEL';
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // Broadcast stream that servira les clients HTTP
 const mp3Broadcast = new PassThrough();
