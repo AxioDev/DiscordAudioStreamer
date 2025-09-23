@@ -2,7 +2,7 @@
 const fs = require('fs');
 const { PassThrough } = require('stream');
 const express = require('express');
-const { Client } = require('discord.js-selfbot-v13');
+const { Client, GatewayIntentBits } = require('discord.js');
 const {
   joinVoiceChannel,
   EndBehaviorType,
@@ -10,10 +10,11 @@ const {
 } = require('@discordjs/voice');
 const prism = require('prism-media');
 const { spawn } = require('child_process');
+require('dotenv').config();
 
 const BOT_TOKEN = process.env.BOT_TOKEN || 'TON_TOKEN_ICI'; // mieux via env
 const GUILD_ID = process.env.GUILD_ID || 'ID_GUILD';
-const VOICE_CHANNEL_ID = process.env.CHANNEL_ID || 'ID_VOICE_CHANNEL';
+const VOICE_CHANNEL_ID = process.env.VOICE_CHANNEL_ID || 'ID_VOICE_CHANNEL';
 
 const app = express();
 const PORT = 3000;
@@ -73,7 +74,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => console.log(`HTTP server sur http://localhost:${PORT}`));
 
 // --- Discord bot ---
-const client = new Client({ });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
 
 client.once('ready', () => {
   console.log('Bot connecté:', client.user.tag);
