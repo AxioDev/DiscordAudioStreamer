@@ -23,4 +23,4 @@ RUN npm install
 COPY . .
 
 # Étape 7 : Commande de lancement
-CMD ["node", "index.js"]
+CMD ["node", "server.js"]
