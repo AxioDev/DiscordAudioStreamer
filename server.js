@@ -17,7 +17,7 @@ const {
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
-const VOICE_CHANNEL_ID = process.env.VOICE_CHANNEL_ID;
+const VOICE_CHANNEL_ID = process.env.CHANNEL_ID;
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const FFMPEG_PATH = process.env.FFMPEG_PATH || 'ffmpeg';
 const MP3_BITRATE = process.env.MP3_BITRATE || '96k';
