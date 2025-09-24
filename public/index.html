@@ -43,6 +43,13 @@
         transform: translateY(24px) scale(0.97);
         animation: speaker-fade-in 1.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         will-change: transform, opacity;
+        transition: opacity 0.4s ease, transform 0.4s ease;
+      }
+
+      .speaker-card[data-state='leaving'] {
+        opacity: 0;
+        transform: translateY(12px) scale(0.985);
+        pointer-events: none;
       }
 
       @keyframes speaker-fade-in {
@@ -111,6 +118,9 @@
 
       const html = htm.bind(h);
 
+      const MIN_SPEAKER_DISPLAY_MS = 3000;
+      const SPEAKER_LEAVE_ANIMATION_MS = 400;
+
       const STATUS_LABELS = {
         connecting: {
           label: 'Connexion…',
@@ -171,9 +181,13 @@
 
       const SpeakerCard = ({ speaker, now }) => {
         const since = speaker.startedAt ? formatDuration(now - speaker.startedAt) : '';
+        const cardState = speaker.state ?? 'active';
+        const isActive = cardState !== 'leaving';
+        const badgeClasses = isActive ? 'bg-emerald-500 text-emerald-900' : 'bg-slate-200/90 text-slate-900';
         return html`
           <article
             class="speaker-card group relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-indigo-500/20 via-slate-950 to-fuchsia-500/20 p-5 shadow-xl shadow-indigo-900/30 transition duration-300 hover:border-fuchsia-400/60 hover:shadow-glow"
+            data-state=${cardState}
           >
             <div class="absolute -right-14 -top-14 h-32 w-32 rounded-full bg-fuchsia-500/40 blur-3xl transition-opacity duration-300 group-hover:opacity-100"></div>
             <div class="relative flex items-center gap-5">
@@ -185,12 +199,22 @@
                   class="relative h-20 w-20 rounded-full border-2 border-white/70 object-cover shadow-lg shadow-fuchsia-900/30"
                   loading="lazy"
                 />
-                <div class="absolute -bottom-1 -right-1 flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wider text-emerald-900 shadow-lg">
+                <div
+                  class=${`absolute -bottom-1 -right-1 flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wider shadow-lg ${badgeClasses}`}
+                >
                   <span class="relative flex h-2 w-2">
-                    <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-200 opacity-75"></span>
-                    <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-800"></span>
+                    <span
+                      class=${`absolute inline-flex h-full w-full rounded-full ${
+                        isActive ? 'animate-ping bg-emerald-200 opacity-75' : 'bg-slate-400/70 opacity-0'
+                      }`}
+                    ></span>
+                    <span
+                      class=${`relative inline-flex h-2 w-2 rounded-full ${
+                        isActive ? 'bg-emerald-800' : 'bg-slate-900/70'
+                      }`}
+                    ></span>
                   </span>
-                  En live
+                  ${isActive ? 'En live' : 'Dernier intervenant'}
                 </div>
               </div>
               <div class="relative flex flex-1 flex-col gap-2">
@@ -635,8 +659,14 @@
         `;
       };
 
-      const HomePage = ({ status, lastUpdateLabel, streamInfo, audioKey, speakers, now }) => html`
-        <${Fragment}>
+      const HomePage = ({ status, lastUpdateLabel, streamInfo, audioKey, speakers, now }) => {
+        const activeSpeakersCount = speakers.reduce(
+          (count, speaker) => count + (speaker?.state === 'leaving' ? 0 : 1),
+          0,
+        );
+
+        return html`
+          <${Fragment}>
           <section
             class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/50 backdrop-blur-xl"
           >
@@ -697,13 +727,14 @@
               </div>
               <div class="flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-4 py-1.5 text-xs uppercase tracking-[0.3em] text-indigo-200">
                 <span class="h-2 w-2 rounded-full bg-indigo-300"></span>
-                ${speakers.length} en direct
+                ${activeSpeakersCount} en direct
               </div>
             </div>
             <${SpeakersSection} speakers=${speakers} now=${now} />
           </section>
-        </${Fragment}>
-      `;
+          </${Fragment}>
+        `;
+      };
 
       const AboutPage = () => html`
         <${Fragment}>
@@ -783,16 +814,94 @@
 
       const App = () => {
         const [status, setStatus] = useState('connecting');
-        const [speakersMap, setSpeakersMap] = useState(() => new Map());
+        const [speakerEntries, setSpeakerEntries] = useState(() => new Map());
         const [streamInfo, setStreamInfo] = useState({ path: '/stream', format: 'opus', mimeType: 'audio/ogg' });
         const [lastUpdate, setLastUpdate] = useState(null);
         const [now, setNow] = useState(Date.now());
         const [menuOpen, setMenuOpen] = useState(false);
         const [route, setRoute] = useState(() => getRouteFromHash());
+        const removalTimersRef = useRef(new Map());
+
+        const clearRemovalTimers = (speakerId) => {
+          const timers = removalTimersRef.current.get(speakerId);
+          if (!timers) return;
+          if (timers.delayTimeout) {
+            clearTimeout(timers.delayTimeout);
+          }
+          if (timers.removalTimeout) {
+            clearTimeout(timers.removalTimeout);
+          }
+          removalTimersRef.current.delete(speakerId);
+        };
+
+        const scheduleSpeakerRemoval = (speakerId, entry, waitOverride) => {
+          if (!entry) return;
+          const elapsed = Date.now() - (entry.firstSeen ?? Date.now());
+          const waitMs = Math.max(0, waitOverride ?? MIN_SPEAKER_DISPLAY_MS - elapsed);
+
+          const startLeaving = () => {
+            setSpeakerEntries((prev) => {
+              const current = prev.get(speakerId);
+              if (!current || current.state === 'leaving') {
+                return prev;
+              }
+              const next = new Map(prev);
+              next.set(speakerId, { ...current, state: 'leaving' });
+              return next;
+            });
+
+            const removalTimeout = setTimeout(() => {
+              setSpeakerEntries((prev) => {
+                const current = prev.get(speakerId);
+                if (!current || current.state !== 'leaving') {
+                  return prev;
+                }
+                const next = new Map(prev);
+                next.delete(speakerId);
+                return next;
+              });
+              clearRemovalTimers(speakerId);
+            }, SPEAKER_LEAVE_ANIMATION_MS);
+
+            removalTimersRef.current.set(speakerId, { removalTimeout });
+          };
+
+          clearRemovalTimers(speakerId);
+
+          if (waitMs > 0) {
+            const delayTimeout = setTimeout(() => {
+              const existing = removalTimersRef.current.get(speakerId) || {};
+              delete existing.delayTimeout;
+              removalTimersRef.current.set(speakerId, existing);
+              startLeaving();
+            }, waitMs);
+            removalTimersRef.current.set(speakerId, { delayTimeout });
+          } else {
+            const delayTimeout = setTimeout(() => {
+              const existing = removalTimersRef.current.get(speakerId) || {};
+              delete existing.delayTimeout;
+              removalTimersRef.current.set(speakerId, existing);
+              startLeaving();
+            }, 0);
+            removalTimersRef.current.set(speakerId, { delayTimeout });
+          }
+        };
 
         useEffect(() => {
           const id = setInterval(() => setNow(Date.now()), 1000);
           return () => clearInterval(id);
+        }, []);
+
+        useEffect(() => () => {
+          removalTimersRef.current.forEach((timers) => {
+            if (timers.delayTimeout) {
+              clearTimeout(timers.delayTimeout);
+            }
+            if (timers.removalTimeout) {
+              clearTimeout(timers.removalTimeout);
+            }
+          });
+          removalTimersRef.current.clear();
         }, []);
 
         useEffect(() => {
@@ -824,12 +933,34 @@
 
           const applyState = (payload) => {
             if (!payload || !Array.isArray(payload.speakers)) return;
-            setSpeakersMap(() => {
-              const map = new Map();
-              for (const speaker of payload.speakers) {
-                map.set(speaker.id, speaker);
+            const incoming = new Map();
+            for (const speaker of payload.speakers) {
+              if (speaker?.id) {
+                incoming.set(speaker.id, speaker);
               }
-              return map;
+            }
+            const nowTs = Date.now();
+            setSpeakerEntries((prev) => {
+              const next = new Map(prev);
+              const seen = new Set();
+
+              incoming.forEach((speaker, id) => {
+                seen.add(id);
+                const existing = next.get(id);
+                const firstSeen = existing && existing.state !== 'leaving' ? existing.firstSeen : nowTs;
+                clearRemovalTimers(id);
+                next.set(id, { data: speaker, firstSeen, state: 'active' });
+              });
+
+              next.forEach((entry, id) => {
+                if (!seen.has(id)) {
+                  if (entry.state !== 'leaving' && !removalTimersRef.current.has(id)) {
+                    scheduleSpeakerRemoval(id, entry);
+                  }
+                }
+              });
+
+              return next;
             });
             setLastUpdate(Date.now());
           };
@@ -847,17 +978,22 @@
             try {
               const data = JSON.parse(event.data);
               if (data?.type === 'start' && data.user) {
-                setSpeakersMap((prev) => {
+                setSpeakerEntries((prev) => {
                   const next = new Map(prev);
-                  next.set(data.user.id, data.user);
+                  const existing = next.get(data.user.id);
+                  const firstSeen = existing && existing.state !== 'leaving' ? existing.firstSeen : Date.now();
+                  clearRemovalTimers(data.user.id);
+                  next.set(data.user.id, { data: data.user, firstSeen, state: 'active' });
                   return next;
                 });
               } else if (data?.type === 'end' && data.userId) {
-                setSpeakersMap((prev) => {
-                  if (!prev.has(data.userId)) return prev;
-                  const next = new Map(prev);
-                  next.delete(data.userId);
-                  return next;
+                setSpeakerEntries((prev) => {
+                  const entry = prev.get(data.userId);
+                  if (!entry || entry.state === 'leaving' || removalTimersRef.current.has(data.userId)) {
+                    return prev;
+                  }
+                  scheduleSpeakerRemoval(data.userId, entry);
+                  return prev;
                 });
               }
               setLastUpdate(Date.now());
@@ -883,8 +1019,11 @@
         }, []);
 
         const speakers = useMemo(
-          () => Array.from(speakersMap.values()).sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0)),
-          [speakersMap]
+          () =>
+            Array.from(speakerEntries.values())
+              .map((entry) => ({ ...entry.data, state: entry.state }))
+              .sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0)),
+          [speakerEntries]
         );
 
         const lastUpdateLabel = lastUpdate ? formatRelative(lastUpdate, now) : 'Synchronisation…';
