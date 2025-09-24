@@ -3,11 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Discord Audio Stream</title>
+    <title>Libre Antenne</title>
     <meta
       name="description"
-      content="Écoute le salon vocal Discord en direct avec une interface Preact + Tailwind et vois qui parle en temps réel."
+      content="Le chaos en direct : un refuge sans filtre pour drogués, marginaux, alcooliques, gamers nocturnes et esprits libres."
     />
+    <meta name="theme-color" content="#020617" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="/site.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -32,6 +36,24 @@
     <style>
       body {
         font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+
+      .speaker-card {
+        opacity: 0;
+        transform: translateY(16px) scale(0.98);
+        animation: speaker-fade-in 0.45s ease-out forwards;
+      }
+
+      @keyframes speaker-fade-in {
+        from {
+          opacity: 0;
+          transform: translateY(16px) scale(0.98);
+        }
+
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
       }
     </style>
   </head>
@@ -107,7 +129,7 @@
         const since = speaker.startedAt ? formatDuration(now - speaker.startedAt) : '';
         return html`
           <article
-            class="group relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-indigo-500/20 via-slate-950 to-fuchsia-500/20 p-5 shadow-xl shadow-indigo-900/30 transition duration-300 hover:border-fuchsia-400/60 hover:shadow-glow"
+            class="speaker-card group relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-indigo-500/20 via-slate-950 to-fuchsia-500/20 p-5 shadow-xl shadow-indigo-900/30 transition duration-300 hover:border-fuchsia-400/60 hover:shadow-glow"
           >
             <div class="absolute -right-14 -top-14 h-32 w-32 rounded-full bg-fuchsia-500/40 blur-3xl transition-opacity duration-300 group-hover:opacity-100"></div>
             <div class="relative flex items-center gap-5">
@@ -296,18 +318,36 @@
               <header class="px-6 pt-10 sm:px-10">
                 <div class="mx-auto flex max-w-5xl flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
                   <div class="space-y-4">
-                    <p class="text-xs uppercase tracking-[0.35em] text-slate-400">Discord Audio Stream</p>
+                    <p class="text-xs uppercase tracking-[0.35em] text-slate-400">Libre Antenne</p>
                     <h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">
-                      Salon vocal en direct ultra stylé
+                      Salon libre et sauvage en direct
                     </h1>
                     <p class="max-w-xl text-base text-slate-300">
-                      Lance le flux audio du salon Discord et surveille l’activité du vocal. Les avatars et pseudos s’allument en
-                      temps réel lorsque quelqu’un prend la parole.
+                      Branche-toi sur la libre antenne nocturne et observe la scène se déchaîner. Ici, les voix libres prennent
+                      d’assaut l’antenne sans filtre ni jugement.
                     </p>
+                    <a
+                      class="inline-flex items-center gap-2 rounded-full border border-fuchsia-400/60 bg-fuchsia-500/20 px-5 py-2 text-sm font-semibold text-fuchsia-100 shadow-lg shadow-fuchsia-900/40 transition hover:bg-fuchsia-500/30 hover:text-white"
+                      href="https://discord.gg/btjTZ5C"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Rejoindre le Discord
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke-width="1.5"
+                        stroke="currentColor"
+                        class="h-4 w-4"
+                      >
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 12h13.5m0 0-5.25-5.25M18.75 12l-5.25 5.25" />
+                      </svg>
+                    </a>
                   </div>
                   <div class="flex flex-col items-end gap-3 text-right">
                     <${StatusBadge} status=${status} />
-                    <p class="text-xs text-slate-400">Dernière mise à jour&nbsp;: ${lastUpdateLabel}</p>
+                    <p class="text-xs text-slate-400">Dernière mise à jour : ${lastUpdateLabel}</p>
                   </div>
                 </div>
               </header>
@@ -320,14 +360,14 @@
                       <div class="space-y-2">
                         <h2 class="text-2xl font-semibold text-white">Flux audio en direct</h2>
                         <p class="text-sm text-slate-300">
-                          Clique sur lecture si le flux ne démarre pas automatiquement. Volume conseillé&nbsp;: casque 💜
+                          Clique sur lecture si le flux ne démarre pas automatiquement. Volume conseillé : casque 💜
                         </p>
                       </div>
                       <div class="flex flex-col items-start gap-2 text-sm text-slate-300 lg:items-end">
                         <span class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-4 py-1.5 text-xs uppercase tracking-[0.3em] text-fuchsia-200">
                           ${streamInfo.format === 'mp3' ? 'MP3' : 'OPUS'}
                         </span>
-                        <span class="text-xs text-slate-400">Endpoint&nbsp;: ${streamInfo.path}</span>
+                        <span class="text-xs text-slate-400">Endpoint : ${streamInfo.path}</span>
                       </div>
                     </div>
                     <div class="relative mt-6 overflow-hidden rounded-2xl border border-white/10 bg-black/50 p-4 shadow-2xl shadow-slate-950/60">
@@ -357,7 +397,7 @@
               </main>
 
               <footer class="px-6 pb-10 text-center text-xs text-slate-500 sm:px-10">
-                Propulsé par <span class="font-semibold text-slate-300">DiscordAudioStreamer</span>
+                Libre Antenne · Tous droits réservés
               </footer>
             </div>
           </div>

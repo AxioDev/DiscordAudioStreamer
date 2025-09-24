@@ -1,0 +1,9 @@
+{
+  "name": "Libre Antenne",
+  "short_name": "LibreAntenne",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "description": "Le chaos en direct : un refuge sans filtre pour drogués, marginaux, alcooliques, gamers nocturnes et esprits libres."
+}
