@@ -13,6 +13,7 @@ class DiscordAudioBridge {
     this.mixer = mixer;
     this.speakerTracker = speakerTracker;
     this.voiceConnection = null;
+    this.activeSubscriptions = new Map();
 
     this.client = new Client({
       intents: [
@@ -131,11 +132,16 @@ class DiscordAudioBridge {
       console.log('Voice state', oldState.status, '->', newState.status);
       if (newState.status === VoiceConnectionStatus.Destroyed) {
         this.voiceConnection = null;
+        this.cleanupAllSubscriptions();
       }
     });
   }
 
   subscribeToUserAudio(userId, receiver) {
+    if (this.activeSubscriptions.has(userId)) {
+      return;
+    }
+
     try {
       const opusStream = receiver.subscribe(userId, {
         end: { behavior: EndBehaviorType.AfterSilence, duration: 1000 },
@@ -147,9 +153,30 @@ class DiscordAudioBridge {
       });
 
       opusStream.pipe(decoder);
-      decoder.on('data', (chunk) => this.mixer.pushToSource(userId, chunk));
+      const onData = (chunk) => this.mixer.pushToSource(userId, chunk);
+      decoder.on('data', onData);
 
+      const subscription = { opusStream, decoder, cleanup: null };
+      this.activeSubscriptions.set(userId, subscription);
+
+      let cleanedUp = false;
+      let onOpusError;
+      let onDecoderError;
       const cleanup = () => {
+        if (cleanedUp) {
+          return;
+        }
+        cleanedUp = true;
+
+        this.activeSubscriptions.delete(userId);
+        decoder.off('data', onData);
+        if (onOpusError) {
+          opusStream.off('error', onOpusError);
+        }
+        if (onDecoderError) {
+          decoder.off('error', onDecoderError);
+        }
+
         try {
           opusStream.destroy();
         } catch (error) {
@@ -165,15 +192,20 @@ class DiscordAudioBridge {
         console.log('Cleaned resources for user', userId);
       };
 
-      opusStream.on('end', cleanup);
-      opusStream.on('error', (error) => {
+      onOpusError = (error) => {
         console.warn('Opus stream error', error);
         cleanup();
-      });
-      decoder.on('error', (error) => {
+      };
+      onDecoderError = (error) => {
         console.warn('Decoder error', error);
         cleanup();
-      });
+      };
+
+      opusStream.once('end', cleanup);
+      opusStream.on('error', onOpusError);
+      decoder.on('error', onDecoderError);
+
+      subscription.cleanup = cleanup;
     } catch (error) {
       console.error('Failed to subscribe to user audio', error);
     }
@@ -184,6 +216,17 @@ class DiscordAudioBridge {
       this.voiceConnection.destroy();
       this.voiceConnection = null;
     }
+    this.cleanupAllSubscriptions();
+  }
+
+  cleanupAllSubscriptions() {
+    const subscriptions = Array.from(this.activeSubscriptions.values());
+    for (const subscription of subscriptions) {
+      if (subscription && typeof subscription.cleanup === 'function') {
+        subscription.cleanup();
+      }
+    }
+    this.activeSubscriptions.clear();
   }
 
   async login() {
