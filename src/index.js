@@ -25,6 +25,20 @@ const transcoder = new FfmpegTranscoder({
 });
 transcoder.start(mixer);
 
+const statsLogInterval = setInterval(() => {
+  const statsSnapshot = {
+    ...mixer.stats,
+    sources: mixer.sources.size,
+    ffmpegPid: transcoder.getCurrentProcessPid(),
+  };
+
+  console.log('MIX STATS:', statsSnapshot);
+}, 5000);
+
+if (typeof statsLogInterval.unref === 'function') {
+  statsLogInterval.unref();
+}
+
 const sseService = new SseService({
   streamInfoProvider: () => ({
     format: config.outputFormat,
@@ -57,6 +71,11 @@ appServer.start();
 
 function shutdown() {
   console.log('Shutting down...');
+  try {
+    clearInterval(statsLogInterval);
+  } catch (error) {
+    console.warn('Error while clearing stats interval', error);
+  }
   try {
     mixer.stop();
   } catch (error) {

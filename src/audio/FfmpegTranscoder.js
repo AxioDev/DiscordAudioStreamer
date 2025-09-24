@@ -101,9 +101,11 @@ class FfmpegTranscoder extends EventEmitter {
       String(this.channels),
       '-i',
       'pipe:0',
+      '-fflags',
+      'nobuffer',
       '-vn',
-      '-filter:a',
-      'aresample=async=1:first_pts=0',
+      '-threads',
+      '0',
       '-loglevel',
       'info',
     ];
