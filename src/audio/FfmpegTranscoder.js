@@ -2,6 +2,53 @@ const { EventEmitter } = require('events');
 const { spawn } = require('child_process');
 const { PassThrough } = require('stream');
 
+function calculateOpusHeaderLength(buffer) {
+  let offset = 0;
+
+  while (offset + 27 <= buffer.length) {
+    if (
+      buffer[offset] !== 0x4f ||
+      buffer[offset + 1] !== 0x67 ||
+      buffer[offset + 2] !== 0x67 ||
+      buffer[offset + 3] !== 0x53
+    ) {
+      break;
+    }
+
+    const segmentCount = buffer.readUInt8(offset + 26);
+    const headerSize = 27 + segmentCount;
+    if (offset + headerSize > buffer.length) {
+      return null;
+    }
+
+    let dataLength = 0;
+    for (let i = 0; i < segmentCount; i += 1) {
+      dataLength += buffer.readUInt8(offset + 27 + i);
+    }
+
+    const pageSize = headerSize + dataLength;
+    if (offset + pageSize > buffer.length) {
+      return null;
+    }
+
+    const pageDataStart = offset + headerSize;
+    const pageDataEnd = pageDataStart + dataLength;
+    const tagIndex = buffer.indexOf('OpusTags', pageDataStart, 'ascii');
+
+    if (tagIndex !== -1 && tagIndex < pageDataEnd) {
+      return offset + pageSize;
+    }
+
+    offset += pageSize;
+
+    if (offset > buffer.length) {
+      break;
+    }
+  }
+
+  return null;
+}
+
 class FfmpegTranscoder extends EventEmitter {
   constructor({
     ffmpegPath,
@@ -11,6 +58,7 @@ class FfmpegTranscoder extends EventEmitter {
     sampleRate,
     channels,
     headerBufferMaxBytes,
+    mixFrameMs,
   }) {
     super();
     this.ffmpegPath = ffmpegPath;
@@ -20,6 +68,7 @@ class FfmpegTranscoder extends EventEmitter {
     this.sampleRate = sampleRate;
     this.channels = channels;
     this.headerBufferMaxBytes = headerBufferMaxBytes;
+    this.mixFrameMs = mixFrameMs || 20;
 
     this.broadcastStream = new PassThrough();
     this.headerBuffer = Buffer.alloc(0);
@@ -27,6 +76,7 @@ class FfmpegTranscoder extends EventEmitter {
     this.currentProcess = null;
     this.restartTimer = null;
     this.restarting = false;
+    this.captureHeader = false;
   }
 
   start(mixer) {
@@ -51,6 +101,9 @@ class FfmpegTranscoder extends EventEmitter {
       String(this.channels),
       '-i',
       'pipe:0',
+      '-vn',
+      '-filter:a',
+      'aresample=async=1:first_pts=0',
       '-loglevel',
       'info',
     ];
@@ -59,8 +112,12 @@ class FfmpegTranscoder extends EventEmitter {
       args.push(
         '-c:a',
         'libopus',
+        '-application',
+        'voip',
         '-b:a',
         String(this.opusBitrate),
+        '-frame_duration',
+        String(this.mixFrameMs),
         '-f',
         'ogg',
         'pipe:1',
@@ -83,6 +140,7 @@ class FfmpegTranscoder extends EventEmitter {
     this.currentProcess = ffmpeg;
     this.restarting = false;
     this.headerBuffer = Buffer.alloc(0);
+    this.captureHeader = this.outputFormat === 'opus';
     if (this.mixer) {
       this.mixer.setOutput(ffmpeg.stdin);
     }
@@ -96,14 +154,42 @@ class FfmpegTranscoder extends EventEmitter {
   }
 
   handleStdout(chunk) {
-    if (this.headerBuffer.length < this.headerBufferMaxBytes) {
-      const remaining = this.headerBufferMaxBytes - this.headerBuffer.length;
-      const slice = chunk.slice(0, remaining);
-      this.headerBuffer = Buffer.concat([this.headerBuffer, slice]);
+    if (this.captureHeader) {
+      this.captureHeaderChunk(chunk);
     }
 
     this.broadcastStream.write(chunk);
     this.emit('data', chunk);
+  }
+
+  captureHeaderChunk(chunk) {
+    if (!chunk || chunk.length === 0) {
+      return;
+    }
+
+    const combined = Buffer.concat([this.headerBuffer, chunk]);
+
+    if (this.outputFormat === 'opus') {
+      const headerLength = calculateOpusHeaderLength(combined);
+
+      if (headerLength !== null) {
+        this.headerBuffer = combined.slice(0, Math.min(headerLength, this.headerBufferMaxBytes));
+        this.captureHeader = false;
+        return;
+      }
+
+      if (combined.length >= this.headerBufferMaxBytes) {
+        this.headerBuffer = combined.slice(0, this.headerBufferMaxBytes);
+        this.captureHeader = false;
+        return;
+      }
+
+      this.headerBuffer = combined;
+      return;
+    }
+
+    this.headerBuffer = Buffer.alloc(0);
+    this.captureHeader = false;
   }
 
   handleExit(code, signal) {

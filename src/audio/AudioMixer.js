@@ -42,44 +42,44 @@ class AudioMixer {
   readFrameForSource(id) {
     const entry = this.sources.get(id);
     if (!entry) {
-      return this.nullFrame;
+      return null;
     }
 
     if (entry.buffer.length >= this.frameBytes) {
-      const frame = entry.buffer.slice(0, this.frameBytes);
-      entry.buffer = entry.buffer.slice(this.frameBytes);
+      const frame = entry.buffer.subarray(0, this.frameBytes);
+      entry.buffer = entry.buffer.subarray(this.frameBytes);
       return frame;
     }
 
-    return this.nullFrame;
+    return null;
   }
 
   mixFrame() {
-    const sourceIds = Array.from(this.sources.keys());
-    const sourceCount = sourceIds.length;
+    const activeFrames = [];
+    for (const id of this.sources.keys()) {
+      const frameBuffer = this.readFrameForSource(id);
+      if (frameBuffer) {
+        activeFrames.push(new Int16Array(frameBuffer.buffer, frameBuffer.byteOffset, this.sampleCount));
+      }
+    }
 
-    if (sourceCount === 0) {
+    if (activeFrames.length === 0) {
       this.writeToOutput(this.nullFrame);
       return;
     }
 
     this.mixedFloat.fill(0);
 
-    for (const id of sourceIds) {
-      const frameBuffer = this.readFrameForSource(id);
+    for (const frame of activeFrames) {
       for (let i = 0; i < this.sampleCount; i += 1) {
-        const sample = frameBuffer.readInt16LE(i * this.bytesPerSample);
-        this.mixedFloat[i] += sample / 32768.0;
+        this.mixedFloat[i] += frame[i];
       }
     }
 
-    for (let i = 0; i < this.sampleCount; i += 1) {
-      this.mixedFloat[i] /= sourceCount;
-    }
-
+    const normalization = 1 / (activeFrames.length * 32768.0);
     const outputBuffer = Buffer.allocUnsafe(this.frameBytes);
     for (let i = 0; i < this.sampleCount; i += 1) {
-      const value = Math.max(-1, Math.min(1, this.mixedFloat[i]));
+      const value = Math.max(-1, Math.min(1, this.mixedFloat[i] * normalization));
       outputBuffer.writeInt16LE(Math.round(value * 32767), i * this.bytesPerSample);
     }
 
