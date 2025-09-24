@@ -14,6 +14,8 @@ class DiscordAudioBridge {
     this.speakerTracker = speakerTracker;
     this.voiceConnection = null;
     this.activeSubscriptions = new Map();
+    this.currentGuildId = null;
+    this.currentVoiceChannelId = null;
 
     this.client = new Client({
       intents: [
@@ -45,6 +47,13 @@ class DiscordAudioBridge {
     });
 
     this.client.on('messageCreate', async (message) => this.handleMessage(message));
+    this.client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+      try {
+        await this.handleVoiceStateUpdate(oldState, newState);
+      } catch (error) {
+        console.error('Voice state update handling failed', error);
+      }
+    });
   }
 
   async handleMessage(message) {
@@ -106,7 +115,16 @@ class DiscordAudioBridge {
 
     await entersState(connection, VoiceConnectionStatus.Ready, 15000);
     this.voiceConnection = connection;
+    this.currentGuildId = guildId;
+    this.currentVoiceChannelId = channelId;
     console.log('Voice connection ready');
+
+    try {
+      this.speakerTracker.clear();
+      await this.syncInitialChannelMembers(channel);
+    } catch (error) {
+      console.warn('Failed to synchronise initial channel members', error);
+    }
 
     this.setupReceiver(connection);
     return connection;
@@ -216,7 +234,10 @@ class DiscordAudioBridge {
       this.voiceConnection.destroy();
       this.voiceConnection = null;
     }
+    this.currentGuildId = null;
+    this.currentVoiceChannelId = null;
     this.cleanupAllSubscriptions();
+    this.speakerTracker.clear();
   }
 
   cleanupAllSubscriptions() {
@@ -245,6 +266,77 @@ class DiscordAudioBridge {
     } catch (error) {
       console.warn('Error while destroying Discord client', error);
     }
+  }
+
+  async handleVoiceStateUpdate(oldState, newState) {
+    const userId = newState?.id || oldState?.id;
+    if (!userId) {
+      return;
+    }
+
+    const relevantGuildId = this.currentGuildId;
+    if (!relevantGuildId) {
+      return;
+    }
+
+    const isRelevantOld = oldState?.guild?.id === relevantGuildId;
+    const isRelevantNew = newState?.guild?.id === relevantGuildId;
+    if (!isRelevantOld && !isRelevantNew) {
+      return;
+    }
+
+    const channelId = newState?.channelId;
+    if (channelId === this.currentVoiceChannelId) {
+      const serialized = this.serializeVoiceState(newState);
+      await this.speakerTracker.handleVoiceStateUpdate(userId, serialized);
+      return;
+    }
+
+    if (oldState?.channelId === this.currentVoiceChannelId && channelId !== this.currentVoiceChannelId) {
+      await this.speakerTracker.handleVoiceStateUpdate(userId, null);
+    }
+  }
+
+  async syncInitialChannelMembers(channel) {
+    if (!channel || !channel.isVoiceBased()) {
+      return;
+    }
+
+    const members = channel.members;
+    if (!members || members.size === 0) {
+      return;
+    }
+
+    const promises = [];
+    for (const member of members.values()) {
+      if (!member || !member.voice) {
+        continue;
+      }
+      const serialized = this.serializeVoiceState(member.voice);
+      promises.push(this.speakerTracker.handleVoiceStateUpdate(member.id, serialized));
+    }
+    await Promise.allSettled(promises);
+  }
+
+  serializeVoiceState(voiceState) {
+    if (!voiceState) {
+      return null;
+    }
+
+    const member = voiceState.member;
+    return {
+      channelId: voiceState.channelId,
+      guildId: voiceState.guild?.id || member?.guild?.id || null,
+      deaf: voiceState.deaf,
+      mute: voiceState.mute,
+      selfDeaf: voiceState.selfDeaf,
+      selfMute: voiceState.selfMute,
+      suppress: voiceState.suppress,
+      streaming: voiceState.streaming,
+      video: voiceState.selfVideo,
+      displayName: member?.displayName || member?.user?.globalName || member?.user?.username,
+      username: member?.user?.username,
+    };
   }
 }
 

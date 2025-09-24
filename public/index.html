@@ -46,10 +46,12 @@
         transition: opacity 0.4s ease, transform 0.4s ease;
       }
 
-      .speaker-card[data-state='leaving'] {
-        opacity: 0;
-        transform: translateY(12px) scale(0.985);
-        pointer-events: none;
+      .speaker-card[data-state='idle'] {
+        opacity: 0.92;
+      }
+
+      .speaker-card[data-state='speaking'] {
+        opacity: 1;
       }
 
       @keyframes speaker-fade-in {
@@ -118,9 +120,6 @@
 
       const html = htm.bind(h);
 
-      const MIN_SPEAKER_DISPLAY_MS = 3000;
-      const SPEAKER_LEAVE_ANIMATION_MS = 400;
-
       const STATUS_LABELS = {
         connecting: {
           label: 'Connexion…',
@@ -180,13 +179,130 @@
       };
 
       const SpeakerCard = ({ speaker, now }) => {
-        const since = speaker.startedAt ? formatDuration(now - speaker.startedAt) : '';
-        const cardState = speaker.state ?? 'active';
-        const isActive = cardState !== 'leaving';
-        const badgeClasses = isActive ? 'bg-emerald-500 text-emerald-900' : 'bg-slate-200/90 text-slate-900';
+        const voiceState = speaker.voiceState ?? {};
+        const isSpeaking = Boolean(speaker.isSpeaking);
+        const duration = isSpeaking && speaker.startedAt ? formatDuration(now - speaker.startedAt) : null;
+        const lastSpoke = !isSpeaking && speaker.lastSpokeAt ? formatRelative(speaker.lastSpokeAt, now) : null;
+
+        const cardState = isSpeaking ? 'speaking' : 'idle';
+        const cardAccentClass = isSpeaking
+          ? 'border-fuchsia-400/60 bg-gradient-to-br from-indigo-500/20 via-slate-950 to-fuchsia-500/15'
+          : 'border-white/10 bg-slate-950/75';
+
+        const badgeConfig = (() => {
+          if (isSpeaking) {
+            return { text: 'En live', classes: 'bg-emerald-500 text-emerald-900', ping: true, dot: 'bg-emerald-800' };
+          }
+          if (voiceState.selfMute || voiceState.mute) {
+            return { text: 'Micro coupé', classes: 'bg-slate-200/90 text-slate-900', ping: false, dot: 'bg-slate-900/70' };
+          }
+          if (voiceState.selfDeaf || voiceState.deaf) {
+            return { text: 'Casque coupé', classes: 'bg-slate-200/90 text-slate-900', ping: false, dot: 'bg-slate-900/70' };
+          }
+          return { text: 'À l’écoute', classes: 'bg-slate-200/90 text-slate-900', ping: false, dot: 'bg-slate-900/70' };
+        })();
+
+        const secondaryLabel = (() => {
+          if (isSpeaking) {
+            return duration ? `En direct depuis ${duration}` : 'En direct';
+          }
+          if (lastSpoke) {
+            return `Dernière intervention ${lastSpoke}`;
+          }
+          return 'Pas encore intervenu';
+        })();
+
+        const voiceBadges = [];
+        if (voiceState.selfMute || voiceState.mute) {
+          voiceBadges.push({
+            key: 'mute',
+            label: 'Micro coupé',
+            icon: html`<svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="h-3.5 w-3.5"
+            >
+              <path d="M12 18.75a3.75 3.75 0 0 0 3.75-3.75v-1.086" />
+              <path d="M8.25 8.25V12a3.75 3.75 0 0 0 3.75 3.75" />
+              <path d="M12 5.25c-.621 0-1.214.128-1.75.358" />
+              <path d="m3 3 18 18" />
+              <path d="M15.75 8.25V12c0 .66-.126 1.291-.356 1.867" />
+              <path d="M9.53 9.53A2.25 2.25 0 0 0 12 11.25v-4.5" />
+              <path d="M6.75 11.25a5.25 5.25 0 0 0 10.5 0v-3" />
+              <path d="M12 21v-2.25" />
+            </svg>`
+          });
+        }
+        if (voiceState.selfDeaf || voiceState.deaf) {
+          voiceBadges.push({
+            key: 'deaf',
+            label: 'Casque coupé',
+            icon: html`<svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="h-3.5 w-3.5"
+            >
+              <path d="M4.5 12a7.5 7.5 0 0 1 15 0" />
+              <path d="M19.5 12V18a2.25 2.25 0 0 1-2.25 2.25H15" />
+              <path d="M4.5 12v6A2.25 2.25 0 0 0 6.75 20.25H9" />
+              <path d="M9 16.5v-3.75" />
+              <path d="M15 16.5v-1.5" />
+              <path d="m3 3 18 18" />
+            </svg>`
+          });
+        }
+        if (voiceState.streaming) {
+          voiceBadges.push({
+            key: 'stream',
+            label: 'Live partage',
+            icon: html`<svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="h-3.5 w-3.5"
+            >
+              <path d="M5.25 5.25h13.5v13.5H5.25z" />
+              <path d="m9.75 9.75 4.5 2.25-4.5 2.25z" />
+            </svg>`
+          });
+        }
+        if (voiceState.video) {
+          voiceBadges.push({
+            key: 'video',
+            label: 'Caméra',
+            icon: html`<svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="h-3.5 w-3.5"
+            >
+              <path d="M3.75 7.5h10.5a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1-1.5 1.5H3.75A1.5 1.5 0 0 1 2.25 15V9a1.5 1.5 0 0 1 1.5-1.5Z" />
+              <path d="m15.75 10.5 3.75-2.25v7.5L15.75 13.5" />
+            </svg>`
+          });
+        }
+
         return html`
           <article
-            class="speaker-card group relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-indigo-500/20 via-slate-950 to-fuchsia-500/20 p-5 shadow-xl shadow-indigo-900/30 transition duration-300 hover:border-fuchsia-400/60 hover:shadow-glow"
+            class=${`speaker-card group relative overflow-hidden rounded-3xl border ${cardAccentClass} p-5 shadow-xl shadow-indigo-900/30 transition duration-300 hover:border-fuchsia-400/60 hover:shadow-glow`}
             data-state=${cardState}
           >
             <div class="absolute -right-14 -top-14 h-32 w-32 rounded-full bg-fuchsia-500/40 blur-3xl transition-opacity duration-300 group-hover:opacity-100"></div>
@@ -200,21 +316,17 @@
                   loading="lazy"
                 />
                 <div
-                  class=${`absolute -bottom-1 -right-1 flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wider shadow-lg ${badgeClasses}`}
+                  class=${`absolute -bottom-1 -right-1 flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wider shadow-lg ${badgeConfig.classes}`}
                 >
                   <span class="relative flex h-2 w-2">
                     <span
                       class=${`absolute inline-flex h-full w-full rounded-full ${
-                        isActive ? 'animate-ping bg-emerald-200 opacity-75' : 'bg-slate-400/70 opacity-0'
+                        badgeConfig.ping ? 'animate-ping bg-emerald-200 opacity-75' : 'bg-slate-400/70 opacity-0'
                       }`}
                     ></span>
-                    <span
-                      class=${`relative inline-flex h-2 w-2 rounded-full ${
-                        isActive ? 'bg-emerald-800' : 'bg-slate-900/70'
-                      }`}
-                    ></span>
+                    <span class=${`relative inline-flex h-2 w-2 rounded-full ${badgeConfig.dot}`}></span>
                   </span>
-                  ${isActive ? 'En live' : 'Dernier intervenant'}
+                  ${badgeConfig.text}
                 </div>
               </div>
               <div class="relative flex flex-1 flex-col gap-2">
@@ -223,34 +335,41 @@
                   <span class="text-sm text-slate-300">@${speaker.username}</span>
                 </div>
                 <div class="flex flex-wrap items-center gap-3 text-xs text-slate-200">
-                  ${since
-                    ? html`<span class="flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 backdrop-blur">
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="1.5"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          class="h-3.5 w-3.5"
-                        >
-                          <circle cx="12" cy="12" r="9"></circle>
-                          <path d="M12 7v5l2.5 2.5"></path>
-                        </svg>
-                        ${since}
-                      </span>`
-                    : null}
-                  <span class="rounded-full bg-white/5 px-3 py-1 uppercase tracking-[0.2em] text-[0.7rem] text-fuchsia-200">
-                    En train de parler
+                  <span class="flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 backdrop-blur">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      class="h-3.5 w-3.5"
+                    >
+                      <circle cx="12" cy="12" r="9"></circle>
+                      <path d="M12 7v5l2.5 2.5"></path>
+                    </svg>
+                    ${secondaryLabel}
                   </span>
                 </div>
+                ${voiceBadges.length
+                  ? html`<div class="flex flex-wrap items-center gap-2 text-[0.65rem] uppercase tracking-[0.25em] text-slate-200/80">
+                      ${voiceBadges.map(
+                        (badge) => html`<span
+                          key=${badge.key}
+                          class="flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 backdrop-blur"
+                        >
+                          ${badge.icon}
+                          <span>${badge.label}</span>
+                        </span>`,
+                      )}
+                    </div>`
+                  : null}
               </div>
             </div>
           </article>
         `;
       };
-
       const SpeakersSection = ({ speakers, now }) => {
         if (!speakers.length) {
           return html`
@@ -271,7 +390,7 @@
                 </svg>
               </div>
               <p class="max-w-sm text-base text-slate-300">
-                Personne ne parle pour le moment. Le panneau se mettra à jour dès que quelqu’un prendra la parole dans le salon.
+                Aucun participant n'est connecté au salon vocal pour le moment. Dès qu’une personne rejoindra, elle apparaîtra ici.
               </p>
             </div>
           `;
@@ -660,8 +779,9 @@
       };
 
       const HomePage = ({ status, lastUpdateLabel, streamInfo, audioKey, speakers, now }) => {
+        const connectedCount = speakers.length;
         const activeSpeakersCount = speakers.reduce(
-          (count, speaker) => count + (speaker?.state === 'leaving' ? 0 : 1),
+          (count, speaker) => count + (speaker?.isSpeaking ? 1 : 0),
           0,
         );
 
@@ -722,12 +842,12 @@
               <div>
                 <h2 class="text-2xl font-semibold text-white">Intervenants en temps réel</h2>
                 <p class="text-sm text-slate-300">
-                  Les avatars s’animent instantanément lorsqu’une voix est détectée sur le salon.
+                  Toutes les personnes connectées au salon vocal apparaissent ici et l’animation se déclenche dès qu’une voix est détectée.
                 </p>
               </div>
               <div class="flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-4 py-1.5 text-xs uppercase tracking-[0.3em] text-indigo-200">
                 <span class="h-2 w-2 rounded-full bg-indigo-300"></span>
-                ${activeSpeakersCount} en direct
+                ${connectedCount} connectés · ${activeSpeakersCount} en direct
               </div>
             </div>
             <${SpeakersSection} speakers=${speakers} now=${now} />
@@ -814,94 +934,16 @@
 
       const App = () => {
         const [status, setStatus] = useState('connecting');
-        const [speakerEntries, setSpeakerEntries] = useState(() => new Map());
+        const [participantsMap, setParticipantsMap] = useState(() => new Map());
         const [streamInfo, setStreamInfo] = useState({ path: '/stream', format: 'opus', mimeType: 'audio/ogg' });
         const [lastUpdate, setLastUpdate] = useState(null);
         const [now, setNow] = useState(Date.now());
         const [menuOpen, setMenuOpen] = useState(false);
         const [route, setRoute] = useState(() => getRouteFromHash());
-        const removalTimersRef = useRef(new Map());
-
-        const clearRemovalTimers = (speakerId) => {
-          const timers = removalTimersRef.current.get(speakerId);
-          if (!timers) return;
-          if (timers.delayTimeout) {
-            clearTimeout(timers.delayTimeout);
-          }
-          if (timers.removalTimeout) {
-            clearTimeout(timers.removalTimeout);
-          }
-          removalTimersRef.current.delete(speakerId);
-        };
-
-        const scheduleSpeakerRemoval = (speakerId, entry, waitOverride) => {
-          if (!entry) return;
-          const elapsed = Date.now() - (entry.firstSeen ?? Date.now());
-          const waitMs = Math.max(0, waitOverride ?? MIN_SPEAKER_DISPLAY_MS - elapsed);
-
-          const startLeaving = () => {
-            setSpeakerEntries((prev) => {
-              const current = prev.get(speakerId);
-              if (!current || current.state === 'leaving') {
-                return prev;
-              }
-              const next = new Map(prev);
-              next.set(speakerId, { ...current, state: 'leaving' });
-              return next;
-            });
-
-            const removalTimeout = setTimeout(() => {
-              setSpeakerEntries((prev) => {
-                const current = prev.get(speakerId);
-                if (!current || current.state !== 'leaving') {
-                  return prev;
-                }
-                const next = new Map(prev);
-                next.delete(speakerId);
-                return next;
-              });
-              clearRemovalTimers(speakerId);
-            }, SPEAKER_LEAVE_ANIMATION_MS);
-
-            removalTimersRef.current.set(speakerId, { removalTimeout });
-          };
-
-          clearRemovalTimers(speakerId);
-
-          if (waitMs > 0) {
-            const delayTimeout = setTimeout(() => {
-              const existing = removalTimersRef.current.get(speakerId) || {};
-              delete existing.delayTimeout;
-              removalTimersRef.current.set(speakerId, existing);
-              startLeaving();
-            }, waitMs);
-            removalTimersRef.current.set(speakerId, { delayTimeout });
-          } else {
-            const delayTimeout = setTimeout(() => {
-              const existing = removalTimersRef.current.get(speakerId) || {};
-              delete existing.delayTimeout;
-              removalTimersRef.current.set(speakerId, existing);
-              startLeaving();
-            }, 0);
-            removalTimersRef.current.set(speakerId, { delayTimeout });
-          }
-        };
 
         useEffect(() => {
           const id = setInterval(() => setNow(Date.now()), 1000);
           return () => clearInterval(id);
-        }, []);
-
-        useEffect(() => () => {
-          removalTimersRef.current.forEach((timers) => {
-            if (timers.delayTimeout) {
-              clearTimeout(timers.delayTimeout);
-            }
-            if (timers.removalTimeout) {
-              clearTimeout(timers.removalTimeout);
-            }
-          });
-          removalTimersRef.current.clear();
         }, []);
 
         useEffect(() => {
@@ -933,35 +975,17 @@
 
           const applyState = (payload) => {
             if (!payload || !Array.isArray(payload.speakers)) return;
-            const incoming = new Map();
+            const next = new Map();
             for (const speaker of payload.speakers) {
               if (speaker?.id) {
-                incoming.set(speaker.id, speaker);
+                next.set(speaker.id, {
+                  ...speaker,
+                  voiceState: speaker.voiceState ?? {},
+                  isSpeaking: Boolean(speaker.isSpeaking),
+                });
               }
             }
-            const nowTs = Date.now();
-            setSpeakerEntries((prev) => {
-              const next = new Map(prev);
-              const seen = new Set();
-
-              incoming.forEach((speaker, id) => {
-                seen.add(id);
-                const existing = next.get(id);
-                const firstSeen = existing && existing.state !== 'leaving' ? existing.firstSeen : nowTs;
-                clearRemovalTimers(id);
-                next.set(id, { data: speaker, firstSeen, state: 'active' });
-              });
-
-              next.forEach((entry, id) => {
-                if (!seen.has(id)) {
-                  if (entry.state !== 'leaving' && !removalTimersRef.current.has(id)) {
-                    scheduleSpeakerRemoval(id, entry);
-                  }
-                }
-              });
-
-              return next;
-            });
+            setParticipantsMap(next);
             setLastUpdate(Date.now());
           };
 
@@ -977,24 +1001,38 @@
           source.addEventListener('speaking', (event) => {
             try {
               const data = JSON.parse(event.data);
-              if (data?.type === 'start' && data.user) {
-                setSpeakerEntries((prev) => {
+              if (data?.type === 'start' && data.user?.id) {
+                setParticipantsMap((prev) => {
                   const next = new Map(prev);
-                  const existing = next.get(data.user.id);
-                  const firstSeen = existing && existing.state !== 'leaving' ? existing.firstSeen : Date.now();
-                  clearRemovalTimers(data.user.id);
-                  next.set(data.user.id, { data: data.user, firstSeen, state: 'active' });
+                  const existing = next.get(data.user.id) || { voiceState: {} };
+                  next.set(data.user.id, {
+                    ...existing,
+                    ...data.user,
+                    isSpeaking: true,
+                    voiceState: data.user.voiceState ?? existing.voiceState ?? {},
+                  });
                   return next;
                 });
-              } else if (data?.type === 'end' && data.userId) {
-                setSpeakerEntries((prev) => {
-                  const entry = prev.get(data.userId);
-                  if (!entry || entry.state === 'leaving' || removalTimersRef.current.has(data.userId)) {
-                    return prev;
-                  }
-                  scheduleSpeakerRemoval(data.userId, entry);
-                  return prev;
-                });
+              } else if (data?.type === 'end') {
+                const targetId = data.user?.id ?? data.userId;
+                if (targetId) {
+                  setParticipantsMap((prev) => {
+                    const next = new Map(prev);
+                    const existing = next.get(targetId);
+                    if (!existing) {
+                      return prev;
+                    }
+                    const updated = {
+                      ...existing,
+                      ...data.user,
+                      isSpeaking: false,
+                      voiceState: (data.user && data.user.voiceState) ?? existing.voiceState ?? {},
+                      lastSpokeAt: data.user?.lastSpokeAt ?? Date.now(),
+                    };
+                    next.set(targetId, updated);
+                    return next;
+                  });
+                }
               }
               setLastUpdate(Date.now());
             } catch (err) {
@@ -1017,14 +1055,31 @@
 
           return () => source.close();
         }, []);
-
-        const speakers = useMemo(
-          () =>
-            Array.from(speakerEntries.values())
-              .map((entry) => ({ ...entry.data, state: entry.state }))
-              .sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0)),
-          [speakerEntries]
-        );
+        const speakers = useMemo(() => {
+          const values = Array.from(participantsMap.values()).map((participant) => ({
+            ...participant,
+            voiceState: participant.voiceState ?? {},
+          }));
+          values.sort((a, b) => {
+            if (a.isSpeaking !== b.isSpeaking) {
+              return a.isSpeaking ? -1 : 1;
+            }
+            const aLast = a.lastSpokeAt || 0;
+            const bLast = b.lastSpokeAt || 0;
+            if (aLast !== bLast) {
+              return bLast - aLast;
+            }
+            const aJoined = a.joinedAt || 0;
+            const bJoined = b.joinedAt || 0;
+            if (aJoined !== bJoined) {
+              return aJoined - bJoined;
+            }
+            const nameA = (a.displayName || a.username || '').toLocaleLowerCase('fr-FR');
+            const nameB = (b.displayName || b.username || '').toLocaleLowerCase('fr-FR');
+            return nameA.localeCompare(nameB);
+          });
+          return values;
+        }, [participantsMap]);
 
         const lastUpdateLabel = lastUpdate ? formatRelative(lastUpdate, now) : 'Synchronisation…';
         const audioKey = `${streamInfo.path}|${streamInfo.mimeType}`;
@@ -1161,7 +1216,6 @@
           </div>
         `;
       };
-
       render(html`<${App} />`, document.getElementById('app'));
     </script>
   </body>
