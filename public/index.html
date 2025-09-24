@@ -147,7 +147,9 @@
           dot: 'bg-amber-300',
         },
         connected: {
-          label: 'En direct',
+          label: null,
+          srLabel: 'En direct',
+          Icon: Activity,
           ring: 'bg-emerald-400/15 text-emerald-200 border-emerald-400/40',
           dot: 'bg-emerald-300',
         },
@@ -193,7 +195,10 @@
         return html`
           <div class=${`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium backdrop-blur ${config.ring}`}>
             <span class=${`h-2.5 w-2.5 rounded-full shadow-md ${config.dot}`}></span>
-            <span>${config.label}</span>
+            ${config.Icon
+              ? html`<span class="sr-only">${config.srLabel ?? 'Statut'}</span>
+                  <${config.Icon} class="h-4 w-4" aria-hidden="true" />`
+              : html`<span>${config.label}</span>`}
           </div>
         `;
       };
@@ -211,26 +216,64 @@
 
         const badgeConfig = (() => {
           if (isSpeaking) {
-            return { text: 'En live', classes: 'bg-emerald-500 text-emerald-900', ping: true, dot: 'bg-emerald-800' };
+            return {
+              srLabel: 'En live',
+              Icon: Activity,
+              classes: 'bg-emerald-500 text-emerald-900',
+              ping: true,
+              dot: 'bg-emerald-800',
+            };
           }
           if (voiceState.selfMute || voiceState.mute) {
-            return { text: 'Micro coupé', classes: 'bg-slate-200/90 text-slate-900', ping: false, dot: 'bg-slate-900/70' };
+            return {
+              srLabel: 'Micro coupé',
+              Icon: MicOff,
+              classes: 'bg-slate-200/90 text-slate-900',
+              ping: false,
+              dot: 'bg-slate-900/70',
+            };
           }
           if (voiceState.selfDeaf || voiceState.deaf) {
-            return { text: 'Casque coupé', classes: 'bg-slate-200/90 text-slate-900', ping: false, dot: 'bg-slate-900/70' };
+            return {
+              srLabel: 'Casque coupé',
+              Icon: Headphones,
+              classes: 'bg-slate-200/90 text-slate-900',
+              ping: false,
+              dot: 'bg-slate-900/70',
+            };
           }
-          return { text: 'À l’écoute', classes: 'bg-slate-200/90 text-slate-900', ping: false, dot: 'bg-slate-900/70' };
+          return {
+            srLabel: 'À l’écoute',
+            Icon: Headphones,
+            classes: 'bg-slate-200/90 text-slate-900',
+            ping: false,
+            dot: 'bg-slate-900/70',
+          };
         })();
 
-        const secondaryLabel = (() => {
+        const secondaryInfo = (() => {
           if (isSpeaking) {
-            return duration ? `En direct depuis ${duration}` : 'En direct';
+            return {
+              Icon: Activity,
+              text: duration ? `Depuis ${duration}` : null,
+              srLabel: duration ? `En direct depuis ${duration}` : 'En direct',
+            };
           }
           if (lastSpoke) {
-            return `Dernière intervention ${lastSpoke}`;
+            return {
+              Icon: Clock3,
+              text: lastSpoke,
+              srLabel: `Dernière intervention ${lastSpoke}`,
+            };
           }
-          return 'Pas encore intervenu';
+          return {
+            Icon: Clock3,
+            text: 'Pas encore intervenu',
+            srLabel: 'Pas encore intervenu',
+          };
         })();
+
+        const { Icon: SecondaryIcon, text: secondaryText, srLabel: secondarySrLabel } = secondaryInfo;
 
         const voiceBadges = [];
         if (voiceState.selfMute || voiceState.mute) {
@@ -272,7 +315,8 @@
                     ></span>
                     <span class=${`relative inline-flex h-2 w-2 rounded-full ${badgeConfig.dot}`}></span>
                   </span>
-                  ${badgeConfig.text}
+                  <span class="sr-only">${badgeConfig.srLabel}</span>
+                  <${badgeConfig.Icon} class="h-3.5 w-3.5" aria-hidden="true" />
                 </div>
               </div>
               <div class="relative flex flex-1 flex-col gap-2">
@@ -282,8 +326,9 @@
                 </div>
                 <div class="flex flex-wrap items-center gap-3 text-xs text-slate-200">
                   <span class="flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 backdrop-blur">
-                    <${Clock3} class="h-3.5 w-3.5" aria-hidden="true" />
-                    ${secondaryLabel}
+                    <${SecondaryIcon} class="h-3.5 w-3.5" aria-hidden="true" />
+                    ${secondaryText ? html`<span>${secondaryText}</span>` : null}
+                    <span class="sr-only">${secondarySrLabel}</span>
                   </span>
                 </div>
                 ${voiceBadges.length
@@ -568,7 +613,7 @@
                 <div class="flex items-center gap-5">
                   <button
                     type="button"
-                    class="relative flex h-18 w-32 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 via-indigo-500 to-sky-400 text-white shadow-lg shadow-fuchsia-900/40 transition focus:outline-none focus:ring-2 focus:ring-fuchsia-300 focus:ring-offset-2 focus:ring-offset-slate-950 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
+                    class="relative flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 via-indigo-500 to-sky-400 text-white shadow-lg shadow-fuchsia-900/40 transition focus:outline-none focus:ring-2 focus:ring-fuchsia-300 focus:ring-offset-2 focus:ring-offset-slate-950 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
                     aria-label=${isPlaying ? 'Mettre le flux en pause' : 'Lancer la lecture du flux'}
                     onClick=${togglePlay}
                     disabled=${isLoading && !isPlaying && !hasError}
@@ -590,10 +635,14 @@
                           <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-200 opacity-75"></span>
                           <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-700"></span>
                         </span>
-                        En direct
+                        <span class="sr-only">En direct</span>
+                        <${Activity} class="h-3.5 w-3.5" aria-hidden="true" />
                       </span>
                       <span class="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[0.7rem] font-medium uppercase tracking-[0.35em] text-slate-200">
-                        ${statusConfig.label}
+                        ${statusConfig.Icon
+                          ? html`<span class="sr-only">${statusConfig.srLabel ?? 'Statut'}</span>
+                              <${statusConfig.Icon} class="h-3.5 w-3.5" aria-hidden="true" />`
+                          : statusConfig.label}
                       </span>
                       ${
                         isPlaying
