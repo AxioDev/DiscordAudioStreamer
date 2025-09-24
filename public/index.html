@@ -216,17 +216,207 @@
         `;
       };
 
+      const NAV_LINKS = [
+        { label: 'Accueil', route: 'home', hash: '#/' },
+        { label: 'À propos', route: 'about', hash: '#/about' },
+      ];
+
+      const getRouteFromHash = () => {
+        const hash = window.location.hash.replace(/^#/, '').toLowerCase();
+        if (hash === '/about' || hash === 'about') {
+          return 'about';
+        }
+        return 'home';
+      };
+
+      const HomePage = ({ status, lastUpdateLabel, streamInfo, audioKey, speakers, now }) => html`
+        <>
+          <section
+            class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/50 backdrop-blur-xl"
+          >
+            <div class="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-fuchsia-500/25 blur-3xl"></div>
+            <div class="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+              <div class="space-y-4">
+                <p class="text-xs uppercase tracking-[0.35em] text-slate-300">Libre Antenne</p>
+                <h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">Libre Antenne</h1>
+                <p class="max-w-xl text-base text-slate-200">
+                  “Mes cheveux reculent, mais pas aussi vite que ton rythme cardiaque à l’hôpital.”
+                </p>
+                <a
+                  class="inline-flex items-center gap-2 rounded-full border border-fuchsia-400/60 bg-fuchsia-500/20 px-5 py-2 text-sm font-semibold text-fuchsia-100 shadow-lg shadow-fuchsia-900/40 transition hover:bg-fuchsia-500/30 hover:text-white"
+                  href="https://discord.gg/btjTZ5C"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Rejoindre le Discord
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke-width="1.5"
+                    stroke="currentColor"
+                    class="h-4 w-4"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 12h13.5m0 0-5.25-5.25M18.75 12l-5.25 5.25" />
+                  </svg>
+                </a>
+              </div>
+              <div class="flex flex-col items-start gap-3 text-left lg:items-end lg:text-right">
+                <${StatusBadge} status=${status} />
+                <p class="text-xs text-slate-300">Dernière mise à jour : ${lastUpdateLabel}</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl">
+            <div class="pointer-events-none absolute -right-20 bottom-0 h-56 w-56 rounded-full bg-indigo-400/30 blur-3xl"></div>
+            <div class="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+              <div class="space-y-2">
+                <h2 class="text-2xl font-semibold text-white">Flux audio en direct</h2>
+                <p class="text-sm text-slate-300">
+                  Clique sur lecture si le flux ne démarre pas automatiquement. Volume conseillé : casque 💜
+                </p>
+              </div>
+              <div class="flex flex-col items-start gap-2 text-sm text-slate-300 lg:items-end">
+                <span
+                  class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-4 py-1.5 text-xs uppercase tracking-[0.3em] text-fuchsia-200"
+                >
+                  ${streamInfo.format === 'mp3' ? 'MP3' : 'OPUS'}
+                </span>
+                <span class="text-xs text-slate-400">Endpoint : ${streamInfo.path}</span>
+              </div>
+            </div>
+            <div class="relative mt-6 overflow-hidden rounded-2xl border border-white/10 bg-black/50 p-4 shadow-2xl shadow-slate-950/60">
+              <audio key=${audioKey} class="w-full accent-fuchsia-400" controls autoplay preload="auto">
+                <source src=${streamInfo.path} type=${streamInfo.mimeType} />
+                Ton navigateur ne supporte pas la balise audio.
+              </audio>
+            </div>
+          </section>
+
+          <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl">
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 class="text-2xl font-semibold text-white">Intervenants en temps réel</h2>
+                <p class="text-sm text-slate-300">
+                  Les avatars s’animent instantanément lorsqu’une voix est détectée sur le salon.
+                </p>
+              </div>
+              <div class="flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-4 py-1.5 text-xs uppercase tracking-[0.3em] text-indigo-200">
+                <span class="h-2 w-2 rounded-full bg-indigo-300"></span>
+                ${speakers.length} en direct
+              </div>
+            </div>
+            <${SpeakersSection} speakers=${speakers} now=${now} />
+          </section>
+        </>
+      `;
+
+      const AboutPage = () => html`
+        <>
+          <section class="space-y-6 rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/40 backdrop-blur-xl">
+            <p class="text-xs uppercase tracking-[0.35em] text-slate-300">Libre Antenne</p>
+            <h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">À propos de Libre Antenne</h1>
+            <p class="text-base leading-relaxed text-slate-200">
+              Libre Antenne est une zone franche où les voix nocturnes prennent le pouvoir. Le flux est volontairement brut,
+              capté en direct sur notre serveur Discord pour amplifier les histoires, les confidences et les improvisations qui
+              naissent quand la nuit tombe.
+            </p>
+            <p class="text-base leading-relaxed text-slate-200">
+              Notre équipe façonne un espace accueillant pour les marginaux créatifs, les gamers insomniaques et toutes les
+              personnes qui ont besoin d’un micro ouvert. Ici, aucune intervention n’est scriptée : la seule règle est de
+              respecter la vibe collective et de laisser la spontanéité guider la conversation.
+            </p>
+          </section>
+
+          <section class="grid gap-6 md:grid-cols-2">
+            <div class="rounded-3xl border border-white/10 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">
+              <h2 class="text-xl font-semibold text-white">Un laboratoire nocturne</h2>
+              <p class="mt-3 text-sm text-slate-300">
+                Sessions freestyle, confessions lunaires, débats improvisés : chaque passage est un moment unique façonné par la
+                communauté. Le direct nous permet de capturer cette énergie sans filtre.
+              </p>
+            </div>
+            <div class="rounded-3xl border border-white/10 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">
+              <h2 class="text-xl font-semibold text-white">Technologie artisanale</h2>
+              <p class="mt-3 text-sm text-slate-300">
+                Notre mixeur audio fait circuler chaque voix avec finesse. Les outils open source et les contributions des
+                membres permettent d’améliorer constamment la qualité du flux.
+              </p>
+            </div>
+            <div class="rounded-3xl border border-white/10 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">
+              <h2 class="text-xl font-semibold text-white">Communauté inclusive</h2>
+              <p class="mt-3 text-sm text-slate-300">
+                Peu importe ton accent, ton parcours ou ton rythme de vie : tu es accueilli·e tant que tu joues collectif et que
+                tu respectes les autres intervenants.
+              </p>
+            </div>
+            <div class="rounded-3xl border border-white/10 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">
+              <h2 class="text-xl font-semibold text-white">Programmation souple</h2>
+              <p class="mt-3 text-sm text-slate-300">
+                Les créneaux sont ouverts : tu peux proposer un sujet, lancer un atelier ou simplement écouter. Le planning
+                évolue selon les envies du moment.
+              </p>
+            </div>
+          </section>
+
+          <section class="rounded-3xl border border-fuchsia-500/30 bg-fuchsia-500/10 px-8 py-10 text-center shadow-xl shadow-fuchsia-900/30 backdrop-blur">
+            <h2 class="text-2xl font-semibold text-white">Rejoins la fréquence</h2>
+            <p class="mt-3 text-sm text-fuchsia-100">
+              Connecte-toi sur Discord pour proposer ta voix, écouter les autres et faire grandir l’expérience Libre Antenne.
+              La scène t’attend.
+            </p>
+            <a
+              class="mt-6 inline-flex items-center gap-2 rounded-full border border-white/40 bg-white/10 px-5 py-2 text-sm font-semibold text-white transition hover:bg-white/20"
+              href="https://discord.gg/btjTZ5C"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Rejoindre le Discord
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke-width="1.5"
+                stroke="currentColor"
+                class="h-4 w-4"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 12h13.5m0 0-5.25-5.25M18.75 12l-5.25 5.25" />
+              </svg>
+            </a>
+          </section>
+        </>
+      `;
+
       const App = () => {
         const [status, setStatus] = useState('connecting');
         const [speakersMap, setSpeakersMap] = useState(() => new Map());
         const [streamInfo, setStreamInfo] = useState({ path: '/stream', format: 'opus', mimeType: 'audio/ogg' });
         const [lastUpdate, setLastUpdate] = useState(null);
         const [now, setNow] = useState(Date.now());
+        const [menuOpen, setMenuOpen] = useState(false);
+        const [route, setRoute] = useState(() => getRouteFromHash());
 
         useEffect(() => {
           const id = setInterval(() => setNow(Date.now()), 1000);
           return () => clearInterval(id);
         }, []);
+
+        useEffect(() => {
+          if (!window.location.hash) {
+            window.location.hash = '/';
+          }
+        }, []);
+
+        useEffect(() => {
+          const updateRoute = () => setRoute(getRouteFromHash());
+          window.addEventListener('hashchange', updateRoute);
+          return () => window.removeEventListener('hashchange', updateRoute);
+        }, []);
+
+        useEffect(() => {
+          setMenuOpen(false);
+        }, [route]);
 
         useEffect(() => {
           const source = new EventSource('/events');
@@ -307,6 +497,18 @@
         const lastUpdateLabel = lastUpdate ? formatRelative(lastUpdate, now) : 'Synchronisation…';
         const audioKey = `${streamInfo.path}|${streamInfo.mimeType}`;
 
+        const handleNavigate = (event, targetRoute) => {
+          event.preventDefault();
+          const targetHash = targetRoute === 'home' ? '#/' : '#/about';
+          if (window.location.hash !== targetHash) {
+            window.location.hash = targetHash;
+          } else {
+            setRoute(targetRoute);
+          }
+          setMenuOpen(false);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+
         return html`
           <div class="relative flex min-h-screen flex-col overflow-hidden">
             <div class="pointer-events-none absolute inset-0 overflow-hidden">
@@ -315,84 +517,108 @@
               <div class="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(99,102,241,0.08)_0,_transparent_55%)]"></div>
             </div>
             <div class="relative z-10 flex flex-1 flex-col">
-              <header class="px-6 pt-10 sm:px-10">
-                <div class="mx-auto flex max-w-5xl flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-                  <div class="space-y-4">
-                    <p class="text-xs uppercase tracking-[0.35em] text-slate-400">Libre Antenne</p>
-                    <h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">
-                      Salon libre et sauvage en direct
-                    </h1>
-                    <p class="max-w-xl text-base text-slate-300">
-                      Branche-toi sur la libre antenne nocturne et observe la scène se déchaîner. Ici, les voix libres prennent
-                      d’assaut l’antenne sans filtre ni jugement.
-                    </p>
-                    <a
-                      class="inline-flex items-center gap-2 rounded-full border border-fuchsia-400/60 bg-fuchsia-500/20 px-5 py-2 text-sm font-semibold text-fuchsia-100 shadow-lg shadow-fuchsia-900/40 transition hover:bg-fuchsia-500/30 hover:text-white"
-                      href="https://discord.gg/btjTZ5C"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Rejoindre le Discord
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke-width="1.5"
-                        stroke="currentColor"
-                        class="h-4 w-4"
-                      >
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 12h13.5m0 0-5.25-5.25M18.75 12l-5.25 5.25" />
-                      </svg>
-                    </a>
-                  </div>
-                  <div class="flex flex-col items-end gap-3 text-right">
-                    <${StatusBadge} status=${status} />
-                    <p class="text-xs text-slate-400">Dernière mise à jour : ${lastUpdateLabel}</p>
-                  </div>
+              <header class="sticky top-0 z-20 border-b border-white/10 bg-slate-950/70 backdrop-blur">
+                <div class="mx-auto flex max-w-5xl items-center justify-between px-6 py-4 sm:px-10">
+                  <a
+                    href="#/"
+                    class="text-base font-semibold uppercase tracking-[0.35em] text-slate-200 transition hover:text-white"
+                    onClick=${(event) => handleNavigate(event, 'home')}
+                  >
+                    Libre Antenne
+                  </a>
+                  <nav class="hidden items-center gap-6 md:flex">
+                    ${NAV_LINKS.map((link) =>
+                      html`
+                        <a
+                          key=${link.route}
+                          href=${link.hash}
+                          onClick=${(event) => handleNavigate(event, link.route)}
+                          aria-current=${route === link.route ? 'page' : undefined}
+                          class=${`text-sm font-semibold transition hover:text-white ${
+                            route === link.route ? 'text-white' : 'text-slate-300'
+                          }`}
+                        >
+                          ${link.label}
+                        </a>
+                      `
+                    )}
+                  </nav>
+                  <button
+                    type="button"
+                    class="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/5 text-slate-200 transition hover:border-white/40 hover:text-white md:hidden"
+                    aria-label=${menuOpen ? 'Fermer le menu' : 'Ouvrir le menu'}
+                    aria-expanded=${menuOpen}
+                    onClick=${() => setMenuOpen((prev) => !prev)}
+                  >
+                    ${
+                      menuOpen
+                        ? html`
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke-width="1.5"
+                              stroke="currentColor"
+                              class="h-5 w-5"
+                            >
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          `
+                        : html`
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke-width="1.5"
+                              stroke="currentColor"
+                              class="h-5 w-5"
+                            >
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                            </svg>
+                          `
+                    }
+                  </button>
                 </div>
+                ${
+                  menuOpen
+                    ? html`
+                        <div class="border-t border-white/10 px-6 pb-6 pt-4 sm:px-10 md:hidden">
+                          <nav class="flex flex-col gap-3">
+                            ${NAV_LINKS.map((link) =>
+                              html`
+                                <a
+                                  key=${`mobile-${link.route}`}
+                                  href=${link.hash}
+                                  onClick=${(event) => handleNavigate(event, link.route)}
+                                  class=${`rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold transition hover:bg-white/10 hover:text-white ${
+                                    route === link.route ? 'text-white' : 'text-slate-200'
+                                  }`}
+                                >
+                                  ${link.label}
+                                </a>
+                              `
+                            )}
+                          </nav>
+                        </div>
+                      `
+                    : null
+                }
               </header>
 
-              <main class="px-6 pb-16 pt-8 sm:px-10">
+              <main class="flex-1 px-6 pb-16 pt-8 sm:px-10">
                 <div class="mx-auto flex max-w-5xl flex-col gap-10">
-                  <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl">
-                    <div class="pointer-events-none absolute -right-20 bottom-0 h-56 w-56 rounded-full bg-indigo-400/30 blur-3xl"></div>
-                    <div class="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-                      <div class="space-y-2">
-                        <h2 class="text-2xl font-semibold text-white">Flux audio en direct</h2>
-                        <p class="text-sm text-slate-300">
-                          Clique sur lecture si le flux ne démarre pas automatiquement. Volume conseillé : casque 💜
-                        </p>
-                      </div>
-                      <div class="flex flex-col items-start gap-2 text-sm text-slate-300 lg:items-end">
-                        <span class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-4 py-1.5 text-xs uppercase tracking-[0.3em] text-fuchsia-200">
-                          ${streamInfo.format === 'mp3' ? 'MP3' : 'OPUS'}
-                        </span>
-                        <span class="text-xs text-slate-400">Endpoint : ${streamInfo.path}</span>
-                      </div>
-                    </div>
-                    <div class="relative mt-6 overflow-hidden rounded-2xl border border-white/10 bg-black/50 p-4 shadow-2xl shadow-slate-950/60">
-                      <audio key=${audioKey} class="w-full accent-fuchsia-400" controls autoplay preload="auto">
-                        <source src=${streamInfo.path} type=${streamInfo.mimeType} />
-                        Ton navigateur ne supporte pas la balise audio.
-                      </audio>
-                    </div>
-                  </section>
-
-                  <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl">
-                    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <h2 class="text-2xl font-semibold text-white">Intervenants en temps réel</h2>
-                        <p class="text-sm text-slate-300">
-                          Les avatars s’animent instantanément lorsqu’une voix est détectée sur le salon.
-                        </p>
-                      </div>
-                      <div class="flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-4 py-1.5 text-xs uppercase tracking-[0.3em] text-indigo-200">
-                        <span class="h-2 w-2 rounded-full bg-indigo-300"></span>
-                        ${speakers.length} en direct
-                      </div>
-                    </div>
-                    <${SpeakersSection} speakers=${speakers} now=${now} />
-                  </section>
+                  ${
+                    route === 'about'
+                      ? html`<${AboutPage} />`
+                      : html`<${HomePage}
+                          status=${status}
+                          lastUpdateLabel=${lastUpdateLabel}
+                          streamInfo=${streamInfo}
+                          audioKey=${audioKey}
+                          speakers=${speakers}
+                          now=${now}
+                        />`
+                  }
                 </div>
               </main>
 
