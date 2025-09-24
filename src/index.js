@@ -21,6 +21,7 @@ const transcoder = new FfmpegTranscoder({
   sampleRate: config.audio.sampleRate,
   channels: config.audio.channels,
   headerBufferMaxBytes: config.headerBufferMaxBytes,
+  mixFrameMs: config.mixFrameMs,
 });
 transcoder.start(mixer);
 

@@ -57,9 +57,14 @@ class AppServer {
   handleStreamRequest(req, res) {
     const mimeType = this.config.mimeTypes[this.config.outputFormat] || 'application/octet-stream';
     res.setHeader('Content-Type', mimeType);
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('Transfer-Encoding', 'chunked');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('Accept-Ranges', 'none');
 
     try {
       req.socket.setNoDelay(true);

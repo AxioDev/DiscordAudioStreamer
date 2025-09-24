@@ -18,7 +18,7 @@ const config = {
   mp3Bitrate: process.env.MP3_BITRATE || '96000',
   mixFrameMs: parseInteger(process.env.MIX_FRAME_MS, 20),
   streamEndpoint: '/stream',
-  headerBufferMaxBytes: 256 * 1024,
+  headerBufferMaxBytes: parseInteger(process.env.HEADER_BUFFER_MAX_BYTES, 64 * 1024),
   keepAliveInterval: 20000,
   audio: {
     sampleRate: 48000,
