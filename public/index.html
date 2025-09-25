@@ -14,6 +14,7 @@
     <meta name="application-name" content="Libre Antenne" />
     <meta name="apple-mobile-web-app-title" content="Libre Antenne" />
     <link rel="manifest" href="/site.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/icons/icon-192.svg" />
     <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -150,8 +151,8 @@
           dot: 'bg-amber-300',
         },
         connected: {
-          label: 'En direct',
-          srLabel: 'En direct',
+          label: '',
+          srLabel: 'Flux en cours',
           Icon: Activity,
           ring: 'bg-emerald-400/15 text-emerald-200 border-emerald-400/40',
           dot: 'bg-emerald-300',
@@ -195,15 +196,21 @@
 
       const StatusBadge = ({ status, className = '' }) => {
         const config = STATUS_LABELS[status] ?? STATUS_LABELS.connecting;
-        const text = config.label ?? config.srLabel ?? 'Statut';
+        const rawLabel = typeof config.label === 'string' ? config.label : '';
+        const trimmedLabel = rawLabel.trim();
+        const srText = config.srLabel ?? (trimmedLabel ? trimmedLabel : 'Statut');
         return html`
           <div
             class=${`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium backdrop-blur ${config.ring} ${className}`}
+            aria-label=${srText}
           >
             <span class=${`h-2.5 w-2.5 rounded-full shadow-md ${config.dot}`}></span>
             <span class="flex items-center gap-1">
               ${config.Icon ? html`<${config.Icon} class="h-4 w-4" aria-hidden="true" />` : null}
-              <span>${text}</span>
+              <span class="sr-only">${srText}</span>
+              ${trimmedLabel
+                ? html`<span aria-hidden="true">${rawLabel}</span>`
+                : null}
             </span>
           </div>
         `;
@@ -271,8 +278,8 @@
         const badgeConfig = (() => {
           if (isSpeaking) {
             return {
-              srLabel: 'En direct',
-              label: 'En direct',
+              srLabel: 'Intervention en cours',
+              label: '',
               Icon: Activity,
               classes: 'bg-emerald-500 text-emerald-900',
               ping: true,
@@ -314,7 +321,9 @@
             return {
               Icon: Activity,
               text: duration ? `Depuis ${duration}` : null,
-              srLabel: duration ? `En direct depuis ${duration}` : 'En direct',
+              srLabel: duration
+                ? `Intervention en cours depuis ${duration}`
+                : 'Intervention en cours',
             };
           }
           if (lastSpoke) {
@@ -376,7 +385,9 @@
                   </span>
                   <span class="sr-only">${badgeConfig.srLabel}</span>
                   <${badgeConfig.Icon} class="h-3.5 w-3.5" aria-hidden="true" />
-                  <span aria-hidden="true">${badgeConfig.label}</span>
+                  ${badgeConfig.label && badgeConfig.label.trim()
+                    ? html`<span aria-hidden="true">${badgeConfig.label}</span>`
+                    : null}
                 </div>
               </div>
               <div class="relative flex flex-1 flex-col gap-2">
@@ -699,7 +710,7 @@
                           <span class="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-600"></span>
                         </span>
                         <${Activity} class="h-3 w-3" aria-hidden="true" />
-                        <span>En direct</span>
+                        <span class="sr-only">Flux audio actif</span>
                       </span>
                       ${(() => {
                         const statusLabel = statusConfig.label ?? statusConfig.srLabel;
@@ -863,8 +874,8 @@
                 <span class="flex items-center gap-2">
                   <${Activity} class="h-3.5 w-3.5" aria-hidden="true" />
                   <span aria-hidden="true" class="text-sm font-semibold tracking-normal">${activeSpeakersCount}</span>
-                  <span aria-hidden="true" class="text-[0.6rem] font-semibold uppercase tracking-[0.35em] text-indigo-200/80">En direct</span>
-                  <span class="sr-only">personnes en direct</span>
+                  <span aria-hidden="true" class="text-[0.6rem] font-semibold uppercase tracking-[0.35em] text-indigo-200/80">Actifs</span>
+                  <span class="sr-only">personnes actives</span>
                 </span>
               </div>
             </div>
