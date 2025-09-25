@@ -16,6 +16,9 @@ class DiscordAudioBridge {
     this.activeSubscriptions = new Map();
     this.currentGuildId = null;
     this.currentVoiceChannelId = null;
+    this.shouldAutoReconnect = true;
+    this.isReconnecting = false;
+    this.expectingDisconnect = false;
 
     this.client = new Client({
       intents: [
@@ -96,6 +99,7 @@ class DiscordAudioBridge {
   }
 
   async joinVoice(guildId, channelId) {
+    this.shouldAutoReconnect = true;
     const guild = this.client.guilds.cache.get(guildId);
     if (!guild) {
       throw new Error('Guild not cached. Ensure the bot has access to the guild.');
@@ -117,6 +121,7 @@ class DiscordAudioBridge {
     this.voiceConnection = connection;
     this.currentGuildId = guildId;
     this.currentVoiceChannelId = channelId;
+    this.expectingDisconnect = false;
     console.log('Voice connection ready');
 
     try {
@@ -148,9 +153,19 @@ class DiscordAudioBridge {
 
     connection.on('stateChange', (oldState, newState) => {
       console.log('Voice state', oldState.status, '->', newState.status);
+      if (newState.status === VoiceConnectionStatus.Disconnected) {
+        this.handleConnectionDisconnected(connection).catch((error) => {
+          console.warn('Failed handling voice disconnect', error);
+        });
+      }
       if (newState.status === VoiceConnectionStatus.Destroyed) {
         this.voiceConnection = null;
         this.cleanupAllSubscriptions();
+        if (this.shouldAutoReconnect && !this.expectingDisconnect) {
+          this.scheduleReconnect().catch((error) => {
+            console.error('Voice reconnection attempt failed', error);
+          });
+        }
       }
     });
   }
@@ -231,6 +246,8 @@ class DiscordAudioBridge {
 
   leaveVoice() {
     if (this.voiceConnection) {
+      this.shouldAutoReconnect = false;
+      this.expectingDisconnect = true;
       this.voiceConnection.destroy();
       this.voiceConnection = null;
     }
@@ -238,6 +255,7 @@ class DiscordAudioBridge {
     this.currentVoiceChannelId = null;
     this.cleanupAllSubscriptions();
     this.speakerTracker.clear();
+    this.isReconnecting = false;
   }
 
   cleanupAllSubscriptions() {
@@ -265,6 +283,47 @@ class DiscordAudioBridge {
       await this.client.destroy();
     } catch (error) {
       console.warn('Error while destroying Discord client', error);
+    }
+  }
+
+  async handleConnectionDisconnected(connection) {
+    if (!this.shouldAutoReconnect || this.expectingDisconnect) {
+      return;
+    }
+
+    try {
+      await Promise.race([
+        entersState(connection, VoiceConnectionStatus.Signalling, 5000),
+        entersState(connection, VoiceConnectionStatus.Connecting, 5000),
+      ]);
+      console.log('Transient voice disconnect recovered automatically');
+    } catch (error) {
+      console.warn('Voice connection lost, preparing to reconnect', error);
+      try {
+        connection.destroy();
+      } catch (destroyError) {
+        console.warn('Failed to destroy disconnected voice connection', destroyError);
+      }
+    }
+  }
+
+  async scheduleReconnect() {
+    if (this.isReconnecting) {
+      return;
+    }
+    if (!this.currentGuildId || !this.currentVoiceChannelId) {
+      return;
+    }
+
+    this.isReconnecting = true;
+    try {
+      console.log('Attempting to reconnect to voice channel...');
+      await this.joinVoice(this.currentGuildId, this.currentVoiceChannelId);
+      console.log('Voice reconnection successful');
+    } catch (error) {
+      console.error('Failed to reconnect to voice channel', error);
+    } finally {
+      this.isReconnecting = false;
     }
   }
 
