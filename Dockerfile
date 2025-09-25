@@ -22,5 +22,8 @@ RUN npm install
 # Étape 6 : Copie du code source
 COPY . .
 
-# Étape 7 : Commande de lancement
+# Étape 7 : Compilation du projet TypeScript
+RUN npm run build
+
+# Étape 8 : Commande de lancement
 CMD ["node", "server.js"]
