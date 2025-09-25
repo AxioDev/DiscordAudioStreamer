@@ -37,6 +37,32 @@ config.audio.frameSamples = Math.floor(
 config.audio.frameBytes =
   config.audio.frameSamples * config.audio.channels * config.audio.bytesPerSample;
 
+const defaultMinDecodedBytes = config.audio.frameBytes * 3;
+
+config.healthCheck = {
+  host: process.env.STREAM_HEALTH_HOST || '127.0.0.1',
+  intervalMs: parseInteger(process.env.STREAM_HEALTH_INTERVAL_MS, 15000),
+  connectTimeoutMs: parseInteger(
+    process.env.STREAM_HEALTH_CONNECT_TIMEOUT_MS,
+    5000,
+  ),
+  playbackTimeoutMs: parseInteger(
+    process.env.STREAM_HEALTH_PLAYBACK_TIMEOUT_MS,
+    8000,
+  ),
+  minDecodedBytes: Math.max(
+    config.audio.frameBytes,
+    parseInteger(
+      process.env.STREAM_HEALTH_MIN_DECODED_BYTES,
+      defaultMinDecodedBytes,
+    ),
+  ),
+  failureThreshold: Math.max(
+    1,
+    parseInteger(process.env.STREAM_HEALTH_FAILURE_THRESHOLD, 2),
+  ),
+};
+
 if (!config.botToken) {
   console.error('BOT_TOKEN is required in the environment');
   process.exit(1);
