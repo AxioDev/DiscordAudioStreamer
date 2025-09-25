@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Libre Antenne Icon Large</title>
+  <desc id="desc">Icône carrée avec onde sonore lumineuse</desc>
+  <defs>
+    <radialGradient id="bg" cx="30%" cy="30%" r="85%">
+      <stop offset="0%" stop-color="#818cf8" />
+      <stop offset="55%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#db2777" />
+    </radialGradient>
+    <linearGradient id="wave" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f8fafc" />
+      <stop offset="100%" stop-color="#e0e7ff" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="120" fill="#020617" />
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#bg)" opacity="0.9" />
+  <g fill="none" stroke="url(#wave)" stroke-width="40" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M128 336c46-62 77-160 128-160s82 98 128 160" />
+    <path d="M92 256h36m260 0h36" />
+    <path d="M256 176v160" />
+  </g>
+</svg>
