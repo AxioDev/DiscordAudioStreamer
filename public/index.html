@@ -1063,22 +1063,19 @@
             voiceState: participant.voiceState ?? {},
           }));
           values.sort((a, b) => {
-            if (a.isSpeaking !== b.isSpeaking) {
-              return a.isSpeaking ? -1 : 1;
+            const nameA = (a.displayName || a.username || '').trim();
+            const nameB = (b.displayName || b.username || '').trim();
+            const normalizedA = nameA.toLocaleLowerCase('fr-FR');
+            const normalizedB = nameB.toLocaleLowerCase('fr-FR');
+            const nameComparison = normalizedA.localeCompare(normalizedB, 'fr', {
+              sensitivity: 'base',
+            });
+            if (nameComparison !== 0) {
+              return nameComparison;
             }
-            const aLast = a.lastSpokeAt || 0;
-            const bLast = b.lastSpokeAt || 0;
-            if (aLast !== bLast) {
-              return bLast - aLast;
-            }
-            const aJoined = a.joinedAt || 0;
-            const bJoined = b.joinedAt || 0;
-            if (aJoined !== bJoined) {
-              return aJoined - bJoined;
-            }
-            const nameA = (a.displayName || a.username || '').toLocaleLowerCase('fr-FR');
-            const nameB = (b.displayName || b.username || '').toLocaleLowerCase('fr-FR');
-            return nameA.localeCompare(nameB);
+            const idA = String(a.id ?? '');
+            const idB = String(b.id ?? '');
+            return idA.localeCompare(idB);
           });
           return values;
         }, [participantsMap]);
