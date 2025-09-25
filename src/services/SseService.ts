@@ -1,11 +1,36 @@
-class SseService {
-  constructor({ streamInfoProvider, keepAliveInterval }) {
+import type { Request, Response } from 'express';
+
+export interface StreamInfoProvider {
+  (): Record<string, unknown>;
+}
+
+export interface SseServiceOptions {
+  streamInfoProvider: StreamInfoProvider;
+  keepAliveInterval: number;
+}
+
+interface ClientInfo {
+  keepAliveTimer: NodeJS.Timeout;
+}
+
+interface HandleRequestOptions {
+  initialState?: (() => unknown) | unknown;
+}
+
+export default class SseService {
+  private readonly streamInfoProvider: StreamInfoProvider;
+
+  private readonly keepAliveInterval: number;
+
+  private readonly clients: Map<Response, ClientInfo>;
+
+  constructor({ streamInfoProvider, keepAliveInterval }: SseServiceOptions) {
     this.streamInfoProvider = streamInfoProvider;
     this.keepAliveInterval = keepAliveInterval;
     this.clients = new Map();
   }
 
-  handleRequest(req, res, { initialState }) {
+  public handleRequest(req: Request, res: Response, { initialState }: HandleRequestOptions): void {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('Pragma', 'no-cache');
@@ -33,15 +58,15 @@ class SseService {
     req.on('close', () => this.removeClient(res));
   }
 
-  sendInitialEvents(res, initialState) {
+  private sendInitialEvents(res: Response, initialState?: (() => unknown) | unknown): void {
     const infoPayload = this.streamInfoProvider();
     const statePayload = typeof initialState === 'function' ? initialState() : initialState;
 
     try {
-      res.write(`event: info\n`);
+      res.write('event: info\n');
       res.write(`data: ${JSON.stringify(infoPayload)}\n\n`);
       if (statePayload) {
-        res.write(`event: state\n`);
+        res.write('event: state\n');
         res.write(`data: ${JSON.stringify(statePayload)}\n\n`);
       }
     } catch (error) {
@@ -49,7 +74,7 @@ class SseService {
     }
   }
 
-  broadcast(eventName, payload) {
+  public broadcast(eventName: string, payload: unknown): void {
     const data = `event: ${eventName}\n` + `data: ${JSON.stringify(payload)}\n\n`;
 
     for (const [res] of this.clients) {
@@ -62,7 +87,7 @@ class SseService {
     }
   }
 
-  createKeepAliveTimer(res) {
+  private createKeepAliveTimer(res: Response): NodeJS.Timeout {
     return setInterval(() => {
       try {
         res.write(':keepalive\n\n');
@@ -72,7 +97,7 @@ class SseService {
     }, this.keepAliveInterval);
   }
 
-  removeClient(res) {
+  private removeClient(res: Response): void {
     const client = this.clients.get(res);
     if (!client) {
       return;
@@ -91,12 +116,10 @@ class SseService {
     }
   }
 
-  closeAll() {
+  public closeAll(): void {
     const clients = Array.from(this.clients.keys());
     for (const res of clients) {
       this.removeClient(res);
     }
   }
 }
-
-module.exports = SseService;

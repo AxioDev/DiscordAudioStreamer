@@ -1,10 +1,10 @@
-const config = require('./config');
-const AudioMixer = require('./audio/AudioMixer');
-const FfmpegTranscoder = require('./audio/FfmpegTranscoder');
-const AppServer = require('./http/AppServer');
-const SseService = require('./services/SseService');
-const SpeakerTracker = require('./services/SpeakerTracker');
-const DiscordAudioBridge = require('./discord/DiscordAudioBridge');
+import config from './config';
+import AudioMixer from './audio/AudioMixer';
+import FfmpegTranscoder from './audio/FfmpegTranscoder';
+import AppServer from './http/AppServer';
+import SseService from './services/SseService';
+import SpeakerTracker from './services/SpeakerTracker';
+import DiscordAudioBridge from './discord/DiscordAudioBridge';
 
 const mixer = new AudioMixer({
   frameBytes: config.audio.frameBytes,
@@ -25,10 +25,10 @@ const transcoder = new FfmpegTranscoder({
 });
 transcoder.start(mixer);
 
-const statsLogInterval = setInterval(() => {
+const statsLogInterval: NodeJS.Timeout = setInterval(() => {
   const statsSnapshot = {
-    ...mixer.stats,
-    sources: mixer.sources.size,
+    ...mixer.getStats(),
+    sources: mixer.getSourceCount(),
     ffmpegPid: transcoder.getCurrentProcessPid(),
   };
 
@@ -69,7 +69,7 @@ const appServer = new AppServer({
 });
 appServer.start();
 
-function shutdown() {
+function shutdown(): void {
   console.log('Shutting down...');
   try {
     clearInterval(statsLogInterval);

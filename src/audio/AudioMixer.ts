@@ -1,5 +1,67 @@
-class AudioMixer {
-  constructor({ frameBytes, mixFrameMs, bytesPerSample }) {
+import type { Writable } from 'stream';
+
+interface SourceEntry {
+  buffer: Buffer;
+  lastFrame: Buffer | null;
+  lastActiveTs: number;
+  envelope: number;
+  consecutiveFallbacks: number;
+}
+
+interface ReadFrameResult {
+  frame: Buffer | null;
+  isFresh: boolean;
+}
+
+export interface AudioMixerStats {
+  mixTicks: number;
+  useLastFrameCount: number;
+  backpressureCount: number;
+  avgActiveSources: number;
+}
+
+export interface AudioMixerOptions {
+  frameBytes: number;
+  mixFrameMs: number;
+  bytesPerSample: number;
+}
+
+export default class AudioMixer {
+  private readonly frameBytes: number;
+
+  private readonly mixFrameMs: number;
+
+  private readonly bytesPerSample: number;
+
+  private readonly sampleCount: number;
+
+  private readonly sources: Map<string, SourceEntry>;
+
+  private timer: NodeJS.Timeout | null;
+
+  private output: Writable | null;
+
+  private outputDrainListener: (() => void) | null;
+
+  private running: boolean;
+
+  private pausedForBackpressure: boolean;
+
+  private readonly nullFrame: Buffer;
+
+  private readonly mixedFloat: Float32Array;
+
+  public readonly stats: AudioMixerStats;
+
+  private readonly ACTIVE_RMS_THRESHOLD: number;
+
+  private readonly FADE_FRAMES: number;
+
+  private readonly fadeIncrement: number;
+
+  private readonly MAX_PLC_FRAMES: number;
+
+  constructor({ frameBytes, mixFrameMs, bytesPerSample }: AudioMixerOptions) {
     this.frameBytes = frameBytes;
     this.mixFrameMs = mixFrameMs;
     this.bytesPerSample = bytesPerSample;
@@ -28,7 +90,7 @@ class AudioMixer {
     this.MAX_PLC_FRAMES = 5;
   }
 
-  setOutput(writable) {
+  public setOutput(writable: Writable | null): void {
     if (this.output && this.outputDrainListener) {
       this.output.removeListener('drain', this.outputDrainListener);
     }
@@ -51,7 +113,7 @@ class AudioMixer {
     this.ensureMixLoop();
   }
 
-  addSource(id) {
+  public addSource(id: string): void {
     if (!this.sources.has(id)) {
       this.sources.set(id, {
         buffer: Buffer.alloc(0),
@@ -63,11 +125,11 @@ class AudioMixer {
     }
   }
 
-  removeSource(id) {
+  public removeSource(id: string): void {
     this.sources.delete(id);
   }
 
-  pushToSource(id, chunk) {
+  public pushToSource(id: string, chunk: Buffer): void {
     const entry = this.sources.get(id);
     if (!entry) {
       return;
@@ -80,7 +142,7 @@ class AudioMixer {
     }
   }
 
-  readFrameForSource(id) {
+  private readFrameForSource(id: string): ReadFrameResult {
     const entry = this.sources.get(id);
     if (!entry) {
       return { frame: null, isFresh: false };
@@ -103,7 +165,7 @@ class AudioMixer {
     return { frame: null, isFresh: false };
   }
 
-  computeRMS(frameBuf, envelope = 1) {
+  private computeRMS(frameBuf: Buffer | null, envelope = 1): number {
     if (!frameBuf) {
       return 0;
     }
@@ -118,7 +180,7 @@ class AudioMixer {
     return Math.sqrt(sumSquares / this.sampleCount);
   }
 
-  mixFrame() {
+  private mixFrame(): void {
     if (!this.running || this.pausedForBackpressure) {
       return;
     }
@@ -129,15 +191,20 @@ class AudioMixer {
 
     this.stats.mixTicks += 1;
 
-    const activeFrames = [];
+    const activeFrames: Array<{ id: string; frame: Buffer; envelope: number; rms: number }> = [];
 
-    for (const [id, entry] of this.sources.entries()) {
+    for (const [id] of this.sources.entries()) {
       const { frame, isFresh } = this.readFrameForSource(id);
       if (!frame) {
         continue;
       }
 
-      let envelope = entry.envelope;
+      const entry = this.sources.get(id);
+      if (!entry) {
+        continue;
+      }
+
+      let { envelope } = entry;
       if (isFresh) {
         envelope = Math.min(1, envelope + this.fadeIncrement);
         entry.lastActiveTs = Date.now();
@@ -207,14 +274,14 @@ class AudioMixer {
     }
   }
 
-  writeToOutput(buffer) {
+  private writeToOutput(buffer: Buffer): boolean {
     if (this.output && this.output.writable) {
       return this.output.write(buffer);
     }
     return true;
   }
 
-  pauseMixingForBackpressure() {
+  private pauseMixingForBackpressure(): void {
     if (this.pausedForBackpressure) {
       return;
     }
@@ -226,7 +293,7 @@ class AudioMixer {
     }
   }
 
-  ensureMixLoop() {
+  private ensureMixLoop(): void {
     if (!this.running || this.pausedForBackpressure || this.timer) {
       return;
     }
@@ -234,18 +301,25 @@ class AudioMixer {
     this.timer = setInterval(() => this.mixFrame(), this.mixFrameMs);
   }
 
-  updateAverageActiveSources(count) {
+  private updateAverageActiveSources(count: number): void {
     const { mixTicks } = this.stats;
     if (mixTicks === 0) {
       this.stats.avgActiveSources = 0;
       return;
     }
 
-    this.stats.avgActiveSources =
-      ((this.stats.avgActiveSources * (mixTicks - 1)) + count) / mixTicks;
+    this.stats.avgActiveSources = ((this.stats.avgActiveSources * (mixTicks - 1)) + count) / mixTicks;
   }
 
-  start() {
+  public getStats(): AudioMixerStats {
+    return { ...this.stats };
+  }
+
+  public getSourceCount(): number {
+    return this.sources.size;
+  }
+
+  public start(): void {
     if (this.running) {
       return;
     }
@@ -254,7 +328,7 @@ class AudioMixer {
     this.ensureMixLoop();
   }
 
-  stop() {
+  public stop(): void {
     this.running = false;
     if (this.timer) {
       clearInterval(this.timer);
@@ -263,5 +337,3 @@ class AudioMixer {
     this.pausedForBackpressure = false;
   }
 }
-
-module.exports = AudioMixer;

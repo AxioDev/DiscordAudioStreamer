@@ -1,5 +1,57 @@
-class SpeakerTracker {
-  constructor({ sseService }) {
+import type { ImageURLOptions } from 'discord.js';
+import SseService from './SseService';
+
+export interface VoiceStateSnapshot {
+  channelId: string | null;
+  guildId: string | null;
+  deaf: boolean;
+  mute: boolean;
+  selfDeaf: boolean;
+  selfMute: boolean;
+  suppress: boolean;
+  streaming: boolean;
+  video: boolean;
+  displayName?: string | null;
+  username?: string | null;
+}
+
+export interface UserProfile {
+  id: string;
+  username: string;
+  displayName: string;
+  avatar: string;
+}
+
+export interface Participant extends UserProfile {
+  isSpeaking: boolean;
+  startedAt: number | null;
+  lastSpokeAt: number | null;
+  joinedAt: number | null;
+  voiceState: VoiceStateSnapshot;
+}
+
+export type UserFetcher = (userId: string) => Promise<{
+  username?: string;
+  globalName?: string | null;
+  displayAvatarURL?: (options?: ImageURLOptions) => string;
+}>;
+
+export interface SpeakerTrackerOptions {
+  sseService: SseService;
+}
+
+export default class SpeakerTracker {
+  private readonly sseService: SseService;
+
+  private readonly participants: Map<string, Participant>;
+
+  private readonly userProfiles: Map<string, UserProfile>;
+
+  private readonly pendingProfileFetches: Set<string>;
+
+  private userFetcher: UserFetcher | null;
+
+  constructor({ sseService }: SpeakerTrackerOptions) {
     this.sseService = sseService;
     this.participants = new Map();
     this.userProfiles = new Map();
@@ -7,25 +59,25 @@ class SpeakerTracker {
     this.userFetcher = null;
   }
 
-  setUserFetcher(fetcher) {
+  public setUserFetcher(fetcher: UserFetcher): void {
     this.userFetcher = fetcher;
   }
 
-  getSpeakers() {
+  public getSpeakers(): Participant[] {
     return Array.from(this.participants.values()).map((participant) => this.cloneParticipant(participant));
   }
 
-  getSpeakerCount() {
+  public getSpeakerCount(): number {
     return this.participants.size;
   }
 
-  getInitialState() {
+  public getInitialState(): { speakers: Participant[] } {
     return { speakers: this.getSpeakers() };
   }
 
-  async ensureParticipant(userId) {
+  private async ensureParticipant(userId: string): Promise<Participant> {
     if (this.participants.has(userId)) {
-      return this.participants.get(userId);
+      return this.participants.get(userId)!;
     }
 
     if (this.pendingProfileFetches.has(userId)) {
@@ -37,7 +89,7 @@ class SpeakerTracker {
 
     try {
       const profile = await this.fetchUserProfile(userId);
-      const participant = {
+      const participant: Participant = {
         ...profile,
         isSpeaking: false,
         startedAt: null,
@@ -65,11 +117,11 @@ class SpeakerTracker {
     }
   }
 
-  async handleSpeakingStart(userId) {
+  public async handleSpeakingStart(userId: string): Promise<void> {
     try {
       const participant = await this.ensureParticipant(userId);
       const now = Date.now();
-      const updated = {
+      const updated: Participant = {
         ...participant,
         isSpeaking: true,
         startedAt: now,
@@ -83,13 +135,13 @@ class SpeakerTracker {
     }
   }
 
-  handleSpeakingEnd(userId) {
+  public handleSpeakingEnd(userId: string): void {
     const participant = this.participants.get(userId);
     if (!participant) {
       return;
     }
 
-    const updated = {
+    const updated: Participant = {
       ...participant,
       isSpeaking: false,
       startedAt: null,
@@ -100,7 +152,7 @@ class SpeakerTracker {
     this.broadcastState();
   }
 
-  async handleVoiceStateUpdate(userId, voiceState) {
+  public async handleVoiceStateUpdate(userId: string, voiceState: VoiceStateSnapshot | null): Promise<void> {
     if (!voiceState || !voiceState.channelId) {
       if (this.participants.delete(userId)) {
         this.sseService.broadcast('speaking', { type: 'end', userId });
@@ -114,7 +166,7 @@ class SpeakerTracker {
       const sameChannel = participant.voiceState?.channelId === voiceState.channelId;
       const joinedAt = sameChannel && participant.joinedAt ? participant.joinedAt : Date.now();
 
-      const updated = {
+      const updated: Participant = {
         ...participant,
         displayName: voiceState.displayName || participant.displayName,
         username: voiceState.username || participant.username,
@@ -129,6 +181,8 @@ class SpeakerTracker {
           suppress: Boolean(voiceState.suppress),
           streaming: Boolean(voiceState.streaming),
           video: Boolean(voiceState.video),
+          displayName: voiceState.displayName,
+          username: voiceState.username,
         },
       };
 
@@ -139,13 +193,13 @@ class SpeakerTracker {
     }
   }
 
-  broadcastState() {
+  private broadcastState(): void {
     this.sseService.broadcast('state', { speakers: this.getSpeakers() });
   }
 
-  async fetchUserProfile(userId) {
+  private async fetchUserProfile(userId: string): Promise<UserProfile> {
     if (this.userProfiles.has(userId)) {
-      return this.userProfiles.get(userId);
+      return this.userProfiles.get(userId)!;
     }
 
     const fallbackIndexRaw = Number(String(userId).slice(-1));
@@ -165,20 +219,16 @@ class SpeakerTracker {
           }
         }
       } catch (error) {
-        console.warn('Unable to fetch user profile', userId, error?.message || error);
+        console.warn('Unable to fetch user profile', userId, (error as Error)?.message || error);
       }
     }
 
-    const profile = { id: userId, username, displayName, avatar };
+    const profile: UserProfile = { id: userId, username, displayName, avatar };
     this.userProfiles.set(userId, profile);
     return profile;
   }
 
-  cloneParticipant(participant) {
-    if (!participant) {
-      return participant;
-    }
-
+  private cloneParticipant(participant: Participant): Participant {
     return {
       ...participant,
       voiceState: {
@@ -195,12 +245,10 @@ class SpeakerTracker {
     };
   }
 
-  clear() {
+  public clear(): void {
     this.participants.clear();
     this.pendingProfileFetches.clear();
     this.userProfiles.clear();
     this.sseService.broadcast('state', { speakers: [] });
   }
 }
-
-module.exports = SpeakerTracker;

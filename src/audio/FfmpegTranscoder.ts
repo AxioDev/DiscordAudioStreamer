@@ -1,8 +1,9 @@
-const { EventEmitter } = require('events');
-const { spawn } = require('child_process');
-const { PassThrough } = require('stream');
+import { EventEmitter } from 'events';
+import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
+import { PassThrough } from 'stream';
+import type AudioMixer from './AudioMixer';
 
-function calculateOpusHeaderLength(buffer) {
+function calculateOpusHeaderLength(buffer: Buffer): number | null {
   let offset = 0;
 
   while (offset + 27 <= buffer.length) {
@@ -49,7 +50,48 @@ function calculateOpusHeaderLength(buffer) {
   return null;
 }
 
-class FfmpegTranscoder extends EventEmitter {
+export interface FfmpegTranscoderOptions {
+  ffmpegPath: string;
+  outputFormat: string;
+  opusBitrate: string;
+  mp3Bitrate: string;
+  sampleRate: number;
+  channels: number;
+  headerBufferMaxBytes: number;
+  mixFrameMs: number;
+}
+
+export default class FfmpegTranscoder extends EventEmitter {
+  private readonly ffmpegPath: string;
+
+  private readonly outputFormat: string;
+
+  private readonly opusBitrate: string;
+
+  private readonly mp3Bitrate: string;
+
+  private readonly sampleRate: number;
+
+  private readonly channels: number;
+
+  private readonly headerBufferMaxBytes: number;
+
+  private readonly mixFrameMs: number;
+
+  private readonly broadcastStream: PassThrough;
+
+  private headerBuffer: Buffer;
+
+  private mixer: AudioMixer | null;
+
+  private currentProcess: ChildProcessWithoutNullStreams | null;
+
+  private restartTimer: NodeJS.Timeout | null;
+
+  private restarting: boolean;
+
+  private captureHeader: boolean;
+
   constructor({
     ffmpegPath,
     outputFormat,
@@ -59,7 +101,7 @@ class FfmpegTranscoder extends EventEmitter {
     channels,
     headerBufferMaxBytes,
     mixFrameMs,
-  }) {
+  }: FfmpegTranscoderOptions) {
     super();
     this.ffmpegPath = ffmpegPath;
     this.outputFormat = outputFormat;
@@ -79,12 +121,12 @@ class FfmpegTranscoder extends EventEmitter {
     this.captureHeader = false;
   }
 
-  start(mixer) {
+  public start(mixer: AudioMixer): void {
     this.mixer = mixer;
     this.spawnProcess();
   }
 
-  spawnProcess() {
+  private spawnProcess(): void {
     if (this.restarting) {
       return;
     }
@@ -147,15 +189,15 @@ class FfmpegTranscoder extends EventEmitter {
       this.mixer.setOutput(ffmpeg.stdin);
     }
 
-    ffmpeg.stdout.on('data', (chunk) => this.handleStdout(chunk));
-    ffmpeg.stderr.on('data', (data) => process.stderr.write(data.toString()));
+    ffmpeg.stdout.on('data', (chunk: Buffer) => this.handleStdout(chunk));
+    ffmpeg.stderr.on('data', (data: Buffer) => process.stderr.write(data.toString()));
     ffmpeg.on('exit', (code, signal) => this.handleExit(code, signal));
     ffmpeg.on('error', (error) => this.handleError(error));
 
     console.log('ffmpeg pid=', ffmpeg.pid);
   }
 
-  handleStdout(chunk) {
+  private handleStdout(chunk: Buffer): void {
     if (this.captureHeader) {
       this.captureHeaderChunk(chunk);
     }
@@ -164,7 +206,7 @@ class FfmpegTranscoder extends EventEmitter {
     this.emit('data', chunk);
   }
 
-  captureHeaderChunk(chunk) {
+  private captureHeaderChunk(chunk: Buffer): void {
     if (!chunk || chunk.length === 0) {
       return;
     }
@@ -194,7 +236,7 @@ class FfmpegTranscoder extends EventEmitter {
     this.captureHeader = false;
   }
 
-  handleExit(code, signal) {
+  private handleExit(code: number | null, signal: NodeJS.Signals | null): void {
     console.warn(`ffmpeg exited code=${code} signal=${signal}`);
     if (this.mixer) {
       this.mixer.setOutput(null);
@@ -203,7 +245,7 @@ class FfmpegTranscoder extends EventEmitter {
     this.scheduleRestart(800);
   }
 
-  handleError(error) {
+  private handleError(error: Error): void {
     console.error('ffmpeg error', error);
     if (this.mixer) {
       this.mixer.setOutput(null);
@@ -212,7 +254,7 @@ class FfmpegTranscoder extends EventEmitter {
     this.scheduleRestart(2000);
   }
 
-  scheduleRestart(delay) {
+  private scheduleRestart(delay: number): void {
     if (this.restartTimer) {
       return;
     }
@@ -223,20 +265,20 @@ class FfmpegTranscoder extends EventEmitter {
     }, delay);
   }
 
-  clearRestartTimer() {
+  private clearRestartTimer(): void {
     if (this.restartTimer) {
       clearTimeout(this.restartTimer);
       this.restartTimer = null;
     }
   }
 
-  createClientStream() {
+  public createClientStream(): PassThrough {
     const clientStream = new PassThrough();
     this.broadcastStream.pipe(clientStream);
     return clientStream;
   }
 
-  releaseClientStream(stream) {
+  public releaseClientStream(stream: PassThrough): void {
     try {
       this.broadcastStream.unpipe(stream);
     } catch (error) {
@@ -249,15 +291,15 @@ class FfmpegTranscoder extends EventEmitter {
     }
   }
 
-  getHeaderBuffer() {
+  public getHeaderBuffer(): Buffer {
     return this.headerBuffer;
   }
 
-  getCurrentProcessPid() {
-    return this.currentProcess ? this.currentProcess.pid : null;
+  public getCurrentProcessPid(): number | null {
+    return this.currentProcess?.pid ?? null;
   }
 
-  stop() {
+  public stop(): void {
     this.clearRestartTimer();
     this.restarting = false;
     if (this.currentProcess && !this.currentProcess.killed) {
@@ -275,5 +317,3 @@ class FfmpegTranscoder extends EventEmitter {
     this.broadcastStream.end();
   }
 }
-
-module.exports = FfmpegTranscoder;

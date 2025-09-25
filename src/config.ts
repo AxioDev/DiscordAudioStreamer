@@ -1,14 +1,41 @@
-require('dotenv').config();
+import dotenv from 'dotenv';
 
-function parseInteger(value, fallback) {
-  const parsed = parseInt(value, 10);
+dotenv.config();
+
+function parseInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 const outputFormat = (process.env.OUT_FORMAT || 'opus').toLowerCase();
 
-const config = {
-  botToken: process.env.BOT_TOKEN,
+export interface AudioConfig {
+  sampleRate: number;
+  channels: number;
+  bytesPerSample: number;
+  frameSamples: number;
+  frameBytes: number;
+}
+
+export interface Config {
+  botToken: string;
+  guildId?: string;
+  voiceChannelId?: string;
+  port: number;
+  ffmpegPath: string;
+  outputFormat: 'opus' | 'mp3' | string;
+  opusBitrate: string;
+  mp3Bitrate: string;
+  mixFrameMs: number;
+  streamEndpoint: string;
+  headerBufferMaxBytes: number;
+  keepAliveInterval: number;
+  audio: AudioConfig;
+  mimeTypes: Record<string, string>;
+}
+
+const config: Config = {
+  botToken: process.env.BOT_TOKEN ?? '',
   guildId: process.env.GUILD_ID,
   voiceChannelId: process.env.VOICE_CHANNEL_ID,
   port: parseInteger(process.env.PORT, 3000),
@@ -24,6 +51,8 @@ const config = {
     sampleRate: 48000,
     channels: 2,
     bytesPerSample: 2,
+    frameSamples: 0,
+    frameBytes: 0,
   },
   mimeTypes: {
     opus: 'audio/ogg',
@@ -32,7 +61,7 @@ const config = {
 };
 
 config.audio.frameSamples = Math.floor(
-  config.audio.sampleRate * (config.mixFrameMs / 1000)
+  config.audio.sampleRate * (config.mixFrameMs / 1000),
 );
 config.audio.frameBytes =
   config.audio.frameSamples * config.audio.channels * config.audio.bytesPerSample;
@@ -42,4 +71,4 @@ if (!config.botToken) {
   process.exit(1);
 }
 
-module.exports = config;
+export default config;
