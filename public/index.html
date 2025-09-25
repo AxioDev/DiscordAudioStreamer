@@ -804,7 +804,10 @@
             class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/50 backdrop-blur-xl"
           >
             <div class="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-fuchsia-500/25 blur-3xl"></div>
-            <${StatusBadge} status=${status} className="absolute right-8 top-8" />
+            <${StatusBadge}
+              status=${status}
+              className="absolute right-4 top-4 sm:right-6 sm:top-6"
+            />
             <div class="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
               <div class="space-y-4">
                 <h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">Libre Antenne</h1>
