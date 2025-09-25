@@ -266,8 +266,8 @@
         const badgeConfig = (() => {
           if (isSpeaking) {
             return {
-              srLabel: 'En live',
-              label: 'Live',
+              srLabel: 'En direct',
+              label: 'En direct',
               Icon: Activity,
               classes: 'bg-emerald-500 text-emerald-900',
               ping: true,
@@ -671,7 +671,7 @@
                 <div class="flex items-center gap-5">
                   <button
                     type="button"
-                    class="relative flex aspect-square w-24 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-fuchsia-500 via-indigo-500 to-sky-400 text-white shadow-lg shadow-fuchsia-900/40 transition focus:outline-none focus:ring-2 focus:ring-fuchsia-300 focus:ring-offset-2 focus:ring-offset-slate-950 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
+                    class="relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-fuchsia-500 via-indigo-500 to-sky-400 text-white shadow-lg shadow-fuchsia-900/40 transition focus:outline-none focus:ring-2 focus:ring-fuchsia-300 focus:ring-offset-2 focus:ring-offset-slate-950 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
                     aria-label=${isPlaying ? 'Mettre le flux en pause' : 'Lancer la lecture du flux'}
                     onClick=${togglePlay}
                     disabled=${isLoading && !isPlaying && !hasError}
@@ -696,14 +696,25 @@
                         <${Activity} class="h-3.5 w-3.5" aria-hidden="true" />
                         <span>En direct</span>
                       </span>
-                      <span class="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[0.7rem] font-medium uppercase tracking-[0.35em] text-slate-200">
-                        ${statusConfig.Icon
-                          ? html`<span class="flex items-center gap-1">
-                                <${statusConfig.Icon} class="h-3.5 w-3.5" aria-hidden="true" />
-                                <span>${statusConfig.label ?? statusConfig.srLabel ?? 'Statut'}</span>
-                              </span>`
-                          : statusConfig.label}
-                      </span>
+                      ${(() => {
+                        const statusLabel = statusConfig.label ?? statusConfig.srLabel;
+                        if (!statusLabel) {
+                          return null;
+                        }
+                        if (statusLabel.trim().toLowerCase() === 'en direct') {
+                          return null;
+                        }
+                        return html`
+                          <span class="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[0.7rem] font-medium uppercase tracking-[0.35em] text-slate-200">
+                            ${statusConfig.Icon
+                              ? html`<span class="flex items-center gap-1">
+                                    <${statusConfig.Icon} class="h-3.5 w-3.5" aria-hidden="true" />
+                                    <span>${statusLabel}</span>
+                                  </span>`
+                              : statusLabel}
+                          </span>
+                        `;
+                      })()}
                       ${
                         isPlaying
                           ? html`<div class="audio-wave flex items-end gap-1 text-fuchsia-200">
@@ -838,14 +849,14 @@
                 <span class="flex items-center gap-2">
                   <${Users} class="h-3.5 w-3.5" aria-hidden="true" />
                   <span aria-hidden="true" class="text-sm font-semibold tracking-normal">${connectedCount}</span>
-                  <span aria-hidden="true" class="text-[0.6rem] font-semibold uppercase tracking-[0.35em] text-indigo-200/80">Connectés</span>
+                  <span aria-hidden="true" class="text-[0.6rem] font-semibold uppercase tracking-[0.35em] text-indigo-200/80">Co</span>
                   <span class="sr-only">personnes connectées</span>
                 </span>
                 <span aria-hidden="true" class="text-indigo-300">·</span>
                 <span class="flex items-center gap-2">
                   <${Activity} class="h-3.5 w-3.5" aria-hidden="true" />
                   <span aria-hidden="true" class="text-sm font-semibold tracking-normal">${activeSpeakersCount}</span>
-                  <span aria-hidden="true" class="text-[0.6rem] font-semibold uppercase tracking-[0.35em] text-indigo-200/80">En live</span>
+                  <span aria-hidden="true" class="text-[0.6rem] font-semibold uppercase tracking-[0.35em] text-indigo-200/80">En direct</span>
                   <span class="sr-only">personnes en direct</span>
                 </span>
               </div>
