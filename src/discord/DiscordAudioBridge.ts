@@ -1,24 +1,68 @@
-const { Client, GatewayIntentBits, Events } = require('discord.js');
-const {
+import {
+  Client,
+  GatewayIntentBits,
+  Events,
+  type Message,
+  type VoiceState,
+  type Snowflake,
+  type VoiceBasedChannel,
+} from 'discord.js';
+import {
   joinVoiceChannel,
   entersState,
   VoiceConnectionStatus,
   EndBehaviorType,
-} = require('@discordjs/voice');
-const prism = require('prism-media');
+  type VoiceConnection,
+  type VoiceReceiver,
+  type AudioReceiveStream,
+} from '@discordjs/voice';
+import * as prism from 'prism-media';
+import type AudioMixer from '../audio/AudioMixer';
+import type SpeakerTracker from '../services/SpeakerTracker';
+import type { VoiceStateSnapshot } from '../services/SpeakerTracker';
+import type { Config } from '../config';
 
-class DiscordAudioBridge {
-  constructor({ config, mixer, speakerTracker }) {
+type DecoderStream = prism.opus.Decoder;
+
+interface Subscription {
+  opusStream: AudioReceiveStream;
+  decoder: DecoderStream;
+  cleanup: (() => void) | null;
+}
+
+export interface DiscordAudioBridgeOptions {
+  config: Config;
+  mixer: AudioMixer;
+  speakerTracker: SpeakerTracker;
+}
+
+export default class DiscordAudioBridge {
+  private readonly config: Config;
+
+  private readonly mixer: AudioMixer;
+
+  private readonly speakerTracker: SpeakerTracker;
+
+  private readonly client: Client;
+
+  private voiceConnection: VoiceConnection | null = null;
+
+  private readonly activeSubscriptions = new Map<Snowflake, Subscription>();
+
+  private currentGuildId: Snowflake | null = null;
+
+  private currentVoiceChannelId: Snowflake | null = null;
+
+  private shouldAutoReconnect = true;
+
+  private isReconnecting = false;
+
+  private expectingDisconnect = false;
+
+  constructor({ config, mixer, speakerTracker }: DiscordAudioBridgeOptions) {
     this.config = config;
     this.mixer = mixer;
     this.speakerTracker = speakerTracker;
-    this.voiceConnection = null;
-    this.activeSubscriptions = new Map();
-    this.currentGuildId = null;
-    this.currentVoiceChannelId = null;
-    this.shouldAutoReconnect = true;
-    this.isReconnecting = false;
-    this.expectingDisconnect = false;
 
     this.client = new Client({
       intents: [
@@ -34,8 +78,12 @@ class DiscordAudioBridge {
     this.registerEventHandlers();
   }
 
-  registerEventHandlers() {
+  private registerEventHandlers(): void {
     this.client.once(Events.ClientReady, async () => {
+      if (!this.client.user) {
+        console.warn('Discord client ready without user context');
+        return;
+      }
       console.log('Discord bot logged as', this.client.user.tag);
       if (this.config.guildId && this.config.voiceChannelId) {
         try {
@@ -49,7 +97,7 @@ class DiscordAudioBridge {
       }
     });
 
-    this.client.on('messageCreate', async (message) => this.handleMessage(message));
+    this.client.on(Events.MessageCreate, async (message) => this.handleMessage(message));
     this.client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
       try {
         await this.handleVoiceStateUpdate(oldState, newState);
@@ -59,7 +107,7 @@ class DiscordAudioBridge {
     });
   }
 
-  async handleMessage(message) {
+  private async handleMessage(message: Message): Promise<void> {
     if (message.author.bot) {
       return;
     }
@@ -71,8 +119,8 @@ class DiscordAudioBridge {
 
     if (content.startsWith('!joinVoice')) {
       const parts = content.split(/\s+/);
-      const guildId = parts[1] || message.guildId;
-      const channelId = parts[2];
+      const guildId = (parts[1] as Snowflake | undefined) || message.guildId || undefined;
+      const channelId = parts[2] as Snowflake | undefined;
 
       if (!guildId || !channelId) {
         await message.reply('Usage: !joinVoice <guildId> <voiceChannelId>');
@@ -93,12 +141,12 @@ class DiscordAudioBridge {
         await message.reply('Disconnecting from voice channel.');
         this.leaveVoice();
       } else {
-        await message.reply("Je ne suis pas connecté à un salon vocal.");
+        await message.reply('Je ne suis pas connecté à un salon vocal.');
       }
     }
   }
 
-  async joinVoice(guildId, channelId) {
+  public async joinVoice(guildId: Snowflake, channelId: Snowflake): Promise<VoiceConnection> {
     this.shouldAutoReconnect = true;
     const guild = this.client.guilds.cache.get(guildId);
     if (!guild) {
@@ -109,6 +157,8 @@ class DiscordAudioBridge {
     if (!channel || !channel.isVoiceBased()) {
       throw new Error('Voice channel not found or inaccessible.');
     }
+
+    const voiceChannel = channel;
 
     const connection = joinVoiceChannel({
       channelId,
@@ -126,7 +176,7 @@ class DiscordAudioBridge {
 
     try {
       this.speakerTracker.clear();
-      await this.syncInitialChannelMembers(channel);
+      await this.syncInitialChannelMembers(voiceChannel);
     } catch (error) {
       console.warn('Failed to synchronise initial channel members', error);
     }
@@ -135,13 +185,15 @@ class DiscordAudioBridge {
     return connection;
   }
 
-  setupReceiver(connection) {
+  private setupReceiver(connection: VoiceConnection): void {
     const receiver = connection.receiver;
 
     receiver.speaking.on('start', (userId) => {
       console.log('start speaking', userId);
       this.mixer.addSource(userId);
-      this.speakerTracker.handleSpeakingStart(userId);
+      this.speakerTracker.handleSpeakingStart(userId).catch((error) => {
+        console.error('Failed to handle speaking start', error);
+      });
       this.subscribeToUserAudio(userId, receiver);
     });
 
@@ -170,7 +222,7 @@ class DiscordAudioBridge {
     });
   }
 
-  subscribeToUserAudio(userId, receiver) {
+  private subscribeToUserAudio(userId: Snowflake, receiver: VoiceReceiver): void {
     if (this.activeSubscriptions.has(userId)) {
       return;
     }
@@ -179,22 +231,22 @@ class DiscordAudioBridge {
       const opusStream = receiver.subscribe(userId, {
         end: { behavior: EndBehaviorType.AfterSilence, duration: 1000 },
       });
-      const decoder = new prism.opus.Decoder({
+      const decoder: DecoderStream = new prism.opus.Decoder({
         frameSize: 960,
         channels: this.config.audio.channels,
         rate: this.config.audio.sampleRate,
       });
 
       opusStream.pipe(decoder);
-      const onData = (chunk) => this.mixer.pushToSource(userId, chunk);
+      const onData = (chunk: Buffer) => this.mixer.pushToSource(userId, chunk);
       decoder.on('data', onData);
 
-      const subscription = { opusStream, decoder, cleanup: null };
+      const subscription: Subscription = { opusStream, decoder, cleanup: null };
       this.activeSubscriptions.set(userId, subscription);
 
       let cleanedUp = false;
-      let onOpusError;
-      let onDecoderError;
+      let onOpusError: ((error: Error) => void) | null = null;
+      let onDecoderError: ((error: Error) => void) | null = null;
       const cleanup = () => {
         if (cleanedUp) {
           return;
@@ -225,11 +277,11 @@ class DiscordAudioBridge {
         console.log('Cleaned resources for user', userId);
       };
 
-      onOpusError = (error) => {
+      onOpusError = (error: Error) => {
         console.warn('Opus stream error', error);
         cleanup();
       };
-      onDecoderError = (error) => {
+      onDecoderError = (error: Error) => {
         console.warn('Decoder error', error);
         cleanup();
       };
@@ -244,7 +296,7 @@ class DiscordAudioBridge {
     }
   }
 
-  leaveVoice() {
+  public leaveVoice(): void {
     if (this.voiceConnection) {
       this.shouldAutoReconnect = false;
       this.expectingDisconnect = true;
@@ -258,7 +310,7 @@ class DiscordAudioBridge {
     this.isReconnecting = false;
   }
 
-  cleanupAllSubscriptions() {
+  private cleanupAllSubscriptions(): void {
     const subscriptions = Array.from(this.activeSubscriptions.values());
     for (const subscription of subscriptions) {
       if (subscription && typeof subscription.cleanup === 'function') {
@@ -268,11 +320,11 @@ class DiscordAudioBridge {
     this.activeSubscriptions.clear();
   }
 
-  async login() {
+  public async login(): Promise<void> {
     await this.client.login(this.config.botToken);
   }
 
-  async destroy() {
+  public async destroy(): Promise<void> {
     try {
       this.leaveVoice();
     } catch (error) {
@@ -286,7 +338,7 @@ class DiscordAudioBridge {
     }
   }
 
-  async handleConnectionDisconnected(connection) {
+  private async handleConnectionDisconnected(connection: VoiceConnection): Promise<void> {
     if (!this.shouldAutoReconnect || this.expectingDisconnect) {
       return;
     }
@@ -307,7 +359,7 @@ class DiscordAudioBridge {
     }
   }
 
-  async scheduleReconnect() {
+  private async scheduleReconnect(): Promise<void> {
     if (this.isReconnecting) {
       return;
     }
@@ -327,7 +379,7 @@ class DiscordAudioBridge {
     }
   }
 
-  async handleVoiceStateUpdate(oldState, newState) {
+  private async handleVoiceStateUpdate(oldState: VoiceState | null, newState: VoiceState | null): Promise<void> {
     const userId = newState?.id || oldState?.id;
     if (!userId) {
       return;
@@ -356,7 +408,7 @@ class DiscordAudioBridge {
     }
   }
 
-  async syncInitialChannelMembers(channel) {
+  private async syncInitialChannelMembers(channel: VoiceBasedChannel): Promise<void> {
     if (!channel || !channel.isVoiceBased()) {
       return;
     }
@@ -366,7 +418,7 @@ class DiscordAudioBridge {
       return;
     }
 
-    const promises = [];
+    const promises: Array<Promise<unknown>> = [];
     for (const member of members.values()) {
       if (!member || !member.voice) {
         continue;
@@ -377,7 +429,7 @@ class DiscordAudioBridge {
     await Promise.allSettled(promises);
   }
 
-  serializeVoiceState(voiceState) {
+  private serializeVoiceState(voiceState: VoiceState | null): VoiceStateSnapshot | null {
     if (!voiceState) {
       return null;
     }
@@ -386,17 +438,15 @@ class DiscordAudioBridge {
     return {
       channelId: voiceState.channelId,
       guildId: voiceState.guild?.id || member?.guild?.id || null,
-      deaf: voiceState.deaf,
-      mute: voiceState.mute,
-      selfDeaf: voiceState.selfDeaf,
-      selfMute: voiceState.selfMute,
-      suppress: voiceState.suppress,
-      streaming: voiceState.streaming,
-      video: voiceState.selfVideo,
-      displayName: member?.displayName || member?.user?.globalName || member?.user?.username,
-      username: member?.user?.username,
+      deaf: Boolean(voiceState.deaf),
+      mute: Boolean(voiceState.mute),
+      selfDeaf: Boolean(voiceState.selfDeaf),
+      selfMute: Boolean(voiceState.selfMute),
+      suppress: Boolean(voiceState.suppress),
+      streaming: Boolean(voiceState.streaming),
+      video: Boolean(voiceState.selfVideo),
+      displayName: member?.displayName || member?.user?.globalName || member?.user?.username || null,
+      username: member?.user?.username || null,
     };
   }
 }
-
-module.exports = DiscordAudioBridge;

@@ -1,20 +1,47 @@
-const express = require('express');
-const path = require('path');
+import express, { type Request, type Response } from 'express';
+import path from 'path';
+import type { Server } from 'http';
+import type FfmpegTranscoder from '../audio/FfmpegTranscoder';
+import type SpeakerTracker from '../services/SpeakerTracker';
+import type SseService from '../services/SseService';
+import type { Config } from '../config';
 
-class AppServer {
-  constructor({ config, transcoder, speakerTracker, sseService }) {
+export interface AppServerOptions {
+  config: Config;
+  transcoder: FfmpegTranscoder;
+  speakerTracker: SpeakerTracker;
+  sseService: SseService;
+}
+
+type FlushCapableResponse = Response & {
+  flushHeaders?: () => void;
+  flush?: () => void;
+};
+
+export default class AppServer {
+  private readonly config: Config;
+
+  private readonly transcoder: FfmpegTranscoder;
+
+  private readonly speakerTracker: SpeakerTracker;
+
+  private readonly sseService: SseService;
+
+  private readonly app = express();
+
+  private httpServer: Server | null = null;
+
+  constructor({ config, transcoder, speakerTracker, sseService }: AppServerOptions) {
     this.config = config;
     this.transcoder = transcoder;
     this.speakerTracker = speakerTracker;
     this.sseService = sseService;
-    this.app = express();
-    this.httpServer = null;
 
     this.configureMiddleware();
     this.registerRoutes();
   }
 
-  configureMiddleware() {
+  private configureMiddleware(): void {
     this.app.use((req, res, next) => {
       res.header('Access-Control-Allow-Origin', '*');
       res.header('Access-Control-Allow-Methods', 'GET,OPTIONS');
@@ -32,7 +59,7 @@ class AppServer {
     this.app.use(express.static(publicDir));
   }
 
-  registerRoutes() {
+  private registerRoutes(): void {
     this.app.get('/events', (req, res) => {
       this.sseService.handleRequest(req, res, {
         initialState: () => this.speakerTracker.getInitialState(),
@@ -41,7 +68,7 @@ class AppServer {
 
     this.app.get(this.config.streamEndpoint, (req, res) => this.handleStreamRequest(req, res));
 
-    this.app.get('/status', (req, res) => {
+    this.app.get('/status', (_req, res) => {
       res.json({
         ffmpeg_pid: this.transcoder.getCurrentProcessPid(),
         headerBufferBytes: this.transcoder.getHeaderBuffer().length,
@@ -49,12 +76,12 @@ class AppServer {
       });
     });
 
-    this.app.get('/', (req, res) => {
+    this.app.get('/', (_req, res) => {
       res.sendFile(path.resolve(__dirname, '..', '..', 'public', 'index.html'));
     });
   }
 
-  handleStreamRequest(req, res) {
+  private handleStreamRequest(req: Request, res: Response): void {
     const mimeType = this.config.mimeTypes[this.config.outputFormat] || 'application/octet-stream';
     res.setHeader('Content-Type', mimeType);
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -72,16 +99,17 @@ class AppServer {
       console.warn('Unable to disable Nagle algorithm for stream socket', error);
     }
 
-    if (typeof res.flushHeaders === 'function') {
-      res.flushHeaders();
+    const flushableRes = res as FlushCapableResponse;
+    if (typeof flushableRes.flushHeaders === 'function') {
+      flushableRes.flushHeaders();
     }
 
     const headerBuffer = this.transcoder.getHeaderBuffer();
     if (headerBuffer && headerBuffer.length > 0) {
       try {
         res.write(headerBuffer);
-        if (typeof res.flush === 'function') {
-          res.flush();
+        if (typeof flushableRes.flush === 'function') {
+          flushableRes.flush();
         }
       } catch (error) {
         console.warn('Failed to send initial stream header buffer', error);
@@ -104,7 +132,7 @@ class AppServer {
     });
   }
 
-  start() {
+  public start(): Server {
     if (this.httpServer) {
       return this.httpServer;
     }
@@ -116,12 +144,10 @@ class AppServer {
     return this.httpServer;
   }
 
-  stop() {
+  public stop(): void {
     if (this.httpServer) {
       this.httpServer.close();
       this.httpServer = null;
     }
   }
 }
-
-module.exports = AppServer;
