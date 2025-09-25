@@ -193,11 +193,13 @@
         });
       };
 
-      const StatusBadge = ({ status }) => {
+      const StatusBadge = ({ status, className = '' }) => {
         const config = STATUS_LABELS[status] ?? STATUS_LABELS.connecting;
         const text = config.label ?? config.srLabel ?? 'Statut';
         return html`
-          <div class=${`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium backdrop-blur ${config.ring}`}>
+          <div
+            class=${`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium backdrop-blur ${config.ring} ${className}`}
+          >
             <span class=${`h-2.5 w-2.5 rounded-full shadow-md ${config.dot}`}></span>
             <span class="flex items-center gap-1">
               ${config.Icon ? html`<${config.Icon} class="h-4 w-4" aria-hidden="true" />` : null}
@@ -802,9 +804,9 @@
             class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/50 backdrop-blur-xl"
           >
             <div class="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-fuchsia-500/25 blur-3xl"></div>
+            <${StatusBadge} status=${status} className="absolute right-8 top-8" />
             <div class="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
               <div class="space-y-4">
-                <p class="text-xs uppercase tracking-[0.35em] text-slate-300">Libre Antenne</p>
                 <h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">Libre Antenne</h1>
                 <p class="max-w-xl text-base text-slate-200">
                   Le chaos en direct : un refuge sans filtre pour drogués, marginaux, alcooliques, gamers et esprits libres.
@@ -820,7 +822,6 @@
                 </a>
               </div>
               <div class="flex flex-col items-start gap-3 text-left lg:items-end lg:text-right">
-                <${StatusBadge} status=${status} />
                 <p class="text-xs text-slate-300">Dernière mise à jour : ${lastUpdateLabel}</p>
               </div>
             </div>
