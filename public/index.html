@@ -8,21 +8,82 @@
       name="description"
       content="Le chaos en direct : un refuge sans filtre pour drogués, marginaux, alcooliques, gamers et esprits libres."
     />
+    <meta name="keywords" content="radio libre, libre antenne, talk show en direct, discord audio, streaming communautaire" />
+    <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+    <meta name="googlebot" content="index, follow" />
+    <meta name="bingbot" content="index, follow" />
+    <meta name="referrer" content="no-referrer-when-downgrade" />
+    <meta name="author" content="Libre Antenne" />
+    <meta name="publisher" content="Libre Antenne" />
     <meta name="theme-color" content="#020617" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="application-name" content="Libre Antenne" />
     <meta name="apple-mobile-web-app-title" content="Libre Antenne" />
+    <link rel="canonical" href="https://libre-antenne.audio/" />
+    <link rel="alternate" href="https://libre-antenne.audio/" hreflang="fr-FR" />
     <link rel="manifest" href="/site.webmanifest" />
     <link rel="icon" type="image/svg+xml" href="/icons/icon-192.svg" />
     <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.svg" />
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
+      rel="preload"
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
-      rel="stylesheet"
+      as="style"
+      onload="this.onload=null;this.rel='stylesheet'"
     />
-    <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio"></script>
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="fr_FR" />
+    <meta property="og:url" content="https://libre-antenne.audio/" />
+    <meta property="og:site_name" content="Libre Antenne" />
+    <meta property="og:title" content="Libre Antenne · Radio libre et streaming communautaire" />
+    <meta
+      property="og:description"
+      content="Libre Antenne diffuse en continu les voix du salon Discord : un espace sans filtre pour les esprits libres, les joueurs et les noctambules."
+    />
+    <meta property="og:image" content="https://libre-antenne.audio/icons/icon-512.png" />
+    <meta property="og:image:alt" content="Illustration du direct communautaire Libre Antenne" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@libreantenne" />
+    <meta name="twitter:creator" content="@libreantenne" />
+    <meta name="twitter:title" content="Libre Antenne · Radio libre et streaming communautaire" />
+    <meta
+      name="twitter:description"
+      content="Rejoins le flux audio Libre Antenne pour partager ta voix en direct et écouter la communauté."
+    />
+    <meta name="twitter:image" content="https://libre-antenne.audio/icons/icon-512.png" />
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio" defer></script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BroadcastService",
+        "name": "Libre Antenne",
+        "description": "Flux audio communautaire en direct diffusé depuis Discord, libre d'accès et sans filtre.",
+        "url": "https://libre-antenne.audio/",
+        "areaServed": "FR",
+        "inLanguage": "fr-FR",
+        "provider": {
+          "@type": "Organization",
+          "name": "Libre Antenne",
+          "url": "https://libre-antenne.audio/"
+        },
+        "broadcastDisplayName": "Libre Antenne – Direct Discord",
+        "broadcastFrequency": "Streaming en ligne",
+        "sameAs": [
+          "https://discord.com/",
+          "https://twitter.com/libreantenne"
+        ]
+      }
+    </script>
     <script>
       tailwind.config = {
         theme: {
