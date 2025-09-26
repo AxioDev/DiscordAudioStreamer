@@ -59,6 +59,11 @@ export interface FfmpegTranscoderOptions {
   channels: number;
   headerBufferMaxBytes: number;
   mixFrameMs: number;
+  stallTimeoutMs?: number;
+  watchdogIntervalMs?: number;
+  exitRestartDelayMs?: number;
+  errorRestartDelayMs?: number;
+  stallRestartDelayMs?: number;
 }
 
 export default class FfmpegTranscoder extends EventEmitter {
@@ -80,6 +85,16 @@ export default class FfmpegTranscoder extends EventEmitter {
 
   private readonly broadcastStream: PassThrough;
 
+  private readonly stallTimeoutMs: number;
+
+  private readonly watchdogIntervalMs: number;
+
+  private readonly exitRestartDelayMs: number;
+
+  private readonly errorRestartDelayMs: number;
+
+  private readonly stallRestartDelayMs: number;
+
   private headerBuffer: Buffer;
 
   private mixer: AudioMixer | null;
@@ -87,6 +102,10 @@ export default class FfmpegTranscoder extends EventEmitter {
   private currentProcess: ChildProcessWithoutNullStreams | null;
 
   private restartTimer: NodeJS.Timeout | null;
+
+  private watchdogTimer: NodeJS.Timeout | null;
+
+  private lastOutputTimestamp: number;
 
   private restarting: boolean;
 
@@ -101,6 +120,11 @@ export default class FfmpegTranscoder extends EventEmitter {
     channels,
     headerBufferMaxBytes,
     mixFrameMs,
+    stallTimeoutMs,
+    watchdogIntervalMs,
+    exitRestartDelayMs,
+    errorRestartDelayMs,
+    stallRestartDelayMs,
   }: FfmpegTranscoderOptions) {
     super();
     this.ffmpegPath = ffmpegPath;
@@ -113,10 +137,18 @@ export default class FfmpegTranscoder extends EventEmitter {
     this.mixFrameMs = mixFrameMs || 20;
 
     this.broadcastStream = new PassThrough();
+    this.stallTimeoutMs = Math.max(1000, stallTimeoutMs ?? 7000);
+    this.watchdogIntervalMs = Math.max(250, watchdogIntervalMs ?? Math.min(2000, this.stallTimeoutMs / 2));
+    this.exitRestartDelayMs = Math.max(0, exitRestartDelayMs ?? 800);
+    this.errorRestartDelayMs = Math.max(0, errorRestartDelayMs ?? 2000);
+    this.stallRestartDelayMs = Math.max(0, stallRestartDelayMs ?? 1000);
+
     this.headerBuffer = Buffer.alloc(0);
     this.mixer = null;
     this.currentProcess = null;
     this.restartTimer = null;
+    this.watchdogTimer = null;
+    this.lastOutputTimestamp = 0;
     this.restarting = false;
     this.captureHeader = false;
   }
@@ -189,15 +221,26 @@ export default class FfmpegTranscoder extends EventEmitter {
       this.mixer.setOutput(ffmpeg.stdin);
     }
 
-    ffmpeg.stdout.on('data', (chunk: Buffer) => this.handleStdout(chunk));
+    this.startWatchdog();
+
+    ffmpeg.stdout.on('data', (chunk: Buffer) => this.handleStdout(ffmpeg, chunk));
+    ffmpeg.stdout.on('error', (error: Error) => this.handleStreamError(ffmpeg, 'stdout', error));
     ffmpeg.stderr.on('data', (data: Buffer) => process.stderr.write(data.toString()));
-    ffmpeg.on('exit', (code, signal) => this.handleExit(code, signal));
-    ffmpeg.on('error', (error) => this.handleError(error));
+    ffmpeg.stderr.on('error', (error: Error) => this.handleStreamError(ffmpeg, 'stderr', error));
+    ffmpeg.stdin.on('error', (error: Error) => this.handleStreamError(ffmpeg, 'stdin', error));
+    ffmpeg.on('exit', (code, signal) => this.handleExit(ffmpeg, code, signal));
+    ffmpeg.on('error', (error) => this.handleError(ffmpeg, error));
 
     console.log('ffmpeg pid=', ffmpeg.pid);
   }
 
-  private handleStdout(chunk: Buffer): void {
+  private handleStdout(processRef: ChildProcessWithoutNullStreams, chunk: Buffer): void {
+    if (this.currentProcess !== processRef) {
+      return;
+    }
+
+    this.lastOutputTimestamp = Date.now();
+
     if (this.captureHeader) {
       this.captureHeaderChunk(chunk);
     }
@@ -236,33 +279,128 @@ export default class FfmpegTranscoder extends EventEmitter {
     this.captureHeader = false;
   }
 
-  private handleExit(code: number | null, signal: NodeJS.Signals | null): void {
+  private handleExit(
+    processRef: ChildProcessWithoutNullStreams,
+    code: number | null,
+    signal: NodeJS.Signals | null,
+  ): void {
+    if (this.currentProcess !== processRef) {
+      return;
+    }
+
     console.warn(`ffmpeg exited code=${code} signal=${signal}`);
-    if (this.mixer) {
-      this.mixer.setOutput(null);
-    }
-    this.currentProcess = null;
-    this.scheduleRestart(800);
+    this.cleanupAfterProcess();
+    this.scheduleRestart(this.exitRestartDelayMs, 'process exit');
   }
 
-  private handleError(error: Error): void {
+  private handleError(processRef: ChildProcessWithoutNullStreams, error: Error): void {
+    if (this.currentProcess !== processRef) {
+      return;
+    }
+
     console.error('ffmpeg error', error);
-    if (this.mixer) {
-      this.mixer.setOutput(null);
-    }
-    this.currentProcess = null;
-    this.scheduleRestart(2000);
+    this.cleanupAfterProcess();
+    this.scheduleRestart(this.errorRestartDelayMs, 'process error');
   }
 
-  private scheduleRestart(delay: number): void {
+  private handleStreamError(
+    processRef: ChildProcessWithoutNullStreams,
+    streamName: 'stdin' | 'stdout' | 'stderr',
+    error: Error,
+  ): void {
+    if (this.currentProcess !== processRef) {
+      return;
+    }
+
+    console.error(`ffmpeg ${streamName} error`, error);
+    this.forceRestart(processRef, `stream ${streamName} error`, this.errorRestartDelayMs);
+  }
+
+  private scheduleRestart(delay: number, reason: string): void {
     if (this.restartTimer) {
       return;
     }
 
+    console.warn(`Scheduling ffmpeg restart in ${delay}ms due to ${reason}`);
     this.restartTimer = setTimeout(() => {
       this.restartTimer = null;
       this.spawnProcess();
     }, delay);
+    if (typeof this.restartTimer.unref === 'function') {
+      this.restartTimer.unref();
+    }
+  }
+
+  private forceRestart(
+    processRef: ChildProcessWithoutNullStreams,
+    reason: string,
+    delay: number,
+  ): void {
+    if (this.currentProcess !== processRef) {
+      return;
+    }
+
+    console.warn(`Force restarting ffmpeg due to ${reason}`);
+    this.cleanupAfterProcess();
+
+    try {
+      if (!processRef.killed) {
+        processRef.kill('SIGKILL');
+      }
+    } catch (killError) {
+      console.warn('Failed to kill ffmpeg during forced restart', killError);
+    }
+
+    this.scheduleRestart(delay, reason);
+  }
+
+  private cleanupAfterProcess(): void {
+    this.clearWatchdogTimer();
+    const processRef = this.currentProcess;
+    this.currentProcess = null;
+
+    if (this.mixer) {
+      this.mixer.setOutput(null);
+    }
+
+    if (processRef && !processRef.killed) {
+      try {
+        processRef.stdin.end();
+      } catch (error) {
+        console.warn('Failed to close ffmpeg stdin during cleanup', error);
+      }
+    }
+  }
+
+  private startWatchdog(): void {
+    this.clearWatchdogTimer();
+    this.lastOutputTimestamp = Date.now();
+    this.watchdogTimer = setInterval(() => this.checkForStall(), this.watchdogIntervalMs);
+    if (typeof this.watchdogTimer.unref === 'function') {
+      this.watchdogTimer.unref();
+    }
+  }
+
+  private checkForStall(): void {
+    const currentProcess = this.currentProcess;
+    if (!currentProcess) {
+      return;
+    }
+
+    const idleDuration = Date.now() - this.lastOutputTimestamp;
+    if (idleDuration < this.stallTimeoutMs) {
+      return;
+    }
+
+    console.warn(`ffmpeg produced no output for ${idleDuration}ms, restarting`);
+    this.forceRestart(currentProcess, 'output stall', this.stallRestartDelayMs);
+  }
+
+  private clearWatchdogTimer(): void {
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
   }
 
   private clearRestartTimer(): void {
@@ -301,6 +439,7 @@ export default class FfmpegTranscoder extends EventEmitter {
 
   public stop(): void {
     this.clearRestartTimer();
+    this.clearWatchdogTimer();
     this.restarting = false;
     if (this.currentProcess && !this.currentProcess.killed) {
       try {
