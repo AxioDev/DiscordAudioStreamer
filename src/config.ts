@@ -20,7 +20,7 @@ function parseStringList(value: string | undefined): string[] {
 
 const outputFormat = (process.env.OUT_FORMAT || 'opus').toLowerCase();
 
-const defaultExcludedUserIds = ['1419381362116268112'];
+const defaultExcludedUserIds = ['1419381362116268112', '1282959031207596066'];
 const excludedUserIdsEnv = process.env.EXCLUDED_USER_IDS;
 const excludedUserIds =
   excludedUserIdsEnv !== undefined
