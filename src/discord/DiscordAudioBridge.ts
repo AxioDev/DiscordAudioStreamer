@@ -189,6 +189,11 @@ export default class DiscordAudioBridge {
     const receiver = connection.receiver;
 
     receiver.speaking.on('start', (userId) => {
+      if (this.isUserExcluded(userId)) {
+        this.cleanupSubscriptionForUser(userId);
+        return;
+      }
+
       console.log('start speaking', userId);
       this.mixer.addSource(userId);
       this.speakerTracker.handleSpeakingStart(userId).catch((error) => {
@@ -198,6 +203,11 @@ export default class DiscordAudioBridge {
     });
 
     receiver.speaking.on('end', (userId) => {
+      if (this.isUserExcluded(userId)) {
+        this.cleanupSubscriptionForUser(userId);
+        return;
+      }
+
       console.log('speaking end', userId);
       this.speakerTracker.handleSpeakingEnd(userId);
       this.mixer.removeSource(userId);
@@ -223,6 +233,10 @@ export default class DiscordAudioBridge {
   }
 
   private subscribeToUserAudio(userId: Snowflake, receiver: VoiceReceiver): void {
+    if (this.isUserExcluded(userId)) {
+      return;
+    }
+
     if (this.activeSubscriptions.has(userId)) {
       return;
     }
@@ -385,6 +399,12 @@ export default class DiscordAudioBridge {
       return;
     }
 
+    if (this.isUserExcluded(userId)) {
+      await this.speakerTracker.handleVoiceStateUpdate(userId, null);
+      this.cleanupSubscriptionForUser(userId);
+      return;
+    }
+
     const relevantGuildId = this.currentGuildId;
     if (!relevantGuildId) {
       return;
@@ -423,6 +443,9 @@ export default class DiscordAudioBridge {
       if (!member || !member.voice) {
         continue;
       }
+      if (this.isUserExcluded(member.id)) {
+        continue;
+      }
       const serialized = this.serializeVoiceState(member.voice);
       promises.push(this.speakerTracker.handleVoiceStateUpdate(member.id, serialized));
     }
@@ -448,5 +471,26 @@ export default class DiscordAudioBridge {
       displayName: member?.displayName || member?.user?.globalName || member?.user?.username || null,
       username: member?.user?.username || null,
     };
+  }
+
+  private isUserExcluded(userId: Snowflake): boolean {
+    return this.config.excludedUserIds.includes(userId);
+  }
+
+  private cleanupSubscriptionForUser(userId: Snowflake): void {
+    const subscription = this.activeSubscriptions.get(userId);
+    if (subscription) {
+      if (typeof subscription.cleanup === 'function') {
+        subscription.cleanup();
+      } else {
+        this.activeSubscriptions.delete(userId);
+        this.mixer.removeSource(userId);
+        this.speakerTracker.handleSpeakingEnd(userId);
+      }
+      return;
+    }
+
+    this.mixer.removeSource(userId);
+    this.speakerTracker.handleSpeakingEnd(userId);
   }
 }

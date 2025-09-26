@@ -7,7 +7,25 @@ function parseInteger(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function parseStringList(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
 const outputFormat = (process.env.OUT_FORMAT || 'opus').toLowerCase();
+
+const defaultExcludedUserIds = ['1419381362116268112'];
+const excludedUserIdsEnv = process.env.EXCLUDED_USER_IDS;
+const excludedUserIds =
+  excludedUserIdsEnv !== undefined
+    ? parseStringList(excludedUserIdsEnv)
+    : defaultExcludedUserIds;
 
 export interface AudioConfig {
   sampleRate: number;
@@ -32,6 +50,7 @@ export interface Config {
   keepAliveInterval: number;
   audio: AudioConfig;
   mimeTypes: Record<string, string>;
+  excludedUserIds: string[];
 }
 
 const config: Config = {
@@ -58,6 +77,7 @@ const config: Config = {
     opus: 'audio/ogg',
     mp3: 'audio/mpeg',
   },
+  excludedUserIds,
 };
 
 config.audio.frameSamples = Math.floor(
