@@ -1,4 +1,5 @@
 import type { Writable } from 'stream';
+import AntiCrackleFilter from './AntiCrackleFilter';
 
 interface SourceEntry {
   buffer: Buffer;
@@ -61,6 +62,8 @@ export default class AudioMixer {
 
   private readonly MAX_PLC_FRAMES: number;
 
+  private readonly antiCrackleFilter: AntiCrackleFilter;
+
   constructor({ frameBytes, mixFrameMs, bytesPerSample }: AudioMixerOptions) {
     this.frameBytes = frameBytes;
     this.mixFrameMs = mixFrameMs;
@@ -88,6 +91,11 @@ export default class AudioMixer {
     this.FADE_FRAMES = 2;
     this.fadeIncrement = this.FADE_FRAMES > 0 ? 1 / this.FADE_FRAMES : 1;
     this.MAX_PLC_FRAMES = 5;
+
+    this.antiCrackleFilter = new AntiCrackleFilter({
+      bytesPerSample: this.bytesPerSample,
+      sampleCount: this.sampleCount,
+    });
   }
 
   public setOutput(writable: Writable | null): void {
@@ -108,6 +116,7 @@ export default class AudioMixer {
       this.output.on('drain', this.outputDrainListener);
     } else {
       this.outputDrainListener = null;
+      this.antiCrackleFilter.reset();
     }
 
     this.ensureMixLoop();
@@ -229,7 +238,8 @@ export default class AudioMixer {
     let activeForStats = 0;
 
     if (activeFrames.length === 0) {
-      const ok = this.writeToOutput(this.nullFrame);
+      const processedFrame = this.antiCrackleFilter.process(this.nullFrame);
+      const ok = this.writeToOutput(processedFrame);
       if (!ok) {
         this.stats.backpressureCount += 1;
         this.pauseMixingForBackpressure();
@@ -267,7 +277,8 @@ export default class AudioMixer {
 
     this.updateAverageActiveSources(activeForStats);
 
-    const ok = this.writeToOutput(outputBuffer);
+    const processedFrame = this.antiCrackleFilter.process(outputBuffer);
+    const ok = this.writeToOutput(processedFrame);
     if (!ok) {
       this.stats.backpressureCount += 1;
       this.pauseMixingForBackpressure();
