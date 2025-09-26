@@ -634,7 +634,45 @@
           };
         }, [audioKey, streamInfo.path]);
 
-        const togglePlay = () => {
+        const clearBrowserCaches = async () => {
+          if (typeof window === 'undefined') {
+            return;
+          }
+
+          if ('caches' in window) {
+            try {
+              const cacheNames = await caches.keys();
+              await Promise.all(
+                cacheNames.map((cacheName) =>
+                  caches.delete(cacheName).catch((error) => {
+                    console.warn(`Impossible de supprimer le cache ${cacheName}`, error);
+                    return false;
+                  }),
+                ),
+              );
+            } catch (error) {
+              console.warn('Impossible de vider les caches du navigateur', error);
+            }
+          }
+
+          if ('serviceWorker' in navigator) {
+            try {
+              const registrations = await navigator.serviceWorker.getRegistrations();
+              await Promise.all(
+                registrations.map((registration) =>
+                  registration.unregister().catch((error) => {
+                    console.warn('Impossible de désinscrire un service worker', error);
+                    return false;
+                  }),
+                ),
+              );
+            } catch (error) {
+              console.warn('Impossible de récupérer les service workers', error);
+            }
+          }
+        };
+
+        const togglePlay = async () => {
           const audio = audioRef.current;
           if (!audio) return;
 
@@ -644,45 +682,73 @@
 
           if (isPlaying) {
             audio.pause();
-          } else {
-            setIsLoading(true);
-            audio
-              .play()
-              .catch((error) => {
-                if (isIgnorablePlayError(error)) {
-                  setIsLoading(false);
-                  return;
-                }
-                console.error('Impossible de lancer la lecture', error);
-                setHasError(true);
-                setIsLoading(false);
-              });
+            return;
+          }
+
+          setIsLoading(true);
+
+          try {
+            await clearBrowserCaches();
+          } catch (error) {
+            console.warn('Impossible de vider le cache du navigateur avant la lecture', error);
+          }
+
+          try {
+            audio.currentTime = 0;
+            audio.load();
+          } catch (error) {
+            console.warn('Impossible de recharger la source audio', error);
+          }
+
+          try {
+            await audio.play();
+          } catch (error) {
+            if (isIgnorablePlayError(error)) {
+              setIsLoading(false);
+              return;
+            }
+            console.error('Impossible de lancer la lecture', error);
+            setHasError(true);
+            setIsLoading(false);
           }
         };
 
-        const handleRetry = () => {
+        const handleRetry = async () => {
           const audio = audioRef.current;
           if (!audio) return;
 
           setHasError(false);
           setIsLoading(true);
 
+          try {
+            await clearBrowserCaches();
+          } catch (error) {
+            console.warn('Impossible de vider le cache du navigateur avant la relance', error);
+          }
+
           if (!audio.paused) {
             audio.pause();
           }
           audio.src = streamInfo.path;
-          audio.load();
-          audio
-            .play()
-            .catch((error) => {
-              if (isIgnorablePlayError(error)) {
-                setIsLoading(false);
-                return;
-              }
-              console.error('La relance du flux a échoué', error);
-              setHasError(true);
+
+          try {
+            audio.currentTime = 0;
+            audio.load();
+          } catch (error) {
+            console.warn('Impossible de recharger la source audio avant la relance', error);
+          }
+
+          try {
+            await audio.play();
+          } catch (error) {
+            if (isIgnorablePlayError(error)) {
               setIsLoading(false);
-            });
+              return;
+            }
+            console.error('La relance du flux a échoué', error);
+            setHasError(true);
+            setIsLoading(false);
+          }
         };
 
         const handleVolumeChange = (event) => {
