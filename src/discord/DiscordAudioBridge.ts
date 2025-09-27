@@ -12,11 +12,17 @@ import {
   entersState,
   VoiceConnectionStatus,
   EndBehaviorType,
+  NoSubscriberBehavior,
+  StreamType,
+  createAudioPlayer,
+  createAudioResource,
   type VoiceConnection,
   type VoiceReceiver,
   type AudioReceiveStream,
 } from '@discordjs/voice';
 import * as prism from 'prism-media';
+import { PassThrough } from 'stream';
+import { EventEmitter } from 'node:events';
 import type AudioMixer from '../audio/AudioMixer';
 import type SpeakerTracker from '../services/SpeakerTracker';
 import type { VoiceStateSnapshot } from '../services/SpeakerTracker';
@@ -58,6 +64,20 @@ export default class DiscordAudioBridge {
   private isReconnecting = false;
 
   private expectingDisconnect = false;
+
+  private anonymousInput: PassThrough | null = null;
+
+  private anonymousEncoder: prism.opus.Encoder | null = null;
+
+  private anonymousPlayer = createAudioPlayer({
+    behaviors: {
+      noSubscriber: NoSubscriberBehavior.Play,
+    },
+  });
+
+  private anonymousQueue: Buffer[] = [];
+
+  private readonly events = new EventEmitter();
 
   constructor({ config, mixer, speakerTracker }: DiscordAudioBridgeOptions) {
     this.config = config;
@@ -182,6 +202,8 @@ export default class DiscordAudioBridge {
     }
 
     this.setupReceiver(connection);
+    this.setupAnonymousPipeline(connection);
+    this.events.emit('voiceConnectionReady', connection);
     return connection;
   }
 
@@ -223,11 +245,19 @@ export default class DiscordAudioBridge {
       if (newState.status === VoiceConnectionStatus.Destroyed) {
         this.voiceConnection = null;
         this.cleanupAllSubscriptions();
+        this.teardownAnonymousPipeline();
+        this.events.emit('voiceConnectionDestroyed');
         if (this.shouldAutoReconnect && !this.expectingDisconnect) {
           this.scheduleReconnect().catch((error) => {
             console.error('Voice reconnection attempt failed', error);
           });
         }
+        return;
+      }
+
+      if (newState.status === VoiceConnectionStatus.Ready) {
+        this.setupAnonymousPipeline(connection);
+        this.events.emit('voiceConnectionReady', connection);
       }
     });
   }
@@ -322,6 +352,8 @@ export default class DiscordAudioBridge {
     this.cleanupAllSubscriptions();
     this.speakerTracker.clear();
     this.isReconnecting = false;
+    this.teardownAnonymousPipeline();
+    this.events.emit('voiceConnectionDestroyed');
   }
 
   private cleanupAllSubscriptions(): void {
@@ -426,6 +458,127 @@ export default class DiscordAudioBridge {
     if (oldState?.channelId === this.currentVoiceChannelId && channelId !== this.currentVoiceChannelId) {
       await this.speakerTracker.handleVoiceStateUpdate(userId, null);
     }
+  }
+
+  private setupAnonymousPipeline(connection: VoiceConnection): void {
+    this.teardownAnonymousPipeline();
+
+    const input = new PassThrough({ highWaterMark: this.config.audio.frameBytes * 16 || 4096 });
+    const encoder = new prism.opus.Encoder({
+      rate: this.config.audio.sampleRate,
+      channels: this.config.audio.channels,
+      frameSize: this.config.audio.frameSamples || 960,
+    });
+
+    input.pipe(encoder);
+
+    const resource = createAudioResource(encoder, { inputType: StreamType.Opus });
+    try {
+      this.anonymousPlayer.stop(true);
+    } catch (error) {
+      console.warn('Failed to stop previous anonymous player', error);
+    }
+
+    this.anonymousPlayer.play(resource);
+    try {
+      connection.subscribe(this.anonymousPlayer);
+    } catch (error) {
+      console.warn('Unable to subscribe anonymous player to voice connection', error);
+    }
+
+    this.anonymousPlayer.removeAllListeners('error');
+    this.anonymousPlayer.on('error', (error) => {
+      console.warn('Anonymous audio player error', error);
+    });
+
+    this.anonymousInput = input;
+    this.anonymousEncoder = encoder;
+
+    if (this.anonymousQueue.length > 0) {
+      for (const chunk of this.anonymousQueue.splice(0)) {
+        try {
+          this.anonymousInput.write(chunk);
+        } catch (error) {
+          console.warn('Failed to flush buffered anonymous audio chunk', error);
+          break;
+        }
+      }
+    }
+  }
+
+  private teardownAnonymousPipeline(): void {
+    if (this.anonymousInput) {
+      try {
+        this.anonymousInput.removeAllListeners();
+        this.anonymousInput.end();
+        this.anonymousInput.destroy();
+      } catch (error) {
+        console.warn('Failed to teardown anonymous input stream', error);
+      }
+    }
+    if (this.anonymousEncoder) {
+      try {
+        this.anonymousEncoder.removeAllListeners();
+        this.anonymousEncoder.destroy();
+      } catch (error) {
+        console.warn('Failed to teardown anonymous encoder', error);
+      }
+    }
+
+    try {
+      this.anonymousPlayer.stop(true);
+    } catch (error) {
+      console.warn('Failed to stop anonymous player', error);
+    }
+
+    this.anonymousInput = null;
+    this.anonymousEncoder = null;
+    this.anonymousQueue = [];
+  }
+
+  public pushAnonymousAudio(chunk: Buffer): boolean {
+    if (!chunk || chunk.length === 0) {
+      return false;
+    }
+
+    if (!this.anonymousInput) {
+      if (this.anonymousQueue.length < 48) {
+        this.anonymousQueue.push(Buffer.from(chunk));
+      }
+      return false;
+    }
+
+    const canWrite = this.anonymousInput.write(chunk);
+    if (!canWrite) {
+      if (this.anonymousQueue.length < 48) {
+        this.anonymousQueue.push(Buffer.from(chunk));
+      }
+    }
+    return true;
+  }
+
+  public hasActiveVoiceConnection(): boolean {
+    if (!this.voiceConnection) {
+      return false;
+    }
+    const status = this.voiceConnection.state?.status;
+    return status === VoiceConnectionStatus.Ready;
+  }
+
+  public onVoiceConnectionReady(listener: (connection: VoiceConnection) => void): void {
+    this.events.on('voiceConnectionReady', listener);
+  }
+
+  public onVoiceConnectionDestroyed(listener: () => void): void {
+    this.events.on('voiceConnectionDestroyed', listener);
+  }
+
+  public offVoiceConnectionReady(listener: (connection: VoiceConnection) => void): void {
+    this.events.off('voiceConnectionReady', listener);
+  }
+
+  public offVoiceConnectionDestroyed(listener: () => void): void {
+    this.events.off('voiceConnectionDestroyed', listener);
   }
 
   private async syncInitialChannelMembers(channel: VoiceBasedChannel): Promise<void> {

@@ -173,6 +173,23 @@
       .audio-wave span:nth-child(4) {
         animation-delay: 0.6s;
       }
+
+      .mic-meter {
+        position: relative;
+        height: 0.6rem;
+        border-radius: 9999px;
+        background: rgba(148, 163, 184, 0.18);
+        overflow: hidden;
+      }
+
+      .mic-meter-bar {
+        position: absolute;
+        inset: 0;
+        width: 0%;
+        background: linear-gradient(90deg, rgba(129, 140, 248, 0.9), rgba(236, 72, 153, 0.95));
+        box-shadow: 0 0 30px rgba(236, 72, 153, 0.4);
+        transition: width 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+      }
     </style>
   </head>
   <body class="min-h-screen bg-slate-950 text-slate-100 antialiased">
@@ -180,7 +197,7 @@
 
     <script type="module">
       import { h, render, Fragment } from 'https://esm.sh/preact@10.19.2';
-      import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'https://esm.sh/preact@10.19.2/hooks';
+      import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'https://esm.sh/preact@10.19.2/hooks';
       import {
         Activity,
         AlertCircle,
@@ -188,11 +205,13 @@
         Clock3,
         Headphones,
         Menu,
+        Mic,
         MicOff,
         MonitorPlay,
         Pause,
         Play,
         RefreshCcw,
+        ShieldCheck,
         Users,
         Video,
         Volume,
@@ -253,6 +272,30 @@
           hour: '2-digit',
           minute: '2-digit',
         });
+      };
+
+      const normalizeAnonymousSlot = (raw) => {
+        if (!raw || typeof raw !== 'object') {
+          return {
+            occupied: false,
+            alias: null,
+            claimedAt: null,
+            expiresAt: null,
+            remainingMs: null,
+            connectionPending: false,
+            message: null,
+          };
+        }
+
+        return {
+          occupied: Boolean(raw.occupied),
+          alias: typeof raw.alias === 'string' ? raw.alias : null,
+          claimedAt: Number.isFinite(raw.claimedAt) ? raw.claimedAt : null,
+          expiresAt: Number.isFinite(raw.expiresAt) ? raw.expiresAt : null,
+          remainingMs: Number.isFinite(raw.remainingMs) ? raw.remainingMs : null,
+          connectionPending: Boolean(raw.connectionPending),
+          message: typeof raw.message === 'string' ? raw.message : null,
+        };
       };
 
       const StatusBadge = ({ status, className = '' }) => {
@@ -504,6 +547,543 @@
           <div ref=${containerRef} class="mt-6 grid gap-6 sm:grid-cols-2">
             ${speakers.map((speaker) => html`<${SpeakerCard} key=${speaker.id} speaker=${speaker} now=${now} cardId=${speaker.id} />`)}
           </div>
+        `;
+      };
+
+      const AnonymousBooth = ({ slot, now }) => {
+        const [session, setSession] = useState(() => ({
+          token: null,
+          alias: null,
+          expiresAt: null,
+          stage: 'idle',
+          error: null,
+          info: null,
+          micGranted: false,
+          wsConnected: false,
+          level: 0,
+        }));
+
+        const tokenRef = useRef(null);
+        const mediaStreamRef = useRef(null);
+        const processorRef = useRef(null);
+        const audioContextRef = useRef(null);
+        const wsRef = useRef(null);
+        const levelLastUpdateRef = useRef(0);
+        const mountedRef = useRef(true);
+
+        const stopAudioProcessing = useCallback(async () => {
+          if (processorRef.current) {
+            try {
+              processorRef.current.disconnect();
+            } catch (error) {
+              console.warn('Impossible de déconnecter le processeur audio', error);
+            }
+            processorRef.current.onaudioprocess = null;
+            processorRef.current = null;
+          }
+
+          if (mediaStreamRef.current) {
+            try {
+              for (const track of mediaStreamRef.current.getTracks()) {
+                track.stop();
+              }
+            } catch (error) {
+              console.warn('Impossible de stopper la capture micro', error);
+            }
+            mediaStreamRef.current = null;
+          }
+
+          if (audioContextRef.current) {
+            try {
+              await audioContextRef.current.close();
+            } catch (error) {
+              console.warn("Impossible de fermer l'AudioContext", error);
+            }
+            audioContextRef.current = null;
+          }
+
+          if (mountedRef.current) {
+            setSession((prev) => ({ ...prev, micGranted: false, level: 0 }));
+          }
+        }, []);
+
+        const cleanup = useCallback(
+          async ({ notifyServer = false, reason = null } = {}) => {
+            const socket = wsRef.current;
+            if (socket) {
+              wsRef.current = null;
+              try {
+                socket.onopen = null;
+                socket.onclose = null;
+                socket.onmessage = null;
+                socket.onerror = null;
+                socket.close();
+              } catch (error) {
+                console.warn('Impossible de fermer la connexion WebSocket anonyme', error);
+              }
+            }
+
+            await stopAudioProcessing();
+
+            const tokenValue = tokenRef.current;
+            tokenRef.current = null;
+
+            if (notifyServer && tokenValue) {
+              try {
+                await fetch('/anonymous-slot', {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ token: tokenValue }),
+                });
+              } catch (error) {
+                console.warn('Impossible de libérer le micro anonyme', error);
+              }
+            }
+
+            if (mountedRef.current) {
+              setSession((prev) => ({
+                ...prev,
+                token: null,
+                alias: null,
+                expiresAt: null,
+                stage: 'idle',
+                wsConnected: false,
+                micGranted: false,
+                level: 0,
+                info: reason ?? prev.info,
+                error: null,
+              }));
+            }
+          },
+          [stopAudioProcessing],
+        );
+
+        useEffect(() => () => {
+          mountedRef.current = false;
+          cleanup({ notifyServer: Boolean(tokenRef.current), reason: 'Micro libéré.' });
+        }, [cleanup]);
+
+        useEffect(() => {
+          tokenRef.current = session.token;
+        }, [session.token]);
+
+        useEffect(() => {
+          if (!session.token) {
+            return;
+          }
+
+          if (!slot?.occupied) {
+            cleanup({ notifyServer: false, reason: 'Micro libéré automatiquement.' });
+            return;
+          }
+
+          if (slot.alias && session.alias && slot.alias !== session.alias) {
+            cleanup({ notifyServer: false, reason: "Le micro est désormais occupé par quelqu'un d'autre." });
+          }
+        }, [slot?.occupied, slot?.alias, session.token, session.alias, cleanup]);
+
+        useEffect(() => {
+          if (!session.token || !session.alias) {
+            return;
+          }
+          if (!slot?.alias || slot.alias !== session.alias) {
+            return;
+          }
+          if (slot.expiresAt && slot.expiresAt !== session.expiresAt) {
+            setSession((prev) => ({ ...prev, expiresAt: slot.expiresAt }));
+          }
+        }, [slot?.expiresAt, slot?.alias, session.alias, session.token, session.expiresAt]);
+
+        const prepareMicrophone = useCallback(async () => {
+          if (!navigator?.mediaDevices?.getUserMedia) {
+            throw new Error("Ton navigateur ne supporte pas l'enregistrement audio.");
+          }
+
+          let stream;
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                channelCount: 1,
+                sampleRate: 48000,
+                noiseSuppression: true,
+                echoCancellation: true,
+                autoGainControl: true,
+              },
+            });
+          } catch (error) {
+            throw new Error('Accès au micro refusé. Autorise ton micro pour intervenir.');
+          }
+
+          mediaStreamRef.current = stream;
+
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (!AudioContextClass) {
+            throw new Error('AudioContext indisponible sur ce navigateur.');
+          }
+
+          const audioContext = new AudioContextClass({ sampleRate: 48000 });
+          audioContextRef.current = audioContext;
+          if (audioContext.state === 'suspended') {
+            try {
+              await audioContext.resume();
+            } catch (error) {
+              console.warn("Impossible de reprendre l'AudioContext", error);
+            }
+          }
+
+          const source = audioContext.createMediaStreamSource(stream);
+          const processor = audioContext.createScriptProcessor(1024, 1, 1);
+          const gain = audioContext.createGain();
+          gain.gain.value = 0;
+          processor.connect(gain);
+          gain.connect(audioContext.destination);
+          source.connect(processor);
+          processorRef.current = processor;
+
+          processor.onaudioprocess = (event) => {
+            const input = event.inputBuffer?.getChannelData?.(0);
+            const output = event.outputBuffer?.getChannelData?.(0);
+            if (!input) {
+              return;
+            }
+
+            if (output) {
+              for (let i = 0; i < output.length; i++) {
+                output[i] = 0;
+              }
+            }
+
+            const frameLength = input.length;
+            const buffer = new ArrayBuffer(frameLength * 4);
+            const view = new DataView(buffer);
+            let sumSquares = 0;
+            for (let i = 0; i < frameLength; i++) {
+              const sample = input[i];
+              sumSquares += sample * sample;
+              const clamped = Math.max(-1, Math.min(1, sample));
+              const intSample = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+              view.setInt16(i * 4, intSample, true);
+              view.setInt16(i * 4 + 2, intSample, true);
+            }
+
+            const socket = wsRef.current;
+            if (socket && socket.readyState === WebSocket.OPEN) {
+              try {
+                socket.send(buffer);
+              } catch (error) {
+                console.warn("Impossible d'envoyer un chunk audio anonyme", error);
+              }
+            }
+
+            const level = frameLength > 0 ? Math.sqrt(sumSquares / frameLength) : 0;
+            const nowPerf = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+            if (nowPerf - levelLastUpdateRef.current > 120) {
+              levelLastUpdateRef.current = nowPerf;
+              if (mountedRef.current) {
+                setSession((prev) => ({ ...prev, level }));
+              }
+            }
+          };
+
+          if (mountedRef.current) {
+            setSession((prev) => ({ ...prev, micGranted: true }));
+          }
+        }, []);
+
+        const connectWebSocket = useCallback(() => {
+          const tokenValue = tokenRef.current;
+          if (!tokenValue) {
+            if (mountedRef.current) {
+              setSession((prev) => ({ ...prev, stage: 'idle', error: 'Session anonyme introuvable.', info: null }));
+            }
+            return;
+          }
+
+          const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+          const socket = new WebSocket(
+            `${protocol}://${window.location.host}/anonymous-stream?token=${encodeURIComponent(tokenValue)}`,
+          );
+          socket.binaryType = 'arraybuffer';
+          wsRef.current = socket;
+
+          socket.onopen = () => {
+            if (!mountedRef.current) {
+              return;
+            }
+            setSession((prev) => ({
+              ...prev,
+              stage: 'streaming',
+              wsConnected: true,
+              info: 'Tu es en direct. Reste cool et anonyme.',
+              error: null,
+            }));
+          };
+
+          socket.onmessage = (event) => {
+            if (typeof event.data !== 'string') {
+              return;
+            }
+            try {
+              const payload = JSON.parse(event.data);
+              if (payload?.type === 'terminated') {
+                cleanup({ notifyServer: false, reason: payload.message || 'Session terminée.' });
+              }
+            } catch (error) {
+              console.warn('Message WebSocket anonyme invalide', error);
+            }
+          };
+
+          socket.onerror = (event) => {
+            console.warn('Erreur WebSocket anonyme', event);
+            if (mountedRef.current) {
+              setSession((prev) => ({ ...prev, error: 'Connexion instable avec le bot.', wsConnected: false }));
+            }
+          };
+
+          socket.onclose = (event) => {
+            if (wsRef.current === socket) {
+              wsRef.current = null;
+            }
+            stopAudioProcessing();
+            tokenRef.current = null;
+            if (mountedRef.current) {
+              setSession((prev) => ({
+                ...prev,
+                token: null,
+                alias: null,
+                expiresAt: null,
+                stage: 'idle',
+                wsConnected: false,
+                micGranted: false,
+                level: 0,
+                info: event?.reason || 'Connexion au micro fermée.',
+              }));
+            }
+          };
+        }, [cleanup, stopAudioProcessing]);
+
+        const handleClaim = async () => {
+          if (session.stage !== 'idle') {
+            return;
+          }
+
+          if (mountedRef.current) {
+            setSession((prev) => ({
+              ...prev,
+              stage: 'claiming',
+              error: null,
+              info: 'Réservation du micro en cours…',
+            }));
+          }
+
+          let payload = {};
+          try {
+            const response = await fetch('/anonymous-slot', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+            });
+            payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+              throw new Error(payload?.message || 'Le micro est déjà pris. Réessaie dans un instant.');
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Impossible de réserver le micro anonyme.';
+            if (mountedRef.current) {
+              setSession((prev) => ({ ...prev, stage: 'idle', error: message, info: null }));
+            }
+            return;
+          }
+
+          tokenRef.current = payload?.token || null;
+          if (!tokenRef.current) {
+            if (mountedRef.current) {
+              setSession((prev) => ({ ...prev, stage: 'idle', error: 'Réponse du serveur invalide.', info: null }));
+            }
+            return;
+          }
+
+          if (mountedRef.current) {
+            setSession((prev) => ({
+              ...prev,
+              token: payload.token,
+              alias: payload.alias || 'Anonyme',
+              expiresAt: payload.expiresAt || null,
+              stage: 'preparing',
+              error: null,
+              info: 'Activation du micro en cours…',
+            }));
+          }
+
+          try {
+            await prepareMicrophone();
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Impossible d'initialiser ton micro.";
+            await cleanup({ notifyServer: true, reason: message });
+            if (mountedRef.current) {
+              setSession((prev) => ({ ...prev, error: message, stage: 'idle', info: null }));
+            }
+            return;
+          }
+
+          if (mountedRef.current) {
+            setSession((prev) => ({ ...prev, stage: 'connecting', info: 'Connexion au bot…' }));
+          }
+
+          connectWebSocket();
+        };
+
+        const handleRelease = () => {
+          cleanup({ notifyServer: true, reason: 'Micro libéré.' });
+        };
+
+        const isOwner = Boolean(session.token && session.alias && slot?.alias === session.alias);
+        const slotTaken = Boolean(slot?.occupied && (!session.alias || slot.alias !== session.alias));
+        const stage = session.stage;
+        const isBusy = stage === 'claiming';
+        const canCancel = stage === 'preparing' || stage === 'connecting';
+        const expiresAt = isOwner ? session.expiresAt ?? slot?.expiresAt ?? null : slot?.expiresAt ?? null;
+        const timeRemainingMs = expiresAt ? Math.max(0, expiresAt - now) : slot?.remainingMs ?? null;
+        const timeRemainingLabel = timeRemainingMs ? formatDuration(timeRemainingMs) : null;
+        const levelPercent = Math.min(100, Math.round(Math.min(1, session.level) * 100));
+
+        return html`
+          <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl">
+            <div class="pointer-events-none absolute -left-24 top-[-10rem] h-64 w-64 rounded-full bg-indigo-500/20 blur-3xl"></div>
+            <div class="pointer-events-none absolute -right-24 bottom-[-8rem] h-72 w-72 rounded-full bg-fuchsia-500/20 blur-[120px]"></div>
+            <div class="relative flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+              <div class="flex-1 space-y-4">
+                <div class="flex flex-wrap items-center gap-3 text-[0.65rem] uppercase tracking-[0.35em] text-indigo-200">
+                  <span class="inline-flex items-center gap-2 rounded-full border border-indigo-400/40 bg-indigo-500/20 px-3 py-1 text-indigo-100">
+                    <${Mic} class="h-3.5 w-3.5" aria-hidden="true" />
+                    Micro anonyme
+                  </span>
+                  <span class="inline-flex items-center gap-1 text-[0.6rem] text-slate-300">
+                    <${ShieldCheck} class="h-3 w-3" aria-hidden="true" />
+                    <span>Identité masquée</span>
+                  </span>
+                </div>
+                <h2 class="text-2xl font-semibold text-white sm:text-3xl">Micro anonyme instantané</h2>
+                <p class="text-sm text-slate-300">
+                  Réserve le slot, parle via le bot et reste totalement anonyme. Un seul micro secret à la fois.
+                </p>
+
+                ${slotTaken
+                  ? html`<div class="flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+                      <div class="flex items-center gap-2 text-slate-100">
+                        <${Activity} class="h-4 w-4 text-fuchsia-200" aria-hidden="true" />
+                        <span>${slot.alias ?? 'Anonyme'} est en direct</span>
+                      </div>
+                      <div class="flex items-center gap-2 text-[0.75rem] text-slate-300">
+                        <${Clock3} class="h-3.5 w-3.5" aria-hidden="true" />
+                        <span>${timeRemainingLabel ? `Temps restant estimé : ${timeRemainingLabel}` : 'Temps restant : —'}</span>
+                      </div>
+                      ${slot.connectionPending
+                        ? html`<p class="text-xs text-slate-300/80">
+                            La connexion est en cours, le micro sera actif d’ici quelques secondes.
+                          </p>`
+                        : null}
+                    </div>`
+                  : null}
+
+                ${session.info
+                  ? html`<div class="rounded-2xl border border-indigo-400/30 bg-indigo-500/10 px-4 py-3 text-sm text-indigo-100">
+                      ${session.info}
+                    </div>`
+                  : null}
+
+                ${session.error
+                  ? html`<div class="flex items-center gap-2 rounded-2xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+                      <${AlertCircle} class="h-4 w-4" aria-hidden="true" />
+                      <span>${session.error}</span>
+                    </div>`
+                  : null}
+              </div>
+
+              <div class="w-full max-w-md rounded-2xl border border-white/10 bg-black/45 p-5 shadow-xl shadow-slate-950/30 backdrop-blur">
+                ${isOwner
+                  ? html`<div class="flex items-center justify-between rounded-xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                      <span class="flex items-center gap-2">
+                        <${ShieldCheck} class="h-4 w-4" aria-hidden="true" />
+                        <span>Alias secret</span>
+                      </span>
+                      <span class="font-semibold text-emerald-200">${session.alias}</span>
+                    </div>`
+                  : null}
+
+                ${isOwner && timeRemainingLabel
+                  ? html`<div class="mt-3 flex items-center justify-between rounded-xl border border-fuchsia-400/40 bg-fuchsia-500/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-fuchsia-100">
+                      <span class="flex items-center gap-2">
+                        <${Clock3} class="h-3.5 w-3.5" aria-hidden="true" />
+                        Chrono
+                      </span>
+                      <span class="text-sm tracking-normal">${timeRemainingLabel}</span>
+                    </div>`
+                  : null}
+
+                ${isOwner
+                  ? html`<div class="mt-4 space-y-4">
+                      <div>
+                        <p class="text-xs font-semibold uppercase tracking-[0.35em] text-slate-300">Niveau du micro</p>
+                        <div class="mt-2 mic-meter">
+                          <div class="mic-meter-bar" style=${{ width: `${levelPercent}%` }}></div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        class="flex w-full items-center justify-center gap-2 rounded-full border border-rose-400/40 bg-rose-500/20 px-5 py-2.5 text-sm font-semibold text-rose-100 transition hover:bg-rose-500/30 hover:text-white focus:outline-none focus:ring-2 focus:ring-rose-300 focus:ring-offset-2 focus:ring-offset-slate-950"
+                        onClick=${handleRelease}
+                      >
+                        Raccrocher
+                      </button>
+                    </div>`
+                  : isBusy
+                  ? html`<div class="flex flex-col gap-3">
+                      <button
+                        type="button"
+                        class="flex w-full items-center justify-center gap-2 rounded-full border border-white/10 bg-white/10 px-5 py-2.5 text-sm font-semibold text-slate-200"
+                        disabled
+                      >
+                        <span class="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-transparent"></span>
+                        Réservation en cours…
+                      </button>
+                    </div>`
+                  : canCancel
+                  ? html`<div class="flex flex-col gap-3">
+                      <button
+                        type="button"
+                        class="flex w-full items-center justify-center gap-2 rounded-full border border-white/10 bg-white/10 px-5 py-2.5 text-sm font-semibold text-slate-200"
+                        disabled
+                      >
+                        <span class="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-transparent"></span>
+                        Connexion au bot…
+                      </button>
+                      <button
+                        type="button"
+                        class="flex w-full items-center justify-center gap-2 rounded-full border border-white/10 bg-slate-900/70 px-5 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300 focus:ring-offset-2 focus:ring-offset-slate-950"
+                        onClick=${() => cleanup({ notifyServer: true, reason: 'Connexion annulée.' })}
+                      >
+                        Annuler
+                      </button>
+                    </div>`
+                  : html`<div class="flex flex-col gap-3">
+                      <button
+                        type="button"
+                        class="flex w-full items-center justify-center gap-2 rounded-full border border-fuchsia-400/60 bg-fuchsia-500/20 px-5 py-2.5 text-sm font-semibold text-fuchsia-100 shadow-lg shadow-fuchsia-900/40 transition hover:bg-fuchsia-500/30 hover:text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-300 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+                        onClick=${handleClaim}
+                        disabled=${slotTaken}
+                      >
+                        ${slotTaken ? 'Micro occupé' : 'Prendre la parole anonymement'}
+                        ${!slotTaken ? html`<${Mic} class="h-4 w-4" aria-hidden="true" />` : null}
+                      </button>
+                      <p class="text-xs text-slate-400">
+                        ${slotTaken
+                          ? 'Attends la fin du passage actuel pour réserver à ton tour.'
+                          : 'Ton intervention est routée via le bot : aucune trace, aucun pseudo.'}
+                      </p>
+                    </div>`}
+              </div>
+            </div>
+          </section>
         `;
       };
 
@@ -929,7 +1509,7 @@
         `;
       };
 
-      const HomePage = ({ status, lastUpdateLabel, streamInfo, audioKey, speakers, now }) => {
+      const HomePage = ({ status, lastUpdateLabel, streamInfo, audioKey, speakers, now, anonymousSlot }) => {
         const connectedCount = speakers.length;
         const activeSpeakersCount = speakers.reduce(
           (count, speaker) => count + (speaker?.isSpeaking ? 1 : 0),
@@ -980,6 +1560,8 @@
             </div>
             <${AudioPlayer} streamInfo=${streamInfo} audioKey=${audioKey} status=${status} />
           </section>
+
+          <${AnonymousBooth} slot=${anonymousSlot} now=${now} />
 
           <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl">
             <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1087,6 +1669,7 @@
         const [now, setNow] = useState(Date.now());
         const [menuOpen, setMenuOpen] = useState(false);
         const [route, setRoute] = useState(() => getRouteFromHash());
+        const [anonymousSlot, setAnonymousSlot] = useState(() => normalizeAnonymousSlot());
 
         useEffect(() => {
           const id = setInterval(() => setNow(Date.now()), 1000);
@@ -1121,19 +1704,28 @@
           };
 
           const applyState = (payload) => {
-            if (!payload || !Array.isArray(payload.speakers)) return;
-            const next = new Map();
-            for (const speaker of payload.speakers) {
-              if (speaker?.id) {
-                next.set(speaker.id, {
-                  ...speaker,
-                  voiceState: speaker.voiceState ?? {},
-                  isSpeaking: Boolean(speaker.isSpeaking),
-                });
-              }
+            if (!payload || typeof payload !== 'object') {
+              return;
             }
-            setParticipantsMap(next);
-            setLastUpdate(Date.now());
+
+            if (Array.isArray(payload.speakers)) {
+              const next = new Map();
+              for (const speaker of payload.speakers) {
+                if (speaker?.id) {
+                  next.set(speaker.id, {
+                    ...speaker,
+                    voiceState: speaker.voiceState ?? {},
+                    isSpeaking: Boolean(speaker.isSpeaking),
+                  });
+                }
+              }
+              setParticipantsMap(next);
+              setLastUpdate(Date.now());
+            }
+
+            if (Object.prototype.hasOwnProperty.call(payload, 'anonymousSlot')) {
+              setAnonymousSlot(normalizeAnonymousSlot(payload.anonymousSlot));
+            }
           };
 
           source.addEventListener('state', (event) => {
@@ -1197,6 +1789,15 @@
               }));
             } catch (err) {
               console.error('info event parse error', err);
+            }
+          });
+
+          source.addEventListener('anonymous-slot', (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              setAnonymousSlot(normalizeAnonymousSlot(data));
+            } catch (err) {
+              console.error('anonymous slot event parse error', err);
             }
           });
 
@@ -1326,6 +1927,7 @@
                           audioKey=${audioKey}
                           speakers=${speakers}
                           now=${now}
+                          anonymousSlot=${anonymousSlot}
                         />`
                   }
                 </div>
