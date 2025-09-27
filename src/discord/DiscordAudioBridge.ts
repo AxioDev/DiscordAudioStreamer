@@ -77,6 +77,10 @@ export default class DiscordAudioBridge {
 
   private anonymousQueue: Buffer[] = [];
 
+  private anonymousRemainder: Buffer = Buffer.alloc(0);
+
+  private anonymousDrainListener: (() => void) | null = null;
+
   private readonly events = new EventEmitter();
 
   constructor({ config, mixer, speakerTracker }: DiscordAudioBridgeOptions) {
@@ -494,21 +498,25 @@ export default class DiscordAudioBridge {
     this.anonymousInput = input;
     this.anonymousEncoder = encoder;
 
-    if (this.anonymousQueue.length > 0) {
-      for (const chunk of this.anonymousQueue.splice(0)) {
-        try {
-          this.anonymousInput.write(chunk);
-        } catch (error) {
-          console.warn('Failed to flush buffered anonymous audio chunk', error);
-          break;
-        }
+    this.anonymousDrainListener = () => {
+      try {
+        this.flushAnonymousQueue();
+      } catch (error) {
+        console.warn('Failed to flush anonymous queue on drain event', error);
       }
-    }
+    };
+
+    input.on('drain', this.anonymousDrainListener);
+
+    this.flushAnonymousQueue();
   }
 
   private teardownAnonymousPipeline(): void {
     if (this.anonymousInput) {
       try {
+        if (this.anonymousDrainListener) {
+          this.anonymousInput.off('drain', this.anonymousDrainListener);
+        }
         this.anonymousInput.removeAllListeners();
         this.anonymousInput.end();
         this.anonymousInput.destroy();
@@ -534,6 +542,8 @@ export default class DiscordAudioBridge {
     this.anonymousInput = null;
     this.anonymousEncoder = null;
     this.anonymousQueue = [];
+    this.anonymousRemainder = Buffer.alloc(0);
+    this.anonymousDrainListener = null;
   }
 
   public pushAnonymousAudio(chunk: Buffer): boolean {
@@ -541,20 +551,66 @@ export default class DiscordAudioBridge {
       return false;
     }
 
-    if (!this.anonymousInput) {
-      if (this.anonymousQueue.length < 48) {
-        this.anonymousQueue.push(Buffer.from(chunk));
+    const frameBytes = this.config.audio.frameBytes > 0 ? this.config.audio.frameBytes : chunk.length;
+    let buffer = Buffer.concat([this.anonymousRemainder, chunk]);
+    let wroteAtLeastOneFrame = false;
+
+    while (buffer.length >= frameBytes) {
+      const frame = buffer.slice(0, frameBytes);
+      buffer = buffer.slice(frameBytes);
+      const success = this.writeAnonymousFrame(frame);
+      if (success) {
+        wroteAtLeastOneFrame = true;
+        continue;
       }
+
+      this.enqueueAnonymousFrame(frame);
+      wroteAtLeastOneFrame = true;
+      break;
+    }
+
+    this.anonymousRemainder = buffer;
+
+    return wroteAtLeastOneFrame;
+  }
+
+  private writeAnonymousFrame(frame: Buffer): boolean {
+    if (!this.anonymousInput) {
+      this.enqueueAnonymousFrame(frame);
       return false;
     }
 
-    const canWrite = this.anonymousInput.write(chunk);
+    const canWrite = this.anonymousInput.write(frame);
     if (!canWrite) {
-      if (this.anonymousQueue.length < 48) {
-        this.anonymousQueue.push(Buffer.from(chunk));
+      this.enqueueAnonymousFrame(frame);
+    }
+    return canWrite;
+  }
+
+  private enqueueAnonymousFrame(frame: Buffer): void {
+    const MAX_QUEUE_SIZE = 96;
+    if (this.anonymousQueue.length >= MAX_QUEUE_SIZE) {
+      return;
+    }
+    this.anonymousQueue.push(Buffer.from(frame));
+  }
+
+  private flushAnonymousQueue(): void {
+    if (!this.anonymousInput || this.anonymousQueue.length === 0) {
+      return;
+    }
+
+    while (this.anonymousQueue.length > 0) {
+      const frame = this.anonymousQueue.shift();
+      if (!frame) {
+        break;
+      }
+      const canWrite = this.anonymousInput.write(frame);
+      if (!canWrite) {
+        this.anonymousQueue.unshift(frame);
+        break;
       }
     }
-    return true;
   }
 
   public hasActiveVoiceConnection(): boolean {
