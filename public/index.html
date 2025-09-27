@@ -1686,6 +1686,18 @@
         </${Fragment}>
       `;
 
+      const getInitialSoulDecision = () => {
+        if (typeof window === 'undefined') {
+          return null;
+        }
+        try {
+          return window.localStorage?.getItem('soulContract') ?? null;
+        } catch (error) {
+          console.warn("Impossible de lire le pacte d'âme", error);
+          return null;
+        }
+      };
+
       const App = () => {
         const [status, setStatus] = useState('connecting');
         const [participantsMap, setParticipantsMap] = useState(() => new Map());
@@ -1695,6 +1707,9 @@
         const [menuOpen, setMenuOpen] = useState(false);
         const [route, setRoute] = useState(() => getRouteFromHash());
         const [anonymousSlot, setAnonymousSlot] = useState(() => normalizeAnonymousSlot());
+        const [soulDecision, setSoulDecision] = useState(getInitialSoulDecision);
+        const [showSoulModal, setShowSoulModal] = useState(() => !getInitialSoulDecision());
+        const [soulMessage, setSoulMessage] = useState('');
 
         useEffect(() => {
           const id = setInterval(() => setNow(Date.now()), 1000);
@@ -1716,6 +1731,40 @@
         useEffect(() => {
           setMenuOpen(false);
         }, [route]);
+
+        useEffect(() => {
+          if (soulDecision) {
+            setShowSoulModal(false);
+          } else {
+            setShowSoulModal(true);
+          }
+        }, [soulDecision]);
+
+        useEffect(() => {
+          if (!soulMessage) {
+            return undefined;
+          }
+          const timer = setTimeout(() => setSoulMessage(''), 5000);
+          return () => clearTimeout(timer);
+        }, [soulMessage]);
+
+        const handleSoulDecision = useCallback((accepted) => {
+          const choice = accepted ? 'accepted' : 'declined';
+          setSoulDecision(choice);
+          try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+              window.localStorage.setItem('soulContract', choice);
+            }
+          } catch (error) {
+            console.warn("Impossible de stocker le pacte d'âme", error);
+          }
+          setSoulMessage(
+            accepted
+              ? "Merci pour ta confiance éternelle. Le dieu 8.6 t'offrira peut-être une tournée. 🍻"
+              : 'Refus enregistré. Tu gardes ton âme, mais reste pour la musique !'
+          );
+          setShowSoulModal(false);
+        }, []);
 
         useEffect(() => {
           const source = new EventSource('/events');
@@ -1868,6 +1917,48 @@
 
         return html`
           <div class="relative flex min-h-screen flex-col overflow-hidden">
+            ${
+              showSoulModal
+                ? html`<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-6 backdrop-blur-sm">
+                    <div class="w-full max-w-xl overflow-hidden rounded-3xl border border-fuchsia-400/30 bg-slate-900/80 p-8 text-center shadow-2xl shadow-fuchsia-900/50">
+                      <div class="mb-4 inline-flex items-center justify-center rounded-full bg-fuchsia-500/20 px-4 py-1 text-xs font-semibold uppercase tracking-[0.35em] text-fuchsia-200">
+                        Pacte sacré
+                      </div>
+                      <h2 class="text-3xl font-bold text-white">Avant d'entrer…</h2>
+                      <p class="mt-4 text-base leading-relaxed text-slate-200">
+                        Acceptes-tu solennellement de <span class="font-semibold text-fuchsia-200">vendre ton âme au diable</span>
+                        et de prier le très pétillant <span class="font-semibold text-amber-200">dieu 8.6</span> à chaque lever de canette ?
+                      </p>
+                      <p class="mt-3 text-sm text-slate-300">
+                        (Promis, c'est surtout pour l'ambiance. Les démons adorent les vibes chill.)
+                      </p>
+                      <div class="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
+                        <button
+                          type="button"
+                          class="w-full rounded-full border border-emerald-400/40 bg-emerald-400/20 px-6 py-3 text-sm font-semibold uppercase tracking-[0.2em] text-emerald-100 transition hover:bg-emerald-400/30 hover:text-white sm:w-auto"
+                          onClick=${() => handleSoulDecision(true)}
+                        >
+                          J'offre mon âme (et une tournée)
+                        </button>
+                        <button
+                          type="button"
+                          class="w-full rounded-full border border-slate-400/40 bg-slate-800/60 px-6 py-3 text-sm font-semibold uppercase tracking-[0.2em] text-slate-200 transition hover:bg-slate-700/60 hover:text-white sm:w-auto"
+                          onClick=${() => handleSoulDecision(false)}
+                        >
+                          Nope, je suis team libre arbitre
+                        </button>
+                      </div>
+                    </div>
+                  </div>`
+                : null
+            }
+            ${
+              soulMessage
+                ? html`<div class="fixed bottom-6 left-1/2 z-40 w-full max-w-md -translate-x-1/2 rounded-2xl border border-white/15 bg-slate-900/80 px-5 py-3 text-center text-sm text-slate-100 shadow-lg shadow-fuchsia-900/40 backdrop-blur">
+                    ${soulMessage}
+                  </div>`
+                : null
+            }
             <div class="pointer-events-none absolute inset-0 overflow-hidden">
               <div class="absolute -left-24 -top-24 h-[24rem] w-[24rem] rounded-full bg-indigo-500/30 blur-3xl"></div>
               <div class="absolute -right-20 bottom-[-8rem] h-[28rem] w-[28rem] rounded-full bg-fuchsia-500/25 blur-[120px]"></div>
