@@ -7,6 +7,7 @@ import type SseService from '../services/SseService';
 import type AnonymousSpeechManager from '../services/AnonymousSpeechManager';
 import type { Config } from '../config';
 import { WebSocketServer } from 'ws';
+import type DiscordAudioBridge from '../discord/DiscordAudioBridge';
 
 export interface AppServerOptions {
   config: Config;
@@ -14,6 +15,7 @@ export interface AppServerOptions {
   speakerTracker: SpeakerTracker;
   sseService: SseService;
   anonymousSpeechManager: AnonymousSpeechManager;
+  discordBridge: DiscordAudioBridge;
 }
 
 type FlushCapableResponse = Response & {
@@ -32,18 +34,21 @@ export default class AppServer {
 
   private readonly anonymousSpeechManager: AnonymousSpeechManager;
 
+  private readonly discordBridge: DiscordAudioBridge;
+
   private readonly app = express();
 
   private httpServer: Server | null = null;
 
   private wsServer: WebSocketServer | null = null;
 
-  constructor({ config, transcoder, speakerTracker, sseService, anonymousSpeechManager }: AppServerOptions) {
+  constructor({ config, transcoder, speakerTracker, sseService, anonymousSpeechManager, discordBridge }: AppServerOptions) {
     this.config = config;
     this.transcoder = transcoder;
     this.speakerTracker = speakerTracker;
     this.sseService = sseService;
     this.anonymousSpeechManager = anonymousSpeechManager;
+    this.discordBridge = discordBridge;
 
     this.configureMiddleware();
     this.registerRoutes();
@@ -118,9 +123,77 @@ export default class AppServer {
       }
     });
 
+    this.app.post('/test-beep', (req, res) => {
+      this.handleTestBeep(req, res);
+    });
+
     this.app.get('/', (_req, res) => {
       res.sendFile(path.resolve(__dirname, '..', '..', 'public', 'index.html'));
     });
+  }
+
+  private handleTestBeep(_req: Request, res: Response): void {
+    if (!this.discordBridge.hasActiveVoiceConnection()) {
+      res
+        .status(503)
+        .json({ error: 'VOICE_CONNECTION_UNAVAILABLE', message: 'Le bot est déconnecté du salon vocal.' });
+      return;
+    }
+
+    try {
+      const buffer = this.createTestBeepBuffer();
+      const written = this.discordBridge.pushAnonymousAudio(buffer);
+      res.status(202).json({ ok: true, written });
+    } catch (error) {
+      console.error('Impossible de générer le bip de test', error);
+      res.status(500).json({ error: 'BEEP_FAILED', message: "Le bip de test n'a pas pu être envoyé." });
+    }
+  }
+
+  private createTestBeepBuffer(): Buffer {
+    const sampleRate = this.config.audio.sampleRate > 0 ? this.config.audio.sampleRate : 48000;
+    const channels = this.config.audio.channels > 0 ? this.config.audio.channels : 2;
+    const bytesPerSample = this.config.audio.bytesPerSample > 0 ? this.config.audio.bytesPerSample : 2;
+    const durationMs = 120;
+    const frequency = 880;
+    const totalSamples = Math.max(1, Math.floor((sampleRate * durationMs) / 1000));
+    const fadeSamples = Math.min(Math.floor(sampleRate * 0.005), Math.floor(totalSamples / 4));
+    const amplitude = 0.28 * 0x7fff;
+
+    if (bytesPerSample !== 2) {
+      throw new Error(`Unsupported audio format: expected 16-bit PCM, got ${bytesPerSample * 8}-bit`);
+    }
+
+    const buffer = Buffer.alloc(totalSamples * channels * bytesPerSample);
+
+    for (let i = 0; i < totalSamples; i++) {
+      const time = i / sampleRate;
+      const envelope = this.computeEnvelope(i, totalSamples, fadeSamples);
+      const value = Math.round(Math.sin(2 * Math.PI * frequency * time) * amplitude * envelope);
+
+      for (let channel = 0; channel < channels; channel++) {
+        const offset = (i * channels + channel) * bytesPerSample;
+        buffer.writeInt16LE(value, offset);
+      }
+    }
+
+    return buffer;
+  }
+
+  private computeEnvelope(index: number, totalSamples: number, fadeSamples: number): number {
+    if (fadeSamples <= 0) {
+      return 1;
+    }
+
+    if (index < fadeSamples) {
+      return index / fadeSamples;
+    }
+
+    if (index >= totalSamples - fadeSamples) {
+      return Math.max(0, totalSamples - index - 1) / fadeSamples;
+    }
+
+    return 1;
   }
 
   private handleStreamRequest(req: Request, res: Response): void {

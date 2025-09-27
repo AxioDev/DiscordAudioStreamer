@@ -73,6 +73,7 @@ const appServer = new AppServer({
   speakerTracker,
   sseService,
   anonymousSpeechManager,
+  discordBridge,
 });
 appServer.start();
 
