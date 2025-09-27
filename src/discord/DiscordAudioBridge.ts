@@ -556,8 +556,8 @@ export default class DiscordAudioBridge {
     let wroteAtLeastOneFrame = false;
 
     while (buffer.length >= frameBytes) {
-      const frame = buffer.slice(0, frameBytes);
-      buffer = buffer.slice(frameBytes);
+      const frame = buffer.subarray(0, frameBytes);
+      buffer = buffer.subarray(frameBytes);
       const success = this.writeAnonymousFrame(frame);
       if (success) {
         wroteAtLeastOneFrame = true;
@@ -566,25 +566,35 @@ export default class DiscordAudioBridge {
 
       this.enqueueAnonymousFrame(frame);
       wroteAtLeastOneFrame = true;
+
+      while (buffer.length >= frameBytes) {
+        const pendingFrame = buffer.subarray(0, frameBytes);
+        buffer = buffer.subarray(frameBytes);
+        this.enqueueAnonymousFrame(pendingFrame);
+      }
+
       break;
     }
 
     this.anonymousRemainder = buffer;
+
+    if (this.anonymousInput && this.anonymousQueue.length > 0) {
+      try {
+        this.flushAnonymousQueue();
+      } catch (error) {
+        console.warn('Failed to flush anonymous queue after push', error);
+      }
+    }
 
     return wroteAtLeastOneFrame;
   }
 
   private writeAnonymousFrame(frame: Buffer): boolean {
     if (!this.anonymousInput) {
-      this.enqueueAnonymousFrame(frame);
       return false;
     }
 
-    const canWrite = this.anonymousInput.write(frame);
-    if (!canWrite) {
-      this.enqueueAnonymousFrame(frame);
-    }
-    return canWrite;
+    return this.anonymousInput.write(frame);
   }
 
   private enqueueAnonymousFrame(frame: Buffer): void {
