@@ -571,6 +571,22 @@
         const levelLastUpdateRef = useRef(0);
         const mountedRef = useRef(true);
 
+        const ensurePrimaryStreamPlayback = useCallback(async () => {
+          const audio = document.querySelector('audio[data-role="primary-stream"]');
+          if (!audio) {
+            return;
+          }
+
+          try {
+            audio.muted = false;
+            if (audio.paused) {
+              await audio.play();
+            }
+          } catch (error) {
+            console.warn('Impossible de maintenir la lecture du flux principal', error);
+          }
+        }, []);
+
         const stopAudioProcessing = useCallback(async () => {
           if (processorRef.current) {
             try {
@@ -624,6 +640,7 @@
             }
 
             await stopAudioProcessing();
+            await ensurePrimaryStreamPlayback();
 
             const tokenValue = tokenRef.current;
             tokenRef.current = null;
@@ -655,7 +672,7 @@
               }));
             }
           },
-          [stopAudioProcessing],
+          [stopAudioProcessing, ensurePrimaryStreamPlayback],
         );
 
         useEffect(() => () => {
@@ -731,6 +748,8 @@
             }
           }
 
+          await ensurePrimaryStreamPlayback();
+
           const source = audioContext.createMediaStreamSource(stream);
           const processor = audioContext.createScriptProcessor(1024, 1, 1);
           const gain = audioContext.createGain();
@@ -788,7 +807,7 @@
           if (mountedRef.current) {
             setSession((prev) => ({ ...prev, micGranted: true }));
           }
-        }, []);
+        }, [ensurePrimaryStreamPlayback]);
 
         const connectWebSocket = useCallback(() => {
           const tokenValue = tokenRef.current;
@@ -810,6 +829,9 @@
             if (!mountedRef.current) {
               return;
             }
+            ensurePrimaryStreamPlayback().catch((error) => {
+              console.warn('Impossible de reprendre le flux principal après connexion WS', error);
+            });
             setSession((prev) => ({
               ...prev,
               stage: 'streaming',
@@ -845,6 +867,9 @@
               wsRef.current = null;
             }
             stopAudioProcessing();
+            ensurePrimaryStreamPlayback().catch((error) => {
+              console.warn('Impossible de reprendre le flux principal après fermeture du micro', error);
+            });
             tokenRef.current = null;
             if (mountedRef.current) {
               setSession((prev) => ({
@@ -860,7 +885,7 @@
               }));
             }
           };
-        }, [cleanup, stopAudioProcessing]);
+        }, [cleanup, stopAudioProcessing, ensurePrimaryStreamPlayback]);
 
         const handleClaim = async () => {
           if (session.stage !== 'idle') {
@@ -1504,7 +1529,7 @@
                   </div>`
                 : null
             }
-            <audio ref=${audioRef} preload="auto" playsinline crossorigin="anonymous" aria-hidden="true"></audio>
+            <audio ref=${audioRef} preload="auto" playsinline crossorigin="anonymous" aria-hidden="true" data-role="primary-stream"></audio>
           </div>
         `;
       };
