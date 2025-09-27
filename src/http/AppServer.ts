@@ -4,13 +4,16 @@ import type { Server } from 'http';
 import type FfmpegTranscoder from '../audio/FfmpegTranscoder';
 import type SpeakerTracker from '../services/SpeakerTracker';
 import type SseService from '../services/SseService';
+import type AnonymousSpeechManager from '../services/AnonymousSpeechManager';
 import type { Config } from '../config';
+import { WebSocketServer } from 'ws';
 
 export interface AppServerOptions {
   config: Config;
   transcoder: FfmpegTranscoder;
   speakerTracker: SpeakerTracker;
   sseService: SseService;
+  anonymousSpeechManager: AnonymousSpeechManager;
 }
 
 type FlushCapableResponse = Response & {
@@ -27,15 +30,20 @@ export default class AppServer {
 
   private readonly sseService: SseService;
 
+  private readonly anonymousSpeechManager: AnonymousSpeechManager;
+
   private readonly app = express();
 
   private httpServer: Server | null = null;
 
-  constructor({ config, transcoder, speakerTracker, sseService }: AppServerOptions) {
+  private wsServer: WebSocketServer | null = null;
+
+  constructor({ config, transcoder, speakerTracker, sseService, anonymousSpeechManager }: AppServerOptions) {
     this.config = config;
     this.transcoder = transcoder;
     this.speakerTracker = speakerTracker;
     this.sseService = sseService;
+    this.anonymousSpeechManager = anonymousSpeechManager;
 
     this.configureMiddleware();
     this.registerRoutes();
@@ -44,7 +52,7 @@ export default class AppServer {
   private configureMiddleware(): void {
     this.app.use((req, res, next) => {
       res.header('Access-Control-Allow-Origin', '*');
-      res.header('Access-Control-Allow-Methods', 'GET,OPTIONS');
+      res.header('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
       res.header('Access-Control-Allow-Headers', 'Content-Type');
 
       if (req.method === 'OPTIONS') {
@@ -55,6 +63,8 @@ export default class AppServer {
       next();
     });
 
+    this.app.use(express.json({ limit: '256kb' }));
+
     const publicDir = path.resolve(__dirname, '..', '..', 'public');
     this.app.use(express.static(publicDir));
   }
@@ -62,7 +72,10 @@ export default class AppServer {
   private registerRoutes(): void {
     this.app.get('/events', (req, res) => {
       this.sseService.handleRequest(req, res, {
-        initialState: () => this.speakerTracker.getInitialState(),
+        initialState: () => ({
+          ...this.speakerTracker.getInitialState(),
+          anonymousSlot: this.anonymousSpeechManager.getPublicState(),
+        }),
       });
     });
 
@@ -74,6 +87,35 @@ export default class AppServer {
         headerBufferBytes: this.transcoder.getHeaderBuffer().length,
         activeSpeakers: this.speakerTracker.getSpeakerCount(),
       });
+    });
+
+    this.app.get('/anonymous-slot', (_req, res) => {
+      res.json(this.anonymousSpeechManager.getPublicState());
+    });
+
+    this.app.post('/anonymous-slot', (req, res) => {
+      try {
+        const displayName = typeof req.body?.displayName === 'string' ? req.body.displayName : undefined;
+        const result = this.anonymousSpeechManager.claimSlot({ displayName });
+        res.status(201).json(result);
+      } catch (error) {
+        this.handleAnonymousSlotError(res, error);
+      }
+    });
+
+    this.app.delete('/anonymous-slot', (req, res) => {
+      const token = this.extractAnonymousToken(req);
+      if (!token) {
+        res.status(400).json({ error: 'TOKEN_REQUIRED', message: 'Le jeton de session est requis.' });
+        return;
+      }
+
+      try {
+        const state = this.anonymousSpeechManager.releaseSlot(token);
+        res.json({ state });
+      } catch (error) {
+        this.handleAnonymousSlotError(res, error);
+      }
     });
 
     this.app.get('/', (_req, res) => {
@@ -141,6 +183,8 @@ export default class AppServer {
       console.log(`HTTP server listening on http://0.0.0.0:${this.config.port}`);
     });
 
+    this.initializeWebSocketServer();
+
     return this.httpServer;
   }
 
@@ -149,5 +193,58 @@ export default class AppServer {
       this.httpServer.close();
       this.httpServer = null;
     }
+    if (this.wsServer) {
+      try {
+        for (const client of this.wsServer.clients) {
+          client.terminate();
+        }
+        this.wsServer.close();
+      } catch (error) {
+        console.warn('Failed to close WebSocket server', error);
+      }
+      this.wsServer = null;
+    }
+  }
+
+  private initializeWebSocketServer(): void {
+    if (!this.httpServer) {
+      return;
+    }
+    this.wsServer = new WebSocketServer({ server: this.httpServer, path: '/anonymous-stream' });
+    this.wsServer.on('connection', (socket, request) => {
+      this.anonymousSpeechManager.handleSocketConnection(socket, request);
+    });
+    this.wsServer.on('error', (error) => {
+      console.warn('WebSocket server error', error);
+    });
+  }
+
+  private extractAnonymousToken(req: Request): string | null {
+    const header = req.header('authorization') || req.header('Authorization');
+    if (header && header.toLowerCase().startsWith('bearer ')) {
+      return header.slice(7).trim() || null;
+    }
+
+    if (req.body && typeof req.body.token === 'string') {
+      return req.body.token.trim() || null;
+    }
+
+    if (typeof req.query?.token === 'string') {
+      return String(req.query.token).trim() || null;
+    }
+
+    return null;
+  }
+
+  private handleAnonymousSlotError(res: Response, error: unknown): void {
+    if (error && typeof error === 'object' && 'status' in error && 'code' in error) {
+      const slotError = error as { status?: number; code?: string; message?: string };
+      const status = Number(slotError.status) || 500;
+      res.status(status).json({ error: slotError.code ?? 'UNKNOWN', message: slotError.message ?? 'Erreur inconnue.' });
+      return;
+    }
+
+    console.error('Unhandled anonymous slot error', error);
+    res.status(500).json({ error: 'UNKNOWN', message: 'Une erreur inattendue est survenue.' });
   }
 }

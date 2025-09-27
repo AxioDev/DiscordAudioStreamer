@@ -5,6 +5,7 @@ import AppServer from './http/AppServer';
 import SseService from './services/SseService';
 import SpeakerTracker from './services/SpeakerTracker';
 import DiscordAudioBridge from './discord/DiscordAudioBridge';
+import AnonymousSpeechManager from './services/AnonymousSpeechManager';
 
 const mixer = new AudioMixer({
   frameBytes: config.audio.frameBytes,
@@ -61,11 +62,17 @@ discordBridge.login().catch((error) => {
   process.exit(1);
 });
 
+const anonymousSpeechManager = new AnonymousSpeechManager({
+  discordBridge,
+  sseService,
+});
+
 const appServer = new AppServer({
   config,
   transcoder,
   speakerTracker,
   sseService,
+  anonymousSpeechManager,
 });
 appServer.start();
 
