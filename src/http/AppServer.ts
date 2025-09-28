@@ -386,7 +386,7 @@ export default class AppServer {
     }
 
     const normalized = raw.trim().toLowerCase();
-    if (normalized === 'stripe' || normalized === 'coingate') {
+    if (normalized === 'stripe' || normalized === 'coingate' || normalized === 'paypal') {
       return normalized;
     }
 

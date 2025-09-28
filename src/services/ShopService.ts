@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import type { Config } from '../config';
 
-export type ShopProvider = 'stripe' | 'coingate';
+export type ShopProvider = 'stripe' | 'coingate' | 'paypal';
 
 interface ProductDefinition {
   id: string;
@@ -81,11 +81,16 @@ export default class ShopService {
 
   private readonly coingateApiBase: string | null;
 
+  private readonly paypalApiBase: string | null;
+
+  private paypalAccessToken: { value: string; expiresAt: number } | null = null;
+
   constructor({ config }: ShopServiceOptions) {
     this.config = config;
     this.products = this.initializeProducts();
     this.stripe = this.initializeStripe();
     this.coingateApiBase = this.initializeCoingateBaseUrl();
+    this.paypalApiBase = this.initializePaypalBaseUrl();
   }
 
   public getCurrency(): string {
@@ -124,6 +129,8 @@ export default class ShopService {
         return this.createStripeCheckout(product, options);
       case 'coingate':
         return this.createCoingateCheckout(product, options);
+      case 'paypal':
+        return this.createPaypalCheckout(product, options);
       default:
         throw new ShopError('PROVIDER_UNSUPPORTED', 'Fournisseur de paiement non pris en charge.', 400);
     }
@@ -226,6 +233,15 @@ export default class ShopService {
       : 'https://api-sandbox.coingate.com/v2';
   }
 
+  private initializePaypalBaseUrl(): string | null {
+    const { clientId, clientSecret, environment } = this.config.shop.paypal;
+    if (!clientId || !clientSecret) {
+      return null;
+    }
+
+    return environment === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
+  }
+
   private computeAvailableProviders(product: InternalProduct): ShopProvider[] {
     const providers: ShopProvider[] = [];
     if (this.stripe && product.stripePriceId) {
@@ -234,7 +250,15 @@ export default class ShopService {
     if (this.coingateApiBase && this.config.shop.coingate.apiKey) {
       providers.push('coingate');
     }
+    if (this.isPaypalEnabled()) {
+      providers.push('paypal');
+    }
     return providers;
+  }
+
+  private isPaypalEnabled(): boolean {
+    const { clientId, clientSecret } = this.config.shop.paypal;
+    return Boolean(this.paypalApiBase && clientId && clientSecret);
   }
 
   private formatPrice(priceCents: number, currency: string): string {
@@ -370,6 +394,170 @@ export default class ShopService {
     }
   }
 
+  private async createPaypalCheckout(
+    product: InternalProduct,
+    options: CheckoutRequestOptions,
+  ): Promise<CheckoutSession> {
+    if (!this.isPaypalEnabled() || !this.paypalApiBase) {
+      throw new ShopError('PAYPAL_DISABLED', 'PayPal est indisponible.', 503);
+    }
+
+    const successUrl = this.ensureValidReturnUrl(options.successUrl, 'success');
+    const cancelUrl = this.ensureValidReturnUrl(options.cancelUrl, 'cancel');
+
+    const accessToken = await this.getPaypalAccessToken();
+    const orderPayload: Record<string, unknown> = {
+      intent: 'CAPTURE',
+      purchase_units: [
+        {
+          reference_id: product.id,
+          description: this.formatPaypalDescription(product.description),
+          amount: {
+            currency_code: product.currency.toUpperCase(),
+            value: (product.priceCents / 100).toFixed(2),
+          },
+        },
+      ],
+      application_context: {
+        brand_name: this.config.shop.paypal.brandName || 'Libre Antenne',
+        user_action: 'PAY_NOW',
+        return_url: successUrl,
+        cancel_url: cancelUrl,
+      },
+    };
+
+    if (options.customerEmail) {
+      orderPayload.payer = { email_address: options.customerEmail };
+    }
+
+    try {
+      const response = await fetch(`${this.paypalApiBase}/v2/checkout/orders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+          Prefer: 'return=representation',
+        },
+        body: JSON.stringify(orderPayload),
+      });
+
+      if (!response.ok) {
+        const errorBody = (await this.safeReadJson(response)) as
+          | { message?: string; details?: { issue?: string; description?: string }[] }
+          | null;
+        const detail = errorBody?.details?.[0];
+        const message =
+          detail?.description ||
+          errorBody?.message ||
+          `PayPal a répondu avec le statut ${response.status}.`;
+        throw new ShopError('PAYPAL_CHECKOUT_FAILED', message, 502);
+      }
+
+      const payload = (await response.json()) as {
+        links?: { rel?: string; href?: string }[];
+      };
+      const approvalUrl = payload.links?.find((link) => link.rel === 'approve')?.href;
+
+      if (!approvalUrl) {
+        throw new ShopError(
+          'PAYPAL_URL_MISSING',
+          'Impossible de récupérer le lien de paiement PayPal.',
+          503,
+        );
+      }
+
+      return { provider: 'paypal', url: approvalUrl };
+    } catch (error) {
+      if (error instanceof ShopError) {
+        throw error;
+      }
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Erreur inconnue lors de la création de la commande PayPal.';
+      throw new ShopError('PAYPAL_CHECKOUT_FAILED', message, 502);
+    }
+  }
+
+  private async getPaypalAccessToken(): Promise<string> {
+    if (!this.isPaypalEnabled() || !this.paypalApiBase) {
+      throw new ShopError('PAYPAL_DISABLED', 'PayPal est indisponible.', 503);
+    }
+
+    const now = Date.now();
+    if (this.paypalAccessToken && this.paypalAccessToken.expiresAt > now + 5000) {
+      return this.paypalAccessToken.value;
+    }
+
+    const { clientId, clientSecret } = this.config.shop.paypal;
+    if (!clientId || !clientSecret) {
+      throw new ShopError('PAYPAL_DISABLED', 'PayPal est indisponible.', 503);
+    }
+
+    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+
+    try {
+      const response = await fetch(`${this.paypalApiBase}/v1/oauth2/token`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${credentials}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: 'grant_type=client_credentials',
+      });
+
+      if (!response.ok) {
+        const errorBody = (await this.safeReadJson(response)) as { error_description?: string } | null;
+        const message =
+          errorBody?.error_description ||
+          `PayPal a refusé l'authentification (statut ${response.status}).`;
+        throw new ShopError('PAYPAL_AUTH_FAILED', message, 502);
+      }
+
+      const payload = (await response.json()) as { access_token?: string; expires_in?: number };
+      const token = payload.access_token;
+      if (!token) {
+        throw new ShopError(
+          'PAYPAL_AUTH_FAILED',
+          'PayPal a renvoyé une réponse sans jeton.',
+          502,
+        );
+      }
+
+      const expiresInSeconds = Number(payload.expires_in) || 300;
+      this.paypalAccessToken = {
+        value: token,
+        expiresAt: now + expiresInSeconds * 1000,
+      };
+
+      return token;
+    } catch (error) {
+      if (error instanceof ShopError) {
+        throw error;
+      }
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Impossible d'obtenir le jeton d'accès PayPal.";
+      throw new ShopError('PAYPAL_AUTH_FAILED', message, 502);
+    }
+  }
+
+  private formatPaypalDescription(description: string): string {
+    const trimmed = description?.trim?.() ?? '';
+    if (!trimmed) {
+      return 'Commande Libre Antenne';
+    }
+
+    if (trimmed.length <= 120) {
+      return trimmed;
+    }
+
+    return `${trimmed.slice(0, 117)}...`;
+  }
+
   private ensureValidReturnUrl(value: string | undefined, type: 'success' | 'cancel'): string {
     if (!value) {
       throw new ShopError('RETURN_URL_REQUIRED', `L'URL de redirection (${type}) est obligatoire.`, 400);
@@ -394,7 +582,7 @@ export default class ShopService {
     try {
       return await response.json();
     } catch (error) {
-      console.warn('Unable to parse CoinGate error body', error);
+      console.warn('Unable to parse error body', error);
       return null;
     }
   }

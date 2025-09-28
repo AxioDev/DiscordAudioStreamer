@@ -14,3 +14,18 @@ EXCLUDED_USER_IDS=1419381362116268112,123456789012345678
 ```
 
 You can clear the default exclusion by explicitly setting the variable to an empty value in your environment (e.g. `EXCLUDED_USER_IDS=` in your `.env` file).
+
+### Boutique en ligne
+
+The shop endpoints support multiple payment providers. To enable PayPal Checkout you need to provide API credentials via environment variables:
+
+```env
+# PayPal Checkout (defaults to the sandbox environment if not provided)
+SHOP_PAYPAL_CLIENT_ID=your-paypal-client-id
+SHOP_PAYPAL_CLIENT_SECRET=your-paypal-client-secret
+SHOP_PAYPAL_ENVIRONMENT=live
+# Optional: overrides the brand name displayed on the PayPal approval screen
+SHOP_PAYPAL_BRAND_NAME=Libre Antenne
+```
+
+Omit the variables (or leave them empty) to disable PayPal. Stripe and CoinGate keep their existing configuration options.
