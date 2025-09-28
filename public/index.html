@@ -1416,48 +1416,62 @@
         error: 'border-rose-400/40 bg-rose-500/10 text-rose-100',
       };
 
-      const BAN_TIERS = [
+      const MODERATION_SERVICES = [
+        {
+          id: 'mute-15m',
+          title: 'Mute 15 minutes',
+          price: '1,50\u00A0€',
+          description: 'Coupe immédiatement le micro sans exclure la personne du salon.',
+          accent: 'border-emerald-400/40 bg-emerald-500/10',
+          categoryLabel: 'Option mute',
+        },
         {
           id: 'ban-60s',
-          duration: '60 secondes',
+          title: 'Bannissement 60 secondes',
           price: '1,10\u00A0€',
           description: 'Un rappel express pour calmer les débordements immédiats.',
           accent: 'border-emerald-400/40 bg-emerald-500/10',
+          categoryLabel: 'Option bannissement',
         },
         {
           id: 'ban-5m',
-          duration: '5 minutes',
+          title: 'Bannissement 5 minutes',
           price: '2,20\u00A0€',
           description: 'Idéal pour faire retomber la pression et rétablir le calme.',
           accent: 'border-sky-400/40 bg-sky-500/10',
+          categoryLabel: 'Option bannissement',
         },
         {
           id: 'ban-10m',
-          duration: '10 minutes',
+          title: 'Bannissement 10 minutes',
           price: '3,30\u00A0€',
           description: 'Parfait pour rappeler les règles sans exclure définitivement.',
           accent: 'border-indigo-400/40 bg-indigo-500/10',
+          categoryLabel: 'Option bannissement',
         },
         {
           id: 'ban-1h',
-          duration: '1 heure',
+          title: 'Bannissement 1 heure',
           price: '11,00\u00A0€',
           description: 'Temps suffisant pour protéger la discussion et consulter l’équipe.',
           accent: 'border-fuchsia-400/40 bg-fuchsia-500/10',
+          categoryLabel: 'Option bannissement',
         },
         {
           id: 'ban-24h',
-          duration: '24 heures',
+          title: 'Bannissement 24 heures',
           price: '22,00\u00A0€',
           description: 'Mesure ferme pour les récidivistes ou incidents graves.',
           accent: 'border-amber-400/40 bg-amber-500/10',
+          categoryLabel: 'Option bannissement',
         },
         {
           id: 'ban-1w',
-          duration: '1 semaine',
+          title: 'Bannissement 1 semaine',
           price: '55,00\u00A0€',
           description: 'Sanction longue durée pour comportements incompatibles avec la vibe.',
           accent: 'border-rose-400/40 bg-rose-500/10',
+          categoryLabel: 'Option bannissement',
         },
       ];
 
@@ -1813,7 +1827,7 @@
       const NAV_LINKS = [
         { label: 'Accueil', route: 'home', hash: '#/' },
         { label: 'Boutique', route: 'shop', hash: '#/boutique' },
-        { label: 'Bannir un membre', route: 'ban', hash: '#/bannir' },
+        { label: 'Actions de modération', route: 'ban', hash: '#/bannir' },
         { label: 'À propos', route: 'about', hash: '#/about' },
       ];
 
@@ -2349,16 +2363,16 @@
         <${Fragment}>
           <section class="space-y-6 rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/40 backdrop-blur-xl">
             <p class="text-xs uppercase tracking-[0.35em] text-slate-300">Modération</p>
-            <h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">Bannir un membre</h1>
+            <h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">Actions de modération</h1>
             <p class="text-base leading-relaxed text-slate-200">
-              Besoin d’écarter un fauteur de trouble sans casser l’ambiance ? Voici le barème officiel pour
-              déléguer un bannissement à l’équipe Libre Antenne. Chaque palier inclut le suivi du dossier, la
-              communication avec les concernés et un rapport rapide dans le canal staff.
+              Besoin d’écarter un fauteur de trouble sans casser l’ambiance ? Choisis la sanction la plus adaptée.
+              Mute express ou bannissement encadré&nbsp;: l’équipe Libre Antenne se charge de l’exécution, du suivi et
+              du rapport staff.
             </p>
             <div class="flex flex-wrap gap-3 text-xs text-slate-200">
               <span class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-1.5">
                 <${MicOff} class="h-4 w-4" aria-hidden="true" />
-                Exécution immédiate
+                Mise en sourdine express
               </span>
               <span class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-1.5">
                 <${ShieldCheck} class="h-4 w-4" aria-hidden="true" />
@@ -2372,16 +2386,18 @@
           </section>
 
           <section class="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-            ${BAN_TIERS.map(
-              (tier) => html`<article
-                key=${tier.id}
+            ${MODERATION_SERVICES.map(
+              (service) => html`<article
+                key=${service.id}
                 class="flex h-full flex-col rounded-3xl border border-white/10 bg-black/40 p-6 shadow-lg shadow-slate-950/40 backdrop-blur"
               >
-                <p class="text-xs uppercase tracking-[0.35em] text-slate-300">Option bannissement</p>
-                <h3 class="mt-2 text-lg font-semibold text-white">${tier.duration}</h3>
-                <p class="mt-3 text-sm leading-relaxed text-slate-300">${tier.description}</p>
-                <div class=${`mt-5 rounded-2xl border px-4 py-4 text-center ${tier.accent}`}>
-                  <p class="text-3xl font-bold text-white">${tier.price}</p>
+                <p class="text-xs uppercase tracking-[0.35em] text-slate-300">${
+                  service.categoryLabel || 'Option modération'
+                }</p>
+                <h3 class="mt-2 text-lg font-semibold text-white">${service.title}</h3>
+                <p class="mt-3 text-sm leading-relaxed text-slate-300">${service.description}</p>
+                <div class=${`mt-5 rounded-2xl border px-4 py-4 text-center ${service.accent}`}>
+                  <p class="text-3xl font-bold text-white">${service.price}</p>
                   <p class="mt-1 text-xs uppercase tracking-[0.35em] text-slate-200">TTC</p>
                   <p class="sr-only">Tarif incluant la majoration de 10 %.</p>
                 </div>
@@ -2395,45 +2411,45 @@
 
           <section class="grid gap-6 lg:grid-cols-2">
             <div class="space-y-4 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">
-              <h2 class="flex items-center gap-2 text-xl font-semibold text-white">
-                <${ShieldCheck} class="h-5 w-5 text-emerald-300" aria-hidden="true" />
-                Comment ça marche ?
-              </h2>
-              <ol class="space-y-3 pl-5 text-sm leading-relaxed text-slate-200 marker:text-fuchsia-200">
-                <li>
-                  Ouvre un ticket staff sur Discord en précisant le pseudo, la durée souhaitée et le motif du bannissement.
-                </li>
-                <li>
-                  Règle le montant correspondant au palier choisi via la boutique (Stripe, PayPal ou CoinGate).
-                </li>
-                <li>
-                  La modération applique la sanction, documente l’action et te confirme le suivi dans la foulée.
-                </li>
-              </ol>
-            </div>
-            <div class="space-y-4 rounded-3xl border border-white/10 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/50 backdrop-blur">
-              <h2 class="flex items-center gap-2 text-xl font-semibold text-white">
-                <${AlertCircle} class="h-5 w-5 text-amber-300" aria-hidden="true" />
-                Bon à savoir
-              </h2>
-              <ul class="space-y-3 text-sm leading-relaxed text-slate-200">
-                <li>
-                  Les durées sont cumulables si la situation exige un bannissement plus long que le barème standard.
-                </li>
-                <li>
-                  Aucun bannissement n’est appliqué sans trace écrite : un log privé reste disponible pour l’équipe.
-                </li>
-                <li>
-                  En cas de litige, le staff se réserve le droit de prolonger ou d’annuler la sanction après enquête.
-                </li>
-              </ul>
-            </div>
-          </section>
+                <h2 class="flex items-center gap-2 text-xl font-semibold text-white">
+                  <${ShieldCheck} class="h-5 w-5 text-emerald-300" aria-hidden="true" />
+                  Comment ça marche ?
+                </h2>
+                <ol class="space-y-3 pl-5 text-sm leading-relaxed text-slate-200 marker:text-fuchsia-200">
+                  <li>
+                    Ouvre un ticket staff sur Discord en précisant le pseudo, la durée souhaitée et le motif de la sanction.
+                  </li>
+                  <li>
+                    Règle le montant correspondant au palier choisi via la boutique (Stripe, PayPal ou CoinGate).
+                  </li>
+                  <li>
+                    La modération applique l’action demandée, documente l’intervention et te confirme le suivi dans la foulée.
+                  </li>
+                </ol>
+              </div>
+              <div class="space-y-4 rounded-3xl border border-white/10 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/50 backdrop-blur">
+                <h2 class="flex items-center gap-2 text-xl font-semibold text-white">
+                  <${AlertCircle} class="h-5 w-5 text-amber-300" aria-hidden="true" />
+                  Bon à savoir
+                </h2>
+                <ul class="space-y-3 text-sm leading-relaxed text-slate-200">
+                  <li>
+                    Les durées sont cumulables si la situation exige une sanction plus longue que le barème standard.
+                  </li>
+                  <li>
+                    Aucune action n’est appliquée sans trace écrite&nbsp;: un log privé reste disponible pour l’équipe.
+                  </li>
+                  <li>
+                    En cas de litige, le staff se réserve le droit de prolonger ou d’annuler la sanction après enquête.
+                  </li>
+                </ul>
+              </div>
+            </section>
 
           <section class="rounded-3xl border border-white/10 bg-black/50 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">
             <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div class="space-y-2">
-                <h2 class="text-xl font-semibold text-white">Prêt à lancer la procédure ?</h2>
+                <h2 class="text-xl font-semibold text-white">Prêt à lancer une action de modération ?</h2>
                 <p class="text-sm leading-relaxed text-slate-300">
                   Contacte immédiatement la modération pour confirmer les détails et sécuriser la communauté.
                 </p>
