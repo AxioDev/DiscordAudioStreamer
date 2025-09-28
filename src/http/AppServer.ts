@@ -8,6 +8,8 @@ import type AnonymousSpeechManager from '../services/AnonymousSpeechManager';
 import type { Config } from '../config';
 import { WebSocketServer } from 'ws';
 import type DiscordAudioBridge from '../discord/DiscordAudioBridge';
+import type ShopService from '../services/ShopService';
+import { ShopError, type ShopProvider } from '../services/ShopService';
 
 export interface AppServerOptions {
   config: Config;
@@ -16,6 +18,7 @@ export interface AppServerOptions {
   sseService: SseService;
   anonymousSpeechManager: AnonymousSpeechManager;
   discordBridge: DiscordAudioBridge;
+  shopService: ShopService;
 }
 
 type FlushCapableResponse = Response & {
@@ -42,13 +45,24 @@ export default class AppServer {
 
   private wsServer: WebSocketServer | null = null;
 
-  constructor({ config, transcoder, speakerTracker, sseService, anonymousSpeechManager, discordBridge }: AppServerOptions) {
+  private readonly shopService: ShopService;
+
+  constructor({
+    config,
+    transcoder,
+    speakerTracker,
+    sseService,
+    anonymousSpeechManager,
+    discordBridge,
+    shopService,
+  }: AppServerOptions) {
     this.config = config;
     this.transcoder = transcoder;
     this.speakerTracker = speakerTracker;
     this.sseService = sseService;
     this.anonymousSpeechManager = anonymousSpeechManager;
     this.discordBridge = discordBridge;
+    this.shopService = shopService;
 
     this.configureMiddleware();
     this.registerRoutes();
@@ -92,6 +106,41 @@ export default class AppServer {
         headerBufferBytes: this.transcoder.getHeaderBuffer().length,
         activeSpeakers: this.speakerTracker.getSpeakerCount(),
       });
+    });
+
+    this.app.get('/api/shop/products', (_req, res) => {
+      res.json({
+        currency: this.shopService.getCurrency(),
+        products: this.shopService.getProducts(),
+      });
+    });
+
+    this.app.post('/api/shop/checkout', async (req, res) => {
+      const { productId, provider, successUrl, cancelUrl, customerEmail } = req.body ?? {};
+
+      if (typeof productId !== 'string' || productId.trim().length === 0) {
+        res.status(400).json({ error: 'PRODUCT_REQUIRED', message: 'Le produit est obligatoire.' });
+        return;
+      }
+
+      const normalizedProvider = this.normalizeShopProvider(provider);
+      if (!normalizedProvider) {
+        res.status(400).json({ error: 'PROVIDER_REQUIRED', message: 'Le fournisseur de paiement est obligatoire.' });
+        return;
+      }
+
+      try {
+        const session = await this.shopService.createCheckoutSession({
+          productId: productId.trim(),
+          provider: normalizedProvider,
+          successUrl: typeof successUrl === 'string' ? successUrl : undefined,
+          cancelUrl: typeof cancelUrl === 'string' ? cancelUrl : undefined,
+          customerEmail: typeof customerEmail === 'string' ? customerEmail : undefined,
+        });
+        res.status(201).json(session);
+      } catch (error) {
+        this.handleShopError(res, error);
+      }
     });
 
     this.app.get('/anonymous-slot', (_req, res) => {
@@ -319,5 +368,28 @@ export default class AppServer {
 
     console.error('Unhandled anonymous slot error', error);
     res.status(500).json({ error: 'UNKNOWN', message: 'Une erreur inattendue est survenue.' });
+  }
+
+  private handleShopError(res: Response, error: unknown): void {
+    if (error instanceof ShopError) {
+      res.status(error.status).json({ error: error.code, message: error.message });
+      return;
+    }
+
+    console.error('Unhandled shop error', error);
+    res.status(500).json({ error: 'SHOP_UNKNOWN', message: 'Impossible de finaliser la commande.' });
+  }
+
+  private normalizeShopProvider(raw: unknown): ShopProvider | null {
+    if (typeof raw !== 'string') {
+      return null;
+    }
+
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === 'stripe' || normalized === 'coingate') {
+      return normalized;
+    }
+
+    return null;
   }
 }

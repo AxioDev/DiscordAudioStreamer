@@ -201,8 +201,12 @@
       import {
         Activity,
         AlertCircle,
+        BadgeCheck,
         ArrowRight,
         Clock3,
+        Coffee,
+        Coins,
+        CreditCard,
         Headphones,
         Menu,
         Mic,
@@ -212,6 +216,10 @@
         Play,
         RefreshCcw,
         ShieldCheck,
+        ShoppingBag,
+        Shirt,
+        Sparkles,
+        Truck,
         Users,
         Video,
         Volume,
@@ -1377,15 +1385,392 @@
         `;
       };
 
+      const PAYMENT_PROVIDERS = {
+        stripe: {
+          label: 'Stripe',
+          helper: 'Cartes bancaires, Apple Pay et Google Pay.',
+          accent:
+            'border-indigo-400/50 bg-indigo-500/20 hover:bg-indigo-500/30 focus:ring-indigo-300',
+          Icon: CreditCard,
+        },
+        coingate: {
+          label: 'CoinGate',
+          helper: 'Crypto, Lightning Network et virements SEPA.',
+          accent:
+            'border-emerald-400/50 bg-emerald-500/20 hover:bg-emerald-500/30 focus:ring-emerald-300',
+          Icon: Coins,
+        },
+      };
+
+      const FEEDBACK_STYLES = {
+        success: 'border-emerald-400/40 bg-emerald-500/10 text-emerald-100',
+        info: 'border-sky-400/40 bg-sky-500/10 text-sky-100',
+        error: 'border-rose-400/40 bg-rose-500/10 text-rose-100',
+      };
+
+      const parseCheckoutFeedback = () => {
+        if (typeof window === 'undefined') {
+          return null;
+        }
+
+        try {
+          const hash = window.location.hash || '';
+          const [path = '', query = ''] = hash.split('?');
+          if (!path.toLowerCase().includes('boutique')) {
+            return null;
+          }
+
+          const params = new URLSearchParams(query);
+          const status = (params.get('checkout') || '').toLowerCase();
+          if (!status) {
+            return null;
+          }
+
+          let type = 'info';
+          let message = '';
+          if (status === 'success') {
+            type = 'success';
+            message = 'Merci pour ton soutien ! La commande est bien prise en compte.';
+          } else if (status === 'cancelled') {
+            type = 'info';
+            message = 'Paiement annulé. Tu peux réessayer quand tu veux.';
+          } else {
+            type = 'error';
+            message = 'Une erreur est survenue lors du paiement. Aucun débit n’a été effectué.';
+          }
+
+          if (typeof window.history?.replaceState === 'function') {
+            window.history.replaceState(null, '', '#/boutique');
+          }
+
+          return { type, message };
+        } catch (error) {
+          console.warn('Impossible de lire le statut de paiement', error);
+          return null;
+        }
+      };
+
+      const ShopProductCard = ({ product, checkoutState, onCheckout }) => {
+        const providerSections = (product.providers || [])
+          .map((provider) => {
+            const details = PAYMENT_PROVIDERS[provider];
+            if (!details) {
+              return null;
+            }
+            const isPending =
+              checkoutState.pending &&
+              checkoutState.productId === product.id &&
+              checkoutState.provider === provider;
+            const ButtonIcon = details.Icon;
+            return html`
+              <div key=${`${product.id}-${provider}`} class="flex flex-col gap-1">
+                <button
+                  type="button"
+                  class=${`flex w-full items-center justify-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold text-white transition focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-50 ${details.accent}`}
+                  onClick=${() => onCheckout(product.id, provider)}
+                  disabled=${isPending}
+                >
+                  ${isPending ? 'Redirection…' : `Payer avec ${details.label}`}
+                  <${ButtonIcon} class="h-4 w-4" aria-hidden="true" />
+                </button>
+                <span class="text-xs text-slate-400">${details.helper}</span>
+              </div>
+            `;
+          })
+          .filter(Boolean);
+
+        return html`
+          <article class="flex h-full flex-col rounded-3xl border border-white/10 bg-white/5 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">
+            <div class="flex items-center justify-between">
+              <span class="text-4xl" aria-hidden="true">${product.emoji || '🛒'}</span>
+              ${product.highlight
+                ? html`<span class="inline-flex items-center gap-1 rounded-full border border-fuchsia-400/40 bg-fuchsia-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-fuchsia-100">
+                    <${Sparkles} class="h-3 w-3" aria-hidden="true" />
+                    <span class="tracking-normal">Coup de cœur</span>
+                  </span>`
+                : null}
+            </div>
+            ${Array.isArray(product.badges) && product.badges.length > 0
+              ? html`<div class="mt-4 flex flex-wrap gap-2">
+                  ${product.badges.map((badge, index) =>
+                    html`<span
+                      key=${`${product.id}-badge-${index}`}
+                      class="inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/30 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-slate-200/90"
+                    >
+                      <${BadgeCheck} class="h-3 w-3 text-emerald-300" aria-hidden="true" />
+                      <span class="tracking-normal">${badge}</span>
+                    </span>`
+                  )}
+                </div>`
+              : null}
+            <h3 class="mt-5 text-xl font-semibold text-white">${product.name}</h3>
+            <p class="mt-2 text-sm leading-relaxed text-slate-300">${product.description}</p>
+            <div class=${`mt-4 rounded-3xl border border-white/10 px-5 py-4 ${product.accentSoft || 'bg-white/10'}`}>
+              <p class="text-3xl font-bold text-white">${product.price?.formatted || '—'}</p>
+              <p class="text-xs uppercase tracking-[0.35em] text-slate-300">TTC</p>
+            </div>
+            <ul class="mt-5 space-y-2 text-sm text-slate-200">
+              ${(product.includes || []).map((item, index) =>
+                html`<li key=${`${product.id}-feature-${index}`} class="flex items-start gap-2">
+                  <${ShieldCheck} class="mt-0.5 h-4 w-4 text-indigo-300" aria-hidden="true" />
+                  <span>${item}</span>
+                </li>`
+              )}
+            </ul>
+            <p class="mt-4 flex items-center gap-2 text-xs text-slate-400">
+              <${Truck} class="h-4 w-4" aria-hidden="true" />
+              ${product.shippingEstimate || 'Livraison estimée communiquée après commande'}
+            </p>
+            <div class="mt-6 flex flex-col gap-3">
+              ${providerSections.length > 0
+                ? providerSections
+                : html`<div class="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-center text-sm text-slate-300">
+                    Paiements bientôt disponibles pour ce produit.
+                  </div>`}
+            </div>
+            ${checkoutState.error && checkoutState.productId === product.id
+              ? html`<p class="mt-4 rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-xs text-rose-100">
+                  ${checkoutState.error}
+                </p>`
+              : null}
+          </article>
+        `;
+      };
+
+      const ShopPage = () => {
+        const [loading, setLoading] = useState(true);
+        const [products, setProducts] = useState([]);
+        const [error, setError] = useState('');
+        const [checkoutState, setCheckoutState] = useState({
+          productId: null,
+          provider: null,
+          pending: false,
+          error: '',
+        });
+        const [feedback, setFeedback] = useState(parseCheckoutFeedback);
+
+        const fetchProducts = useCallback(async () => {
+          setLoading(true);
+          try {
+            const response = await fetch('/api/shop/products');
+            if (!response.ok) {
+              throw new Error('Réponse inattendue du serveur.');
+            }
+            const payload = await response.json();
+            const list = Array.isArray(payload?.products) ? payload.products : [];
+            setProducts(list);
+            setError('');
+          } catch (err) {
+            console.warn('Impossible de charger la boutique', err);
+            setError('Boutique momentanément indisponible. Réessaie dans quelques minutes.');
+          } finally {
+            setLoading(false);
+          }
+        }, []);
+
+        useEffect(() => {
+          fetchProducts();
+        }, [fetchProducts]);
+
+        useEffect(() => {
+          if (!feedback) {
+            return undefined;
+          }
+          const timer = setTimeout(() => setFeedback(null), 6000);
+          return () => clearTimeout(timer);
+        }, [feedback]);
+
+        const getReturnUrls = useCallback(() => {
+          if (typeof window === 'undefined') {
+            return { success: '', cancel: '' };
+          }
+          const base = `${window.location.origin}${window.location.pathname}${window.location.search}`;
+          return {
+            success: `${base}#/boutique?checkout=success`,
+            cancel: `${base}#/boutique?checkout=cancelled`,
+          };
+        }, []);
+
+        const handleCheckout = useCallback(
+          async (productId, provider) => {
+            setCheckoutState({ productId, provider, pending: true, error: '' });
+            setFeedback(null);
+
+            try {
+              const { success, cancel } = getReturnUrls();
+              const response = await fetch('/api/shop/checkout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  productId,
+                  provider,
+                  successUrl: success || undefined,
+                  cancelUrl: cancel || undefined,
+                }),
+              });
+
+              if (!response.ok) {
+                let message = 'Impossible de lancer le paiement.';
+                try {
+                  const data = await response.json();
+                  if (data?.message) {
+                    message = data.message;
+                  }
+                } catch (parseError) {
+                  console.warn('Impossible de lire la réponse de paiement', parseError);
+                }
+                throw new Error(message);
+              }
+
+              const payload = await response.json();
+              if (payload?.url) {
+                window.location.href = payload.url;
+                return;
+              }
+
+              throw new Error('Lien de paiement introuvable.');
+            } catch (err) {
+              const message =
+                err instanceof Error ? err.message : 'Impossible de lancer le paiement.';
+              setCheckoutState({ productId, provider, pending: false, error: message });
+              setFeedback({ type: 'error', message });
+            }
+          },
+          [getReturnUrls],
+        );
+
+        const sortedProducts = useMemo(() => {
+          return products
+            .slice()
+            .sort((a, b) => Number(Boolean(b.highlight)) - Number(Boolean(a.highlight)));
+        }, [products]);
+
+        return html`
+          <${Fragment}>
+            <section class="space-y-6 rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/40 backdrop-blur-xl">
+              <p class="text-xs uppercase tracking-[0.35em] text-slate-300">Boutique officielle</p>
+              <div class="grid gap-8 lg:grid-cols-[1.1fr_1fr] lg:items-center">
+                <div class="space-y-4">
+                  <h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">
+                    La Boutique Libre Antenne
+                  </h1>
+                  <p class="text-base leading-relaxed text-slate-200">
+                    Soutiens la libre antenne et repars avec des pièces conçues pour les noctambules,
+                    les gamers et les voix libres. Paiement sécurisé via Stripe ou CoinGate.
+                  </p>
+                  <div class="flex flex-wrap gap-3 text-xs text-slate-200">
+                    <span class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-1.5">
+                      <${ShoppingBag} class="h-4 w-4" aria-hidden="true" />
+                      Stripe & CoinGate
+                    </span>
+                    <span class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-1.5">
+                      <${Truck} class="h-4 w-4" aria-hidden="true" />
+                      Livraison France & Europe
+                    </span>
+                    <span class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-1.5">
+                      <${Coffee} class="h-4 w-4" aria-hidden="true" />
+                      Production à la demande
+                    </span>
+                  </div>
+                </div>
+                <div class="rounded-3xl border border-fuchsia-400/40 bg-fuchsia-500/10 px-6 py-6 text-sm text-fuchsia-100 shadow-lg shadow-fuchsia-900/30">
+                  <p class="text-xs uppercase tracking-[0.35em] text-fuchsia-200/80">Libre antenne</p>
+                  <p class="mt-3 leading-relaxed">
+                    Chaque achat finance l’hébergement du bot, le mixage audio et la préparation de
+                    nouvelles émissions en roue libre. Merci de faire tourner la radio indépendante.
+                  </p>
+                </div>
+              </div>
+            </section>
+
+            ${feedback
+              ? (() => {
+                  const style = FEEDBACK_STYLES[feedback.type] || FEEDBACK_STYLES.info;
+                  const Icon =
+                    feedback.type === 'success'
+                      ? ShieldCheck
+                      : feedback.type === 'error'
+                      ? AlertCircle
+                      : RefreshCcw;
+                  return html`<div class=${`rounded-2xl border px-5 py-4 text-sm shadow-lg shadow-slate-950/40 backdrop-blur ${style}`}>
+                    <div class="flex items-center gap-3">
+                      <${Icon} class="h-4 w-4" aria-hidden="true" />
+                      <span>${feedback.message}</span>
+                    </div>
+                  </div>`;
+                })()
+              : null}
+
+            <section class="space-y-6">
+              ${loading
+                ? html`<div class="rounded-3xl border border-white/10 bg-black/30 px-6 py-10 text-center text-sm text-slate-300">
+                    <span class="mr-3 inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-transparent"></span>
+                    Chargement de la boutique…
+                  </div>`
+                : error
+                ? html`<div class="rounded-3xl border border-rose-400/40 bg-rose-500/10 px-6 py-6 text-sm text-rose-100 shadow-lg shadow-rose-900/40">
+                    <p>${error}</p>
+                    <button
+                      type="button"
+                      class="mt-4 inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-white transition hover:bg-white/20"
+                      onClick=${fetchProducts}
+                    >
+                      Réessayer
+                      <${RefreshCcw} class="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  </div>`
+                : html`<div class="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                    ${sortedProducts.map((product) =>
+                      html`<${ShopProductCard}
+                        key=${product.id}
+                        product=${product}
+                        checkoutState=${checkoutState}
+                        onCheckout=${handleCheckout}
+                      />`
+                    )}
+                  </div>`}
+            </section>
+
+            <section class="grid gap-6 lg:grid-cols-2">
+              <div class="rounded-3xl border border-white/10 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">
+                <h3 class="flex items-center gap-2 text-lg font-semibold text-white">
+                  <${ShieldCheck} class="h-5 w-5 text-emerald-300" aria-hidden="true" />
+                  Paiements vérifiés
+                </h3>
+                <p class="mt-3 text-sm leading-relaxed text-slate-300">
+                  Stripe chiffre chaque transaction et accepte la plupart des cartes, Apple Pay et
+                  Google Pay. Aucun numéro sensible n’est stocké sur nos serveurs.
+                </p>
+              </div>
+              <div class="rounded-3xl border border-white/10 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">
+                <h3 class="flex items-center gap-2 text-lg font-semibold text-white">
+                  <${Coins} class="h-5 w-5 text-emerald-300" aria-hidden="true" />
+                  Crypto friendly
+                </h3>
+                <p class="mt-3 text-sm leading-relaxed text-slate-300">
+                  CoinGate permet de régler en Bitcoin, Lightning Network et plus de 70 altcoins, avec
+                  conversion instantanée en euros ou conservation en crypto.
+                </p>
+              </div>
+            </section>
+          </${Fragment}>
+        `;
+      };
+
       const NAV_LINKS = [
         { label: 'Accueil', route: 'home', hash: '#/' },
+        { label: 'Boutique', route: 'shop', hash: '#/boutique' },
         { label: 'À propos', route: 'about', hash: '#/about' },
       ];
 
       const getRouteFromHash = () => {
         const hash = window.location.hash.replace(/^#/, '').toLowerCase();
-        if (hash === '/about' || hash === 'about') {
+        const [path] = hash.split('?');
+        if (path === '/about' || path === 'about') {
           return 'about';
+        }
+        if (path === '/boutique' || path === 'boutique') {
+          return 'shop';
         }
         return 'home';
       };
@@ -2247,9 +2632,12 @@
 
         const handleNavigate = (event, targetRoute) => {
           event.preventDefault();
-          const targetHash = targetRoute === 'home' ? '#/' : '#/about';
-          if (window.location.hash !== targetHash) {
-            window.location.hash = targetHash;
+          const link = NAV_LINKS.find((entry) => entry.route === targetRoute);
+          if (!link) {
+            return;
+          }
+          if (window.location.hash !== link.hash) {
+            window.location.hash = link.hash;
           } else {
             setRoute(targetRoute);
           }
@@ -2378,6 +2766,8 @@
                   ${
                     route === 'about'
                       ? html`<${AboutPage} />`
+                      : route === 'shop'
+                      ? html`<${ShopPage} />`
                       : html`<${HomePage}
                           status=${status}
                           lastUpdateLabel=${lastUpdateLabel}
