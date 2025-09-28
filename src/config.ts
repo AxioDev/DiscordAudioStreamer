@@ -35,6 +35,24 @@ export interface AudioConfig {
   frameBytes: number;
 }
 
+export interface ShopStripeConfig {
+  secretKey?: string;
+  priceIds: Record<string, string>;
+}
+
+export interface ShopCoingateConfig {
+  apiKey?: string;
+  environment: 'sandbox' | 'live';
+  callbackUrl?: string;
+}
+
+export interface ShopConfig {
+  currency: string;
+  locale: string;
+  stripe: ShopStripeConfig;
+  coingate: ShopCoingateConfig;
+}
+
 export interface Config {
   botToken: string;
   guildId?: string;
@@ -51,6 +69,7 @@ export interface Config {
   audio: AudioConfig;
   mimeTypes: Record<string, string>;
   excludedUserIds: string[];
+  shop: ShopConfig;
 }
 
 const config: Config = {
@@ -78,6 +97,28 @@ const config: Config = {
     mp3: 'audio/mpeg',
   },
   excludedUserIds,
+  shop: {
+    currency: 'eur',
+    locale: 'fr-FR',
+    stripe: {
+      secretKey: process.env.SHOP_STRIPE_SECRET_KEY || undefined,
+      priceIds: Object.entries({
+        mug: process.env.SHOP_STRIPE_PRICE_MUG,
+        tshirt: process.env.SHOP_STRIPE_PRICE_TSHIRT,
+        pack: process.env.SHOP_STRIPE_PRICE_PACK,
+      }).reduce<Record<string, string>>((acc, [key, value]) => {
+        if (value) {
+          acc[key] = value;
+        }
+        return acc;
+      }, {}),
+    },
+    coingate: {
+      apiKey: process.env.SHOP_COINGATE_API_KEY || undefined,
+      environment: process.env.SHOP_COINGATE_ENVIRONMENT === 'live' ? 'live' : 'sandbox',
+      callbackUrl: process.env.SHOP_COINGATE_CALLBACK_URL || undefined,
+    },
+  },
 };
 
 config.audio.frameSamples = Math.floor(
