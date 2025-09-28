@@ -46,11 +46,19 @@ export interface ShopCoingateConfig {
   callbackUrl?: string;
 }
 
+export interface ShopPaypalConfig {
+  clientId?: string;
+  clientSecret?: string;
+  environment: 'sandbox' | 'live';
+  brandName?: string;
+}
+
 export interface ShopConfig {
   currency: string;
   locale: string;
   stripe: ShopStripeConfig;
   coingate: ShopCoingateConfig;
+  paypal: ShopPaypalConfig;
 }
 
 export interface Config {
@@ -117,6 +125,12 @@ const config: Config = {
       apiKey: process.env.SHOP_COINGATE_API_KEY || undefined,
       environment: process.env.SHOP_COINGATE_ENVIRONMENT === 'live' ? 'live' : 'sandbox',
       callbackUrl: process.env.SHOP_COINGATE_CALLBACK_URL || undefined,
+    },
+    paypal: {
+      clientId: process.env.SHOP_PAYPAL_CLIENT_ID || undefined,
+      clientSecret: process.env.SHOP_PAYPAL_CLIENT_SECRET || undefined,
+      environment: process.env.SHOP_PAYPAL_ENVIRONMENT === 'live' ? 'live' : 'sandbox',
+      brandName: process.env.SHOP_PAYPAL_BRAND_NAME || undefined,
     },
   },
 };
