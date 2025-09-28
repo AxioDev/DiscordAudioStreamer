@@ -274,6 +274,100 @@
         });
       };
 
+      const TALK_WINDOW_OPTIONS = [5, 10, 15, 30, 60];
+      const DEFAULT_WINDOW_MINUTES = TALK_WINDOW_OPTIONS.includes(15) ? 15 : TALK_WINDOW_OPTIONS[0];
+      const HISTORY_RETENTION_MS = (Math.max(...TALK_WINDOW_OPTIONS) + 5) * 60 * 1000;
+      const FALLBACK_SEGMENT_MS = 1000;
+
+      const sanitizeProfile = (raw = {}) => {
+        const displayName = typeof raw.displayName === 'string' && raw.displayName.trim().length > 0 ? raw.displayName.trim() : null;
+        const username = typeof raw.username === 'string' && raw.username.trim().length > 0 ? raw.username.trim() : null;
+        const avatar = typeof raw.avatar === 'string' && raw.avatar.trim().length > 0 ? raw.avatar.trim() : null;
+        return { displayName, username, avatar };
+      };
+
+      const mergeProfiles = (base = {}, incoming = {}) => {
+        const sanitizedIncoming = sanitizeProfile(incoming);
+        const sanitizedBase = sanitizeProfile(base);
+        return {
+          displayName: sanitizedIncoming.displayName ?? sanitizedBase.displayName ?? null,
+          username: sanitizedIncoming.username ?? sanitizedBase.username ?? null,
+          avatar: sanitizedIncoming.avatar ?? sanitizedBase.avatar ?? null,
+        };
+      };
+
+      const trimSegments = (segments, now) => {
+        const threshold = now - HISTORY_RETENTION_MS;
+        return segments.filter((segment) => {
+          const end = typeof segment.end === 'number' ? segment.end : now;
+          return end >= threshold;
+        });
+      };
+
+      const ensureOpenSegment = (segments, userId, startTime, profile) => {
+        const safeStart = Number.isFinite(startTime) ? startTime : Date.now();
+        const sanitizedProfile = sanitizeProfile(profile);
+        let found = false;
+        const next = segments.map((segment) => {
+          if (segment.id === userId && segment.end == null) {
+            found = true;
+            return {
+              ...segment,
+              start: Number.isFinite(segment.start) ? Math.min(segment.start, safeStart) : safeStart,
+              profile: mergeProfiles(segment.profile, sanitizedProfile),
+            };
+          }
+          return segment;
+        });
+        if (!found) {
+          return [
+            ...next,
+            {
+              id: userId,
+              start: safeStart,
+              end: null,
+              profile: sanitizedProfile,
+            },
+          ];
+        }
+        return next;
+      };
+
+      const closeOpenSegment = (segments, userId, endTime, profile, { createIfMissing = false } = {}) => {
+        const safeEnd = Number.isFinite(endTime) ? endTime : Date.now();
+        const sanitizedProfile = sanitizeProfile(profile);
+        let closed = false;
+        const next = segments.map((segment) => {
+          if (segment.id === userId && segment.end == null) {
+            closed = true;
+            const boundedEnd = Math.max(safeEnd, Number.isFinite(segment.start) ? segment.start : safeEnd);
+            return {
+              ...segment,
+              end: boundedEnd,
+              profile: mergeProfiles(segment.profile, sanitizedProfile),
+            };
+          }
+          return segment;
+        });
+
+        if (!closed && createIfMissing) {
+          const fallbackStart = Math.max(0, safeEnd - FALLBACK_SEGMENT_MS);
+          return [
+            ...next,
+            {
+              id: userId,
+              start: Math.min(fallbackStart, safeEnd),
+              end: safeEnd,
+              profile: sanitizedProfile,
+            },
+          ];
+        }
+
+        return next;
+      };
+
+      const sortSegments = (segments) => segments.slice().sort((a, b) => (a.start || 0) - (b.start || 0));
+
       const normalizeAnonymousSlot = (raw) => {
         if (!raw || typeof raw !== 'object') {
           return {
@@ -547,6 +641,177 @@
           <div ref=${containerRef} class="mt-6 grid gap-6 sm:grid-cols-2">
             ${speakers.map((speaker) => html`<${SpeakerCard} key=${speaker.id} speaker=${speaker} now=${now} cardId=${speaker.id} />`)}
           </div>
+        `;
+      };
+
+      const RealTimeTalkChart = ({ history, speakers, now, selectedWindowMinutes, onWindowChange }) => {
+        const windowMs = selectedWindowMinutes * 60 * 1000;
+
+        const speakerIndex = useMemo(() => {
+          const map = new Map();
+          for (const speaker of speakers) {
+            if (speaker?.id) {
+              map.set(speaker.id, speaker);
+            }
+          }
+          return map;
+        }, [speakers]);
+
+        const chartData = useMemo(() => {
+          const cutoff = now - windowMs;
+          const totals = new Map();
+          const profiles = new Map();
+
+          for (const segment of history) {
+            if (!segment || !segment.id) continue;
+            const start = Number.isFinite(segment.start) ? segment.start : now;
+            const end = Number.isFinite(segment.end) ? segment.end : now;
+            if (end <= cutoff) {
+              continue;
+            }
+            const effectiveStart = Math.max(start, cutoff);
+            const effectiveEnd = Math.min(end, now);
+            if (effectiveEnd <= effectiveStart) {
+              continue;
+            }
+            const duration = effectiveEnd - effectiveStart;
+            totals.set(segment.id, (totals.get(segment.id) ?? 0) + duration);
+            profiles.set(segment.id, mergeProfiles(profiles.get(segment.id), segment.profile));
+          }
+
+          const items = Array.from(totals.entries()).map(([id, duration]) => {
+            const profile = profiles.get(id) ?? speakerIndex.get(id) ?? {};
+            const display = (profile.displayName && profile.displayName.trim())
+              ? profile.displayName.trim()
+              : (profile.username && profile.username.trim())
+              ? profile.username.trim()
+              : `Intervenant ${String(id).slice(-4).padStart(4, '0')}`;
+            return {
+              id,
+              label: display,
+              avatar: profile.avatar ?? null,
+              duration,
+            };
+          });
+
+          items.sort((a, b) => b.duration - a.duration);
+
+          const totalDuration = items.reduce((acc, item) => acc + item.duration, 0);
+          const maxDuration = items.length ? Math.max(...items.map((item) => item.duration)) : 0;
+
+          return {
+            items,
+            totalDuration,
+            maxDuration,
+          };
+        }, [history, now, windowMs, speakerIndex]);
+
+        const minutesLabel = selectedWindowMinutes > 1 ? `${selectedWindowMinutes} dernières minutes` : 'Dernière minute';
+        const totalLabel = chartData.totalDuration > 0 ? formatDuration(chartData.totalDuration) : '0s';
+        const activeCount = chartData.items.length;
+        const topSpeaker = chartData.items[0];
+
+        const percentageFor = (value) => {
+          if (!chartData.totalDuration || !Number.isFinite(value) || chartData.totalDuration <= 0) {
+            return '0%';
+          }
+          const ratio = Math.max(0, Math.min(1, value / chartData.totalDuration));
+          return `${Math.round(ratio * 100)}%`;
+        };
+
+        return html`
+          <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-slate-950/90 via-indigo-950/60 to-fuchsia-950/40 p-8 shadow-xl shadow-slate-950/50 backdrop-blur-xl">
+            <div class="pointer-events-none absolute -left-20 top-[-8rem] h-64 w-64 rounded-full bg-indigo-500/20 blur-3xl"></div>
+            <div class="pointer-events-none absolute -right-24 bottom-[-10rem] h-72 w-72 rounded-full bg-fuchsia-500/25 blur-[120px]"></div>
+            <div class="relative flex flex-col gap-6">
+              <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div class="space-y-2">
+                  <p class="text-xs uppercase tracking-[0.35em] text-indigo-200/80">Analyse temps réel</p>
+                  <h2 class="text-2xl font-semibold text-white">Temps de parole cumulés</h2>
+                  <p class="text-sm text-slate-300">Visualise la répartition des interventions vocales sur la période sélectionnée.</p>
+                </div>
+                <div class="flex flex-wrap items-center gap-4 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-slate-200">
+                  <label class="flex items-center gap-2">
+                    <span class="text-xs uppercase tracking-[0.3em] text-indigo-200">Fenêtre</span>
+                    <select
+                      class="rounded-full border border-white/20 bg-slate-900/60 px-3 py-1 text-sm font-medium text-white shadow-inner shadow-slate-950/40 focus:border-fuchsia-400 focus:outline-none"
+                      value=${String(selectedWindowMinutes)}
+                      onChange=${(event) => {
+                        const minutes = Number(event.currentTarget.value);
+                        if (Number.isFinite(minutes) && minutes > 0) {
+                          onWindowChange(minutes);
+                        }
+                      }}
+                    >
+                      ${TALK_WINDOW_OPTIONS.map((option) => html`<option key=${option} value=${String(option)}>${option} min</option>`)}
+                    </select>
+                  </label>
+                  <div class="flex flex-col text-xs text-slate-300">
+                    <span class="font-semibold text-white">${minutesLabel}</span>
+                    <span>${activeCount} intervenant${activeCount > 1 ? 's' : ''}</span>
+                  </div>
+                  <div class="flex flex-col text-xs text-slate-300">
+                    <span class="font-semibold text-white">Temps cumulé</span>
+                    <span>${totalLabel}</span>
+                  </div>
+                  ${topSpeaker
+                    ? html`<div class="flex flex-col text-xs text-slate-300">
+                        <span class="font-semibold text-white">Top voix</span>
+                        <span>${topSpeaker.label}</span>
+                      </div>`
+                    : null}
+                </div>
+              </div>
+
+              ${chartData.items.length
+                ? html`
+                    <div class="relative space-y-4">
+                      ${chartData.items.map((item) => {
+                        const rawWidth = chartData.maxDuration > 0 ? Math.round((item.duration / chartData.maxDuration) * 100) : 0;
+                        const widthPercent = item.duration > 0 ? Math.max(4, rawWidth) : 0;
+                        const durationLabel = formatDuration(item.duration);
+                        return html`
+                          <div
+                            key=${item.id}
+                            class="group rounded-2xl border border-white/10 bg-white/5 p-4 transition hover:border-fuchsia-400/40 hover:bg-fuchsia-500/10"
+                          >
+                            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                              <div class="flex items-center gap-3">
+                                ${item.avatar
+                                  ? html`<img src=${item.avatar} alt="Avatar ${item.label}" class="h-10 w-10 rounded-full border border-white/20 object-cover" />`
+                                  : html`<div class="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/40 text-sm font-semibold uppercase text-slate-200">
+                                      ${item.label.slice(0, 2)}
+                                    </div>`}
+                                <div>
+                                  <p class="text-sm font-semibold text-white">${item.label}</p>
+                                  <p class="text-xs text-slate-300">${durationLabel} · ${percentageFor(item.duration)}</p>
+                                </div>
+                              </div>
+                              <div class="text-sm font-semibold text-indigo-200">${percentageFor(item.duration)}</div>
+                            </div>
+                            <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/10">
+                              <div
+                                class="h-full rounded-full bg-gradient-to-r from-indigo-400 via-fuchsia-400 to-rose-400 shadow-lg shadow-fuchsia-500/40 transition-all duration-500"
+                                style=${{ width: `${widthPercent}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        `;
+                      })}
+                    </div>
+                  `
+                : html`
+                    <div class="flex flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-white/20 bg-black/30 px-8 py-12 text-center text-sm text-slate-300">
+                      <div class="flex h-14 w-14 items-center justify-center rounded-full bg-white/10 text-indigo-200">
+                        <${Clock3} class="h-7 w-7" aria-hidden="true" />
+                      </div>
+                      <p class="max-w-sm text-base text-slate-200">
+                        Aucun temps de parole enregistré sur la période. Reviens plus tard ou réduis la fenêtre d'analyse.
+                      </p>
+                    </div>
+                  `}
+            </div>
+          </section>
         `;
       };
 
@@ -1534,7 +1799,18 @@
         `;
       };
 
-      const HomePage = ({ status, lastUpdateLabel, streamInfo, audioKey, speakers, now, anonymousSlot }) => {
+      const HomePage = ({
+        status,
+        lastUpdateLabel,
+        streamInfo,
+        audioKey,
+        speakers,
+        now,
+        anonymousSlot,
+        speakingHistory,
+        selectedWindowMinutes,
+        onWindowChange,
+      }) => {
         const connectedCount = speakers.length;
         const activeSpeakersCount = speakers.reduce(
           (count, speaker) => count + (speaker?.isSpeaking ? 1 : 0),
@@ -1585,6 +1861,14 @@
             </div>
             <${AudioPlayer} streamInfo=${streamInfo} audioKey=${audioKey} status=${status} />
           </section>
+
+          <${RealTimeTalkChart}
+            history=${speakingHistory}
+            speakers=${speakers}
+            now=${now}
+            selectedWindowMinutes=${selectedWindowMinutes}
+            onWindowChange=${onWindowChange}
+          />
 
           <${AnonymousBooth} slot=${anonymousSlot} now=${now} />
 
@@ -1701,6 +1985,9 @@
       const App = () => {
         const [status, setStatus] = useState('connecting');
         const [participantsMap, setParticipantsMap] = useState(() => new Map());
+        const [speakingHistory, setSpeakingHistory] = useState(() => []);
+        const [selectedWindowMinutes, setSelectedWindowMinutes] = useState(DEFAULT_WINDOW_MINUTES);
+        const participantsRef = useRef(new Map());
         const [streamInfo, setStreamInfo] = useState({ path: '/stream', format: 'opus', mimeType: 'audio/ogg' });
         const [lastUpdate, setLastUpdate] = useState(null);
         const [now, setNow] = useState(Date.now());
@@ -1733,6 +2020,10 @@
         }, [route]);
 
         useEffect(() => {
+          participantsRef.current = participantsMap;
+        }, [participantsMap]);
+
+        useEffect(() => {
           if (soulDecision) {
             setShowSoulModal(false);
           } else {
@@ -1747,6 +2038,14 @@
           const timer = setTimeout(() => setSoulMessage(''), 5000);
           return () => clearTimeout(timer);
         }, [soulMessage]);
+
+        const handleWindowChange = useCallback((minutes) => {
+          if (!Number.isFinite(minutes)) {
+            return;
+          }
+          const normalized = TALK_WINDOW_OPTIONS.includes(minutes) ? minutes : DEFAULT_WINDOW_MINUTES;
+          setSelectedWindowMinutes(normalized);
+        }, []);
 
         const handleSoulDecision = useCallback((accepted) => {
           const choice = accepted ? 'accepted' : 'declined';
@@ -1783,18 +2082,41 @@
             }
 
             if (Array.isArray(payload.speakers)) {
+              const nowTs = Date.now();
+              const previous = participantsRef.current;
               const next = new Map();
+              const speakingSnapshot = new Map();
+
               for (const speaker of payload.speakers) {
-                if (speaker?.id) {
-                  next.set(speaker.id, {
-                    ...speaker,
-                    voiceState: speaker.voiceState ?? {},
-                    isSpeaking: Boolean(speaker.isSpeaking),
-                  });
+                if (!speaker?.id) continue;
+                const normalized = {
+                  ...speaker,
+                  voiceState: speaker.voiceState ?? {},
+                  isSpeaking: Boolean(speaker.isSpeaking),
+                };
+                next.set(speaker.id, normalized);
+                if (normalized.isSpeaking) {
+                  speakingSnapshot.set(speaker.id, normalized);
                 }
               }
+
+              participantsRef.current = next;
               setParticipantsMap(next);
-              setLastUpdate(Date.now());
+              setSpeakingHistory((prev) => {
+                let segments = trimSegments(prev, nowTs);
+                if (previous instanceof Map) {
+                  previous.forEach((participant, id) => {
+                    if (participant?.isSpeaking && !speakingSnapshot.has(id)) {
+                      segments = closeOpenSegment(segments, id, nowTs, participant);
+                    }
+                  });
+                }
+                speakingSnapshot.forEach((participant, id) => {
+                  segments = ensureOpenSegment(segments, id, participant.startedAt ?? nowTs, participant);
+                });
+                return sortSegments(trimSegments(segments, nowTs));
+              });
+              setLastUpdate(nowTs);
             }
 
             if (Object.prototype.hasOwnProperty.call(payload, 'anonymousSlot')) {
@@ -1815,20 +2137,34 @@
             try {
               const data = JSON.parse(event.data);
               if (data?.type === 'start' && data.user?.id) {
+                const user = data.user;
+                const userId = user.id;
+                const eventNow = Date.now();
+                const startTime = Number.isFinite(user.startedAt) ? user.startedAt : eventNow;
                 setParticipantsMap((prev) => {
                   const next = new Map(prev);
-                  const existing = next.get(data.user.id) || { voiceState: {} };
-                  next.set(data.user.id, {
+                  const existing = next.get(userId) || { voiceState: {} };
+                  const updated = {
                     ...existing,
-                    ...data.user,
+                    ...user,
                     isSpeaking: true,
-                    voiceState: data.user.voiceState ?? existing.voiceState ?? {},
-                  });
+                    voiceState: user.voiceState ?? existing.voiceState ?? {},
+                  };
+                  next.set(userId, updated);
+                  participantsRef.current = next;
                   return next;
                 });
+                setSpeakingHistory((prev) => {
+                  let segments = trimSegments(prev, eventNow);
+                  segments = ensureOpenSegment(segments, userId, startTime, user);
+                  return sortSegments(trimSegments(segments, eventNow));
+                });
+                setLastUpdate(eventNow);
               } else if (data?.type === 'end') {
                 const targetId = data.user?.id ?? data.userId;
                 if (targetId) {
+                  const eventNow = Date.now();
+                  const endTimestamp = Number.isFinite(data.user?.lastSpokeAt) ? data.user.lastSpokeAt : eventNow;
                   setParticipantsMap((prev) => {
                     const next = new Map(prev);
                     const existing = next.get(targetId);
@@ -1840,14 +2176,20 @@
                       ...data.user,
                       isSpeaking: false,
                       voiceState: (data.user && data.user.voiceState) ?? existing.voiceState ?? {},
-                      lastSpokeAt: data.user?.lastSpokeAt ?? Date.now(),
+                      lastSpokeAt: data.user?.lastSpokeAt ?? eventNow,
                     };
                     next.set(targetId, updated);
+                    participantsRef.current = next;
                     return next;
                   });
+                  setSpeakingHistory((prev) => {
+                    let segments = trimSegments(prev, eventNow);
+                    segments = closeOpenSegment(segments, targetId, endTimestamp, data.user ?? {}, { createIfMissing: true });
+                    return sortSegments(trimSegments(segments, eventNow));
+                  });
+                  setLastUpdate(eventNow);
                 }
               }
-              setLastUpdate(Date.now());
             } catch (err) {
               console.error('speaking event parse error', err);
             }
@@ -2044,6 +2386,9 @@
                           speakers=${speakers}
                           now=${now}
                           anonymousSlot=${anonymousSlot}
+                          speakingHistory=${speakingHistory}
+                          selectedWindowMinutes=${selectedWindowMinutes}
+                          onWindowChange=${handleWindowChange}
                         />`
                   }
                 </div>
