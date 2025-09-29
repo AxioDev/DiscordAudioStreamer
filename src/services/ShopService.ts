@@ -194,6 +194,25 @@ export default class ShopService {
         emoji: '🎁',
         stripePriceKey: 'pack',
       },
+      {
+        id: 'option-moderation',
+        name: 'Option Modération',
+        description:
+          'Deviens modérateur et participe activement à la protection de la communauté Libre Antenne.',
+        priceCents: 2500,
+        currency: shop.currency,
+        includes: [
+          'Attribution du rôle Modérateur sur le serveur Discord',
+          'Accès aux salons privés de coordination',
+          'Session d’accueil pour découvrir les outils et bonnes pratiques',
+        ],
+        shippingEstimate: 'Activation sous 24 h (aucune livraison physique)',
+        badges: ['Rôle communautaire'],
+        accent: 'from-emerald-500/20 via-lime-500/20 to-teal-500/20',
+        accentSoft: 'bg-emerald-500/10',
+        emoji: '🛡️',
+        stripePriceKey: 'moderation',
+      },
     ];
 
     return definitions.map<InternalProduct>((definition) => ({
