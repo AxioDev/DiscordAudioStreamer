@@ -114,6 +114,7 @@ const config: Config = {
         mug: process.env.SHOP_STRIPE_PRICE_MUG,
         tshirt: process.env.SHOP_STRIPE_PRICE_TSHIRT,
         pack: process.env.SHOP_STRIPE_PRICE_PACK,
+        moderation: process.env.SHOP_STRIPE_PRICE_MODERATION,
       }).reduce<Record<string, string>>((acc, [key, value]) => {
         if (value) {
           acc[key] = value;
