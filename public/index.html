@@ -2385,6 +2385,63 @@
             </div>
           </section>
 
+          <section class="space-y-6 rounded-3xl border border-indigo-400/30 bg-indigo-500/10 p-6 shadow-lg shadow-indigo-900/30 backdrop-blur">
+            <div class="space-y-2">
+              <p class="text-xs uppercase tracking-[0.35em] text-indigo-200">Nouvelle gamme</p>
+              <h2 class="text-2xl font-semibold text-white">Gamme «&nbsp;Droits de modération&nbsp;»</h2>
+              <p class="text-sm leading-relaxed text-indigo-100/80">
+                Active à la demande les actions clés du staff pour garder le contrôle du salon vocal sans attendre.
+              </p>
+            </div>
+            <ul class="grid gap-4 sm:grid-cols-2">
+              <li class="flex items-start gap-3 rounded-2xl border border-white/10 bg-black/30 p-4">
+                <span class="flex h-10 w-10 items-center justify-center rounded-full border border-indigo-400/40 bg-indigo-500/20 text-indigo-100">
+                  <${MicOff} class="h-5 w-5" aria-hidden="true" />
+                </span>
+                <div class="space-y-1">
+                  <p class="text-sm font-semibold text-white">Mute</p>
+                  <p class="text-xs leading-relaxed text-slate-300">Coupure immédiate du micro pour stopper un débordement.</p>
+                </div>
+              </li>
+              <li class="flex items-start gap-3 rounded-2xl border border-white/10 bg-black/30 p-4">
+                <span class="flex h-10 w-10 items-center justify-center rounded-full border border-emerald-400/40 bg-emerald-500/20 text-emerald-100">
+                  <${Mic} class="h-5 w-5" aria-hidden="true" />
+                </span>
+                <div class="space-y-1">
+                  <p class="text-sm font-semibold text-white">Démute</p>
+                  <p class="text-xs leading-relaxed text-slate-300">Restauration encadrée de la parole après validation du staff.</p>
+                </div>
+              </li>
+              <li class="flex items-start gap-3 rounded-2xl border border-white/10 bg-black/30 p-4">
+                <span class="flex h-10 w-10 items-center justify-center rounded-full border border-fuchsia-400/40 bg-fuchsia-500/20 text-fuchsia-100">
+                  <${Users} class="h-5 w-5" aria-hidden="true" />
+                </span>
+                <div class="space-y-1">
+                  <p class="text-sm font-semibold text-white">Expulser</p>
+                  <p class="text-xs leading-relaxed text-slate-300">Éjection ciblée pour préserver la sécurité du vocal.</p>
+                </div>
+              </li>
+              <li class="flex items-start gap-3 rounded-2xl border border-white/10 bg-black/30 p-4">
+                <span class="flex h-10 w-10 items-center justify-center rounded-full border border-sky-400/40 bg-sky-500/20 text-sky-100">
+                  <${Headphones} class="h-5 w-5" aria-hidden="true" />
+                </span>
+                <div class="space-y-1">
+                  <p class="text-sm font-semibold text-white">Mute casque</p>
+                  <p class="text-xs leading-relaxed text-slate-300">Silence le retour audio d’un membre sans couper son micro.</p>
+                </div>
+              </li>
+              <li class="flex items-start gap-3 rounded-2xl border border-white/10 bg-black/30 p-4 sm:col-span-2">
+                <span class="flex h-10 w-10 items-center justify-center rounded-full border border-rose-400/40 bg-rose-500/20 text-rose-100">
+                  <${X} class="h-5 w-5" aria-hidden="true" />
+                </span>
+                <div class="space-y-1">
+                  <p class="text-sm font-semibold text-white">Déconnecter</p>
+                  <p class="text-xs leading-relaxed text-slate-300">Retire complètement du salon vocal les profils non conformes.</p>
+                </div>
+              </li>
+            </ul>
+          </section>
+
           <section class="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
             ${MODERATION_SERVICES.map(
               (service) => html`<article
