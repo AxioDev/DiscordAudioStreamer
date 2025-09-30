@@ -87,6 +87,7 @@ const appServer = new AppServer({
   anonymousSpeechManager,
   discordBridge,
   shopService,
+  voiceActivityRepository,
 });
 appServer.start();
 
