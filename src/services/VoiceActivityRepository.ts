@@ -80,17 +80,17 @@ export default class VoiceActivityRepository {
       return;
     }
 
-    const durationSeconds = Math.max(record.durationMs / 1000, 0);
+    const durationMs = Math.max(Math.floor(record.durationMs), 0);
 
     try {
       await pool.query(
-        `INSERT INTO voice_activity (user_id, channel_id, guild_id, duration, timestamp)
+        `INSERT INTO voice_activity (user_id, channel_id, guild_id, duration_ms, timestamp)
          VALUES ($1, $2, $3, $4, $5)`,
         [
           record.userId,
           record.channelId,
           record.guildId,
-          durationSeconds,
+          durationMs,
           record.startedAt,
         ],
       );
@@ -121,7 +121,7 @@ export default class VoiceActivityRepository {
 
     try {
       const result = await pool.query(
-        `SELECT user_id, channel_id, guild_id, duration, timestamp
+        `SELECT user_id, channel_id, guild_id, duration_ms, timestamp
            FROM voice_activity
            WHERE ($1::timestamptz IS NULL OR timestamp >= $1::timestamptz)
              AND ($2::timestamptz IS NULL OR timestamp <= $2::timestamptz)
@@ -132,8 +132,8 @@ export default class VoiceActivityRepository {
 
       return (result.rows || []).map((row) => {
         const startedAt = row.timestamp instanceof Date ? row.timestamp : new Date(row.timestamp);
-        const durationSeconds = Number(row.duration);
-        const durationMs = Number.isFinite(durationSeconds) ? Math.max(durationSeconds * 1000, 0) : 0;
+        const durationMsValue = Number(row.duration_ms);
+        const durationMs = Number.isFinite(durationMsValue) ? Math.max(Math.floor(durationMsValue), 0) : 0;
         const safeStart = Number.isFinite(startedAt?.getTime()) ? startedAt : new Date();
         const endedAt = new Date(safeStart.getTime() + durationMs);
 
