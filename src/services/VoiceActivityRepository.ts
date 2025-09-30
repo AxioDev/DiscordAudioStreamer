@@ -28,6 +28,13 @@ export interface VoiceActivityHistoryEntry {
   durationMs: number;
   startedAt: Date;
   endedAt: Date;
+  profile: VoiceActivityHistoryProfile | null;
+}
+
+export interface VoiceActivityHistoryProfile {
+  displayName: string | null;
+  username: string | null;
+  avatar: string | null;
 }
 
 export default class VoiceActivityRepository {
@@ -72,6 +79,41 @@ export default class VoiceActivityRepository {
     }
 
     return this.pool;
+  }
+
+  private normalizeString(value: unknown): string | null {
+    if (typeof value !== 'string') {
+      return null;
+    }
+
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private buildProfile({
+    nickname,
+    pseudo,
+    username,
+  }: {
+    nickname?: unknown;
+    pseudo?: unknown;
+    username?: unknown;
+  }): VoiceActivityHistoryProfile | null {
+    const normalizedNickname = this.normalizeString(nickname);
+    const normalizedPseudo = this.normalizeString(pseudo);
+    const normalizedUsername = this.normalizeString(username);
+
+    const displayName = normalizedNickname ?? normalizedPseudo ?? normalizedUsername ?? null;
+
+    if (!displayName && !normalizedUsername) {
+      return null;
+    }
+
+    return {
+      displayName,
+      username: normalizedUsername,
+      avatar: null,
+    };
   }
 
   public async recordVoiceActivity(record: VoiceActivityRecord): Promise<void> {
@@ -121,12 +163,21 @@ export default class VoiceActivityRepository {
 
     try {
       const result = await pool.query(
-        `SELECT user_id, channel_id, guild_id, duration_ms, timestamp
-           FROM voice_activity
-           WHERE ($1::timestamptz IS NULL OR timestamp >= $1::timestamptz)
-             AND ($2::timestamptz IS NULL OR timestamp <= $2::timestamptz)
-           ORDER BY timestamp DESC
-           LIMIT ${boundedLimit}`,
+        `SELECT va.user_id,
+                va.channel_id,
+                va.guild_id,
+                va.duration_ms,
+                va.timestamp,
+                u.nickname,
+                u.pseudo,
+                u.username
+           FROM voice_activity AS va
+           LEFT JOIN users AS u
+             ON u.guild_id = va.guild_id AND u.user_id = va.user_id
+          WHERE ($1::timestamptz IS NULL OR va.timestamp >= $1::timestamptz)
+            AND ($2::timestamptz IS NULL OR va.timestamp <= $2::timestamptz)
+          ORDER BY va.timestamp DESC
+          LIMIT ${boundedLimit}`,
         [sinceIso, untilIso],
       );
 
@@ -137,6 +188,12 @@ export default class VoiceActivityRepository {
         const safeStart = Number.isFinite(startedAt?.getTime()) ? startedAt : new Date();
         const endedAt = new Date(safeStart.getTime() + durationMs);
 
+        const profile = this.buildProfile({
+          nickname: row.nickname,
+          pseudo: row.pseudo,
+          username: row.username,
+        });
+
         return {
           userId: String(row.user_id ?? ''),
           channelId: row.channel_id ?? null,
@@ -144,6 +201,7 @@ export default class VoiceActivityRepository {
           durationMs,
           startedAt: safeStart,
           endedAt,
+          profile,
         };
       });
     } catch (error) {

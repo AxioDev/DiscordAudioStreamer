@@ -228,6 +228,13 @@ export default class AppServer {
             endedAt: entry.endedAt.toISOString(),
             startedAtMs: entry.startedAt.getTime(),
             endedAtMs: entry.endedAt.getTime(),
+            profile: entry.profile
+              ? {
+                  displayName: entry.profile.displayName,
+                  username: entry.profile.username,
+                  avatar: entry.profile.avatar,
+                }
+              : null,
           })),
         });
       } catch (error) {
