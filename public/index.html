@@ -2817,6 +2817,132 @@
           return () => clearTimeout(timer);
         }, [soulMessage]);
 
+        useEffect(() => {
+          let cancelled = false;
+          const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+
+          const parseTimestamp = (input) => {
+            const numeric = Number(input);
+            if (Number.isFinite(numeric)) {
+              return numeric;
+            }
+            if (typeof input === 'string') {
+              const parsed = new Date(input);
+              const ms = parsed.getTime();
+              if (!Number.isNaN(ms)) {
+                return ms;
+              }
+            }
+            return null;
+          };
+
+          const fetchHistory = async () => {
+            const params = new URLSearchParams();
+            const sinceTs = Date.now() - HISTORY_RETENTION_MS;
+            if (Number.isFinite(sinceTs)) {
+              params.set('since', String(Math.floor(sinceTs)));
+            }
+
+            const query = params.toString();
+            const url = query ? `/api/voice-activity/history?${query}` : '/api/voice-activity/history';
+
+            try {
+              const response = await fetch(url, controller ? { signal: controller.signal } : undefined);
+              if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+              }
+              const payload = await response.json();
+              if (cancelled) {
+                return;
+              }
+
+              const segments = Array.isArray(payload?.segments) ? payload.segments : [];
+              if (!segments.length) {
+                return;
+              }
+
+              const nowTs = Date.now();
+              setSpeakingHistory((prev) => {
+                const normalized = segments
+                  .map((segment) => {
+                    if (!segment || typeof segment !== 'object') {
+                      return null;
+                    }
+                    const rawId = typeof segment.userId === 'string' && segment.userId
+                      ? segment.userId
+                      : typeof segment.id === 'string'
+                      ? segment.id
+                      : null;
+                    if (!rawId) {
+                      return null;
+                    }
+
+                    const start = parseTimestamp(
+                      Object.prototype.hasOwnProperty.call(segment, 'startedAtMs')
+                        ? segment.startedAtMs
+                        : segment.startedAt,
+                    );
+                    if (typeof start !== 'number') {
+                      return null;
+                    }
+
+                    const end = parseTimestamp(
+                      Object.prototype.hasOwnProperty.call(segment, 'endedAtMs')
+                        ? segment.endedAtMs
+                        : segment.endedAt,
+                    );
+
+                    const durationValue = Number(segment.durationMs);
+                    const durationMs = Number.isFinite(durationValue) ? Math.max(durationValue, 0) : null;
+
+                    let resolvedEnd = typeof end === 'number' ? end : null;
+                    if (resolvedEnd == null && durationMs != null) {
+                      resolvedEnd = start + durationMs;
+                    }
+
+                    if (typeof resolvedEnd !== 'number' || Number.isNaN(resolvedEnd) || resolvedEnd <= start) {
+                      return null;
+                    }
+
+                    const profile =
+                      segment.profile && typeof segment.profile === 'object'
+                        ? sanitizeProfile(segment.profile)
+                        : { displayName: null, username: null, avatar: null };
+
+                    return {
+                      id: rawId,
+                      start,
+                      end: resolvedEnd,
+                      profile,
+                    };
+                  })
+                  .filter(Boolean);
+
+                if (!normalized.length) {
+                  return prev;
+                }
+
+                const combined = [...prev, ...normalized];
+                return sortSegments(trimSegments(combined, nowTs));
+              });
+            } catch (error) {
+              if (error && error.name === 'AbortError') {
+                return;
+              }
+              console.warn("Impossible de récupérer l'historique vocal", error);
+            }
+          };
+
+          fetchHistory();
+
+          return () => {
+            cancelled = true;
+            if (controller) {
+              controller.abort();
+            }
+          };
+        }, []);
+
         const handleWindowChange = useCallback((minutes) => {
           if (!Number.isFinite(minutes)) {
             return;

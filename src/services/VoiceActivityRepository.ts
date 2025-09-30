@@ -15,6 +15,21 @@ export interface VoiceActivityRecord {
   endedAt: Date;
 }
 
+export interface VoiceActivityQueryOptions {
+  since?: Date | null;
+  until?: Date | null;
+  limit?: number | null;
+}
+
+export interface VoiceActivityHistoryEntry {
+  userId: string;
+  channelId: string | null;
+  guildId: string | null;
+  durationMs: number;
+  startedAt: Date;
+  endedAt: Date;
+}
+
 export default class VoiceActivityRepository {
   private readonly connectionString?: string;
 
@@ -81,6 +96,59 @@ export default class VoiceActivityRepository {
       );
     } catch (error) {
       console.error('Failed to persist voice activity', error);
+    }
+  }
+
+  public async listVoiceActivityHistory({
+    since = null,
+    until = null,
+    limit = null,
+  }: VoiceActivityQueryOptions = {}): Promise<VoiceActivityHistoryEntry[]> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return [];
+    }
+
+    const sinceIso = since instanceof Date && !Number.isNaN(since.getTime()) ? since.toISOString() : null;
+    const untilIso = until instanceof Date && !Number.isNaN(until.getTime()) ? until.toISOString() : null;
+    const boundedLimit = (() => {
+      if (!Number.isFinite(limit)) {
+        return 500;
+      }
+      const normalized = Math.max(1, Math.floor(Number(limit)));
+      return Math.min(normalized, 2000);
+    })();
+
+    try {
+      const result = await pool.query(
+        `SELECT user_id, channel_id, guild_id, duration, timestamp
+           FROM voice_activity
+           WHERE ($1::timestamptz IS NULL OR timestamp >= $1::timestamptz)
+             AND ($2::timestamptz IS NULL OR timestamp <= $2::timestamptz)
+           ORDER BY timestamp DESC
+           LIMIT ${boundedLimit}`,
+        [sinceIso, untilIso],
+      );
+
+      return (result.rows || []).map((row) => {
+        const startedAt = row.timestamp instanceof Date ? row.timestamp : new Date(row.timestamp);
+        const durationSeconds = Number(row.duration);
+        const durationMs = Number.isFinite(durationSeconds) ? Math.max(durationSeconds * 1000, 0) : 0;
+        const safeStart = Number.isFinite(startedAt?.getTime()) ? startedAt : new Date();
+        const endedAt = new Date(safeStart.getTime() + durationMs);
+
+        return {
+          userId: String(row.user_id ?? ''),
+          channelId: row.channel_id ?? null,
+          guildId: row.guild_id ?? null,
+          durationMs,
+          startedAt: safeStart,
+          endedAt,
+        };
+      });
+    } catch (error) {
+      console.error('Failed to load voice activity history', error);
+      throw error;
     }
   }
 

@@ -10,6 +10,7 @@ import { WebSocketServer } from 'ws';
 import type DiscordAudioBridge from '../discord/DiscordAudioBridge';
 import type ShopService from '../services/ShopService';
 import { ShopError, type ShopProvider } from '../services/ShopService';
+import type VoiceActivityRepository from '../services/VoiceActivityRepository';
 
 export interface AppServerOptions {
   config: Config;
@@ -19,6 +20,7 @@ export interface AppServerOptions {
   anonymousSpeechManager: AnonymousSpeechManager;
   discordBridge: DiscordAudioBridge;
   shopService: ShopService;
+  voiceActivityRepository?: VoiceActivityRepository | null;
 }
 
 type FlushCapableResponse = Response & {
@@ -47,6 +49,8 @@ export default class AppServer {
 
   private readonly shopService: ShopService;
 
+  private readonly voiceActivityRepository: VoiceActivityRepository | null;
+
   constructor({
     config,
     transcoder,
@@ -55,6 +59,7 @@ export default class AppServer {
     anonymousSpeechManager,
     discordBridge,
     shopService,
+    voiceActivityRepository = null,
   }: AppServerOptions) {
     this.config = config;
     this.transcoder = transcoder;
@@ -63,6 +68,7 @@ export default class AppServer {
     this.anonymousSpeechManager = anonymousSpeechManager;
     this.discordBridge = discordBridge;
     this.shopService = shopService;
+    this.voiceActivityRepository = voiceActivityRepository;
 
     this.configureMiddleware();
     this.registerRoutes();
@@ -174,6 +180,65 @@ export default class AppServer {
 
     this.app.post('/test-beep', (req, res) => {
       this.handleTestBeep(req, res);
+    });
+
+    this.app.get('/api/voice-activity/history', async (req, res) => {
+      if (!this.voiceActivityRepository) {
+        res.json({ segments: [] });
+        return;
+      }
+
+      const parseTimestamp = (value: unknown): Date | null => {
+        if (typeof value !== 'string') {
+          return null;
+        }
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return null;
+        }
+        const numeric = Number(trimmed);
+        if (!Number.isNaN(numeric)) {
+          const fromNumber = new Date(numeric);
+          if (!Number.isNaN(fromNumber.getTime())) {
+            return fromNumber;
+          }
+        }
+        const fromString = new Date(trimmed);
+        if (!Number.isNaN(fromString.getTime())) {
+          return fromString;
+        }
+        return null;
+      };
+
+      const since = parseTimestamp(Array.isArray(req.query.since) ? req.query.since[0] : req.query.since);
+      const until = parseTimestamp(Array.isArray(req.query.until) ? req.query.until[0] : req.query.until);
+      const limitRaw = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+      const limit = typeof limitRaw === 'string' && limitRaw.trim().length > 0 ? Number(limitRaw) : null;
+
+      try {
+        const history = await this.voiceActivityRepository.listVoiceActivityHistory({ since, until, limit });
+        res.json({
+          segments: history.map((entry) => ({
+            id: entry.userId,
+            userId: entry.userId,
+            channelId: entry.channelId,
+            guildId: entry.guildId,
+            durationMs: entry.durationMs,
+            startedAt: entry.startedAt.toISOString(),
+            endedAt: entry.endedAt.toISOString(),
+            startedAtMs: entry.startedAt.getTime(),
+            endedAtMs: entry.endedAt.getTime(),
+          })),
+        });
+      } catch (error) {
+        console.error('Failed to retrieve voice activity history', error);
+        res
+          .status(500)
+          .json({
+            error: 'VOICE_ACTIVITY_FETCH_FAILED',
+            message: "Impossible de récupérer l'historique vocal.",
+          });
+      }
     });
 
     this.app.get('/', (_req, res) => {
