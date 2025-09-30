@@ -2016,6 +2016,13 @@
       const NAV_LINKS = [
         { label: 'Accueil', route: 'home', hash: '#/' },
         { label: 'Boutique', route: 'shop', hash: '#/boutique' },
+        {
+          label: 'Classements',
+          route: 'classements',
+          hash: '#/classements',
+          href: '/classements',
+          external: true,
+        },
         { label: 'Actions de modération', route: 'ban', hash: '#/bannir' },
         { label: 'À propos', route: 'about', hash: '#/about' },
       ];
@@ -3190,6 +3197,11 @@
           if (!link) {
             return;
           }
+          if (link.external && link.href) {
+            window.location.href = link.href;
+            setMenuOpen(false);
+            return;
+          }
           if (window.location.hash !== link.hash) {
             window.location.hash = link.hash;
           } else {
@@ -3263,7 +3275,7 @@
                       html`
                         <a
                           key=${link.route}
-                          href=${link.hash}
+                          href=${link.external && link.href ? link.href : link.hash}
                           onClick=${(event) => handleNavigate(event, link.route)}
                           aria-current=${route === link.route ? 'page' : undefined}
                           class=${`text-sm font-semibold transition hover:text-white ${
@@ -3298,7 +3310,7 @@
                               html`
                                 <a
                                   key=${`mobile-${link.route}`}
-                                  href=${link.hash}
+                                  href=${link.external && link.href ? link.href : link.hash}
                                   onClick=${(event) => handleNavigate(event, link.route)}
                                   class=${`rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold transition hover:bg-white/10 hover:text-white ${
                                     route === link.route ? 'text-white' : 'text-slate-200'
