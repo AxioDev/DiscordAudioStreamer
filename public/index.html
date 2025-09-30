@@ -285,7 +285,12 @@
 
       const TALK_WINDOW_OPTIONS = [5, 10, 15, 30, 60];
       const DEFAULT_WINDOW_MINUTES = TALK_WINDOW_OPTIONS.includes(15) ? 15 : TALK_WINDOW_OPTIONS[0];
-      const HISTORY_RETENTION_MS = (Math.max(...TALK_WINDOW_OPTIONS) + 5) * 60 * 1000;
+      const HISTORY_RETENTION_MS = Math.max(
+        (Math.max(...TALK_WINDOW_OPTIONS) + 5) * 60 * 1000,
+        24 * 60 * 60 * 1000,
+      );
+      const HOURS_IN_DAY = 24;
+      const HOUR_MS = 60 * 60 * 1000;
       const FALLBACK_SEGMENT_MS = 1000;
 
       const sanitizeProfile = (raw = {}) => {
@@ -650,6 +655,155 @@
           <div ref=${containerRef} class="mt-6 grid gap-6 sm:grid-cols-2">
             ${speakers.map((speaker) => html`<${SpeakerCard} key=${speaker.id} speaker=${speaker} now=${now} cardId=${speaker.id} />`)}
           </div>
+        `;
+      };
+
+      const DailyActivityChart = ({ history, now }) => {
+        const chart = useMemo(() => {
+          const effectiveNow = Number.isFinite(now) ? now : Date.now();
+          const anchor = new Date(effectiveNow);
+          anchor.setHours(0, 0, 0, 0);
+          const dayStart = anchor.getTime();
+          const dayEnd = dayStart + HOURS_IN_DAY * HOUR_MS;
+
+          const bins = Array.from({ length: HOURS_IN_DAY }, (_, index) => {
+            const start = dayStart + index * HOUR_MS;
+            return {
+              index,
+              start,
+              end: start + HOUR_MS,
+              duration: 0,
+            };
+          });
+
+          const segments = Array.isArray(history) ? history : [];
+          for (const segment of segments) {
+            if (!segment) continue;
+            const rawStart = Number.isFinite(segment.start) ? segment.start : effectiveNow;
+            const rawEndCandidate = Number.isFinite(segment.end) ? segment.end : effectiveNow;
+            const safeEnd = Math.max(rawEndCandidate, rawStart);
+            const normalizedStart = Math.max(rawStart, dayStart);
+            const normalizedEnd = Math.min(safeEnd, dayEnd);
+            if (Number.isNaN(normalizedStart) || Number.isNaN(normalizedEnd) || normalizedEnd <= normalizedStart) {
+              continue;
+            }
+
+            for (const bin of bins) {
+              if (bin.start >= normalizedEnd) {
+                break;
+              }
+              if (bin.end <= normalizedStart) {
+                continue;
+              }
+              const overlapStart = Math.max(normalizedStart, bin.start);
+              const overlapEnd = Math.min(normalizedEnd, bin.end);
+              if (overlapEnd > overlapStart) {
+                bin.duration += overlapEnd - overlapStart;
+              }
+            }
+          }
+
+          const binsWithMeta = bins.map((bin) => {
+            const hourLabel = new Date(bin.start).toLocaleTimeString('fr-FR', { hour: '2-digit' });
+            return {
+              ...bin,
+              label: `${hourLabel}h`,
+              isCurrent: effectiveNow >= bin.start && effectiveNow < bin.end,
+              isPast: effectiveNow >= bin.end,
+            };
+          });
+
+          const totalDuration = binsWithMeta.reduce((acc, bin) => acc + bin.duration, 0);
+          const maxDuration = binsWithMeta.reduce((acc, bin) => Math.max(acc, bin.duration), 0);
+          const peakBin = binsWithMeta.reduce((best, bin) => {
+            if (bin.duration <= 0) {
+              return best;
+            }
+            if (!best || bin.duration > best.duration) {
+              return bin;
+            }
+            return best;
+          }, null);
+
+          return {
+            bins: binsWithMeta,
+            totalDuration,
+            maxDuration,
+            peakBin,
+          };
+        }, [history, now]);
+
+        const totalLabel = chart.totalDuration > 0 ? formatDuration(chart.totalDuration) : '0s';
+        const peakLabel = chart.peakBin ? `${formatDuration(chart.peakBin.duration)} vers ${chart.peakBin.label}` : null;
+        const hasData = chart.maxDuration > 0;
+
+        return html`
+          <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-slate-950/60 p-8 shadow-xl shadow-slate-950/50 backdrop-blur-xl">
+            <div class="pointer-events-none absolute -left-24 top-[-6rem] h-56 w-56 rounded-full bg-indigo-500/20 blur-3xl"></div>
+            <div class="pointer-events-none absolute -right-24 bottom-[-8rem] h-64 w-64 rounded-full bg-fuchsia-500/20 blur-[110px]"></div>
+            <div class="relative flex flex-col gap-6">
+              <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div class="space-y-2">
+                  <p class="text-xs uppercase tracking-[0.35em] text-indigo-200/80">Chronologie</p>
+                  <h2 class="text-2xl font-semibold text-white">Activité vocale par heure</h2>
+                  <p class="text-sm text-slate-300">
+                    Observe la répartition des interventions tout au long de la journée actuelle. Le graphique se met à jour en temps réel.
+                  </p>
+                </div>
+                <div class="flex flex-col gap-1 rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-xs text-slate-300">
+                  <span>
+                    <span class="font-semibold text-white">${totalLabel}</span>
+                    de prise de parole aujourd'hui
+                  </span>
+                  ${peakLabel
+                    ? html`<span>Pic : ${peakLabel}</span>`
+                    : html`<span>Aucune activité détectée pour le moment</span>`}
+                </div>
+              </div>
+              <div class="relative">
+                <div class="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-slate-950/80 to-transparent"></div>
+                <div class="overflow-x-auto">
+                  <div class="flex min-w-[48rem] items-end gap-2 pb-6 sm:gap-3 md:gap-4">
+                    ${chart.bins.map((bin) => {
+                      const rawPercent = chart.maxDuration > 0 ? (bin.duration / chart.maxDuration) * 100 : 0;
+                      const heightPercent = bin.duration > 0 ? Math.max(6, Math.round(rawPercent)) : 0;
+                      const barStyle = `height: ${heightPercent}%`;
+                      const barClass = [
+                        'w-full rounded-t-2xl transition-all duration-700 ease-out',
+                        bin.duration > 0
+                          ? 'bg-gradient-to-t from-indigo-500/70 via-fuchsia-500/60 to-fuchsia-400/80 shadow-[0_0_18px_rgba(236,72,153,0.35)]'
+                          : 'bg-white/10',
+                        bin.isCurrent ? 'ring-2 ring-fuchsia-300/80 shadow-[0_0_24px_rgba(236,72,153,0.45)]' : '',
+                        !bin.isPast && !bin.isCurrent ? 'opacity-40' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ');
+                      const tooltip = bin.duration > 0 ? `≈ ${formatDuration(bin.duration)}` : 'Aucune activité';
+                      const statusLabel = bin.isCurrent ? 'en cours' : bin.isPast ? 'passé' : 'à venir';
+                      return html`
+                        <div key=${bin.start} class="flex min-w-[2.5rem] flex-1 flex-col items-center gap-2 text-xs text-slate-300">
+                          <div
+                            class="flex h-48 w-full items-end rounded-2xl bg-white/5 p-1"
+                            title=${tooltip}
+                            aria-label=${`${bin.label} · ${tooltip}`}
+                          >
+                            <div class=${barClass} style=${barStyle}></div>
+                          </div>
+                          <span class=${`font-semibold ${bin.isCurrent ? 'text-white' : 'text-slate-200'}`}>${bin.label}</span>
+                          <span class="text-[0.65rem] uppercase tracking-[0.3em] text-indigo-200/80">${statusLabel}</span>
+                        </div>
+                      `;
+                    })}
+                  </div>
+                </div>
+                ${hasData
+                  ? null
+                  : html`<p class="mt-4 text-center text-sm text-slate-400">
+                      Les premières prises de parole de la journée apparaîtront ici dès qu'une voix sera détectée.
+                    </p>`}
+              </div>
+            </div>
+          </section>
         `;
       };
 
@@ -2315,13 +2469,15 @@
                 </p>
               </div>
             </div>
-            <${AudioPlayer} streamInfo=${streamInfo} audioKey=${audioKey} status=${status} />
-          </section>
+          <${AudioPlayer} streamInfo=${streamInfo} audioKey=${audioKey} status=${status} />
+        </section>
 
-          <${RealTimeTalkChart}
-            history=${speakingHistory}
-            speakers=${speakers}
-            now=${now}
+        <${DailyActivityChart} history=${speakingHistory} now=${now} />
+
+        <${RealTimeTalkChart}
+          history=${speakingHistory}
+          speakers=${speakers}
+          now=${now}
             selectedWindowMinutes=${selectedWindowMinutes}
             onWindowChange=${onWindowChange}
           />
