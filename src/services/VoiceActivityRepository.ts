@@ -37,6 +37,17 @@ export interface VoiceActivityHistoryProfile {
   avatar: string | null;
 }
 
+export interface HypeLeaderEntry {
+  userId: string;
+  displayName: string;
+  sessions: number;
+  averageIncrementalUsers: number;
+  medianIncrement: number;
+  totalPositiveInfluence: number;
+  totalTalkSeconds: number;
+  weightedHypeScore: number;
+}
+
 export default class VoiceActivityRepository {
   private readonly connectionString?: string;
 
@@ -206,6 +217,99 @@ export default class VoiceActivityRepository {
       });
     } catch (error) {
       console.error('Failed to load voice activity history', error);
+      throw error;
+    }
+  }
+
+  public async listHypeLeaders({ limit = 100 }: { limit?: number } = {}): Promise<HypeLeaderEntry[]> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return [];
+    }
+
+    const boundedLimit = (() => {
+      if (!Number.isFinite(limit)) {
+        return 100;
+      }
+      const normalized = Math.max(1, Math.floor(Number(limit)));
+      return Math.min(normalized, 200);
+    })();
+
+    const query = `WITH presence_windows AS (
+        SELECT
+            vp.guild_id,
+            vp.channel_id,
+            vp.user_id,
+            vp.joined_at,
+            vp.left_at,
+            (
+                SELECT COUNT(DISTINCT vp2.user_id)
+                FROM voice_presence vp2
+                WHERE vp2.channel_id = vp.channel_id
+                  AND vp2.joined_at <= vp.joined_at
+                  AND (vp2.left_at IS NULL OR vp2.left_at > vp.joined_at)
+            ) AS users_before,
+            (
+                SELECT COUNT(DISTINCT vp3.user_id)
+                FROM voice_presence vp3
+                WHERE vp3.channel_id = vp.channel_id
+                  AND vp3.joined_at <= vp.joined_at + interval '3 minutes'
+                  AND (vp3.left_at IS NULL OR vp3.left_at > vp.joined_at + interval '3 minutes')
+            ) AS users_after
+        FROM voice_presence vp
+    ),
+    activity AS (
+        SELECT
+            va.user_id,
+            va.guild_id,
+            SUM(duration_ms)/1000.0 AS total_talk_seconds
+        FROM voice_activity va
+        GROUP BY va.user_id, va.guild_id
+    )
+    SELECT
+        u.user_id,
+        COALESCE(u.nickname, u.username, u.pseudo) AS display_name,
+        COUNT(*) AS sessions,
+        ROUND(AVG(users_after - users_before)::numeric, 2) AS avg_incremental_users,
+        ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY users_after - users_before)::numeric, 2) AS median_increment,
+        SUM(GREATEST(users_after - users_before, 0)) AS total_positive_influence,
+        COALESCE(a.total_talk_seconds,0) AS total_talk_seconds,
+        ROUND(AVG(users_after - users_before)::numeric * LOG(1 + COALESCE(a.total_talk_seconds,0)), 2) AS weighted_hype_score
+    FROM presence_windows pw
+    INNER JOIN users u ON u.user_id = pw.user_id AND u.guild_id = pw.guild_id 
+    LEFT JOIN activity a ON a.user_id = pw.user_id AND a.guild_id = pw.guild_id
+    WHERE COALESCE(u.nickname, u.username, u.pseudo) IS NOT NULL
+
+    GROUP BY u.user_id, display_name, a.total_talk_seconds
+    ORDER BY weighted_hype_score DESC
+    LIMIT $1`;
+
+    try {
+      const result = await pool.query(query, [boundedLimit]);
+      return (result.rows ?? []).map((row) => {
+        const parseNumber = (value: unknown): number => {
+          const numeric = Number(value);
+          if (!Number.isFinite(numeric)) {
+            return 0;
+          }
+          return numeric;
+        };
+
+        const displayName = this.normalizeString(row.display_name) ?? 'Anonyme';
+
+        return {
+          userId: String(row.user_id ?? ''),
+          displayName,
+          sessions: Number.isFinite(Number(row.sessions)) ? Number(row.sessions) : 0,
+          averageIncrementalUsers: parseNumber(row.avg_incremental_users),
+          medianIncrement: parseNumber(row.median_increment),
+          totalPositiveInfluence: parseNumber(row.total_positive_influence),
+          totalTalkSeconds: parseNumber(row.total_talk_seconds),
+          weightedHypeScore: parseNumber(row.weighted_hype_score),
+        };
+      });
+    } catch (error) {
+      console.error('Failed to compute hype leaderboard', error);
       throw error;
     }
   }

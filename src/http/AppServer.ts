@@ -248,6 +248,28 @@ export default class AppServer {
       }
     });
 
+    this.app.get('/api/voice-activity/hype-leaders', async (_req, res) => {
+      if (!this.voiceActivityRepository) {
+        res.json({ leaders: [] });
+        return;
+      }
+
+      try {
+        const leaders = await this.voiceActivityRepository.listHypeLeaders({ limit: 100 });
+        res.json({ leaders });
+      } catch (error) {
+        console.error('Failed to retrieve hype leaderboard', error);
+        res.status(500).json({
+          error: 'HYPE_LEADERBOARD_FETCH_FAILED',
+          message: "Impossible de récupérer le classement hype.",
+        });
+      }
+    });
+
+    this.app.get('/classements', (_req, res) => {
+      res.sendFile(path.resolve(__dirname, '..', '..', 'public', 'classements.html'));
+    });
+
     this.app.get('/', (_req, res) => {
       res.sendFile(path.resolve(__dirname, '..', '..', 'public', 'index.html'));
     });

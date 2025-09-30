@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Classements · Libre Antenne</title>
+    <meta name="description" content="Top 100 des personnes les plus hype et cool de la Libre Antenne. Suis la vibe du Discord et découvre qui booste l'énergie collective." />
+    <link rel="icon" type="image/svg+xml" href="/icons/icon-192.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="preload"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+      as="style"
+      onload="this.onload=null;this.rel='stylesheet'"
+    />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio" defer></script>
+    <script>
+      window.tailwind = window.tailwind || {};
+      window.tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'system-ui', 'sans-serif'],
+            },
+            colors: {
+              neon: '#60a5fa',
+              fuchsia: '#ec4899',
+            },
+            boxShadow: {
+              neon: '0 20px 70px rgba(56, 189, 248, 0.25)',
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      body {
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+        background: radial-gradient(circle at 15% 30%, rgba(147, 197, 253, 0.1), transparent 55%),
+          radial-gradient(circle at 85% 20%, rgba(244, 114, 182, 0.12), transparent 50%),
+          radial-gradient(circle at 40% 80%, rgba(129, 140, 248, 0.12), transparent 50%),
+          #020617;
+      }
+
+      .leader-card::before {
+        content: '';
+        position: absolute;
+        inset: -1px;
+        border-radius: 1.5rem;
+        background: linear-gradient(120deg, rgba(96, 165, 250, 0.65), rgba(236, 72, 153, 0.65));
+        opacity: 0;
+        transition: opacity 0.35s ease;
+        z-index: 0;
+        filter: blur(8px);
+      }
+
+      .leader-card:hover::before {
+        opacity: 1;
+      }
+
+      .leader-card > * {
+        position: relative;
+        z-index: 1;
+      }
+
+      .hype-pulse {
+        position: relative;
+      }
+
+      .hype-pulse::after {
+        content: '';
+        position: absolute;
+        inset: -12px;
+        border-radius: 9999px;
+        background: radial-gradient(circle, rgba(96, 165, 250, 0.35), transparent 70%);
+        opacity: 0;
+        animation: pulse 2.8s ease-in-out infinite;
+        pointer-events: none;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 0;
+          transform: scale(0.85);
+        }
+
+        40% {
+          opacity: 0.8;
+          transform: scale(1);
+        }
+      }
+    </style>
+  </head>
+  <body class="min-h-screen text-slate-100 selection:bg-fuchsia-400/30 selection:text-white">
+    <header class="relative border-b border-white/5 backdrop-blur-xl bg-slate-950/70">
+      <div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
+        <a class="group flex items-center gap-3" href="/">
+          <span class="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 via-fuchsia-500 to-purple-600 text-lg font-extrabold text-white shadow-neon transition duration-300 group-hover:scale-105">LA</span>
+          <span class="text-lg font-semibold text-slate-200 transition duration-300 group-hover:text-white">Libre Antenne</span>
+        </a>
+        <nav class="flex items-center gap-4 text-sm font-medium text-slate-300">
+          <a class="rounded-full px-4 py-2 transition hover:bg-white/10 hover:text-white" href="/">Écouter le direct</a>
+          <span class="rounded-full bg-white/10 px-4 py-2 text-white shadow-inner shadow-sky-500/20">Classements</span>
+        </nav>
+      </div>
+    </header>
+
+    <main class="relative mx-auto flex max-w-6xl flex-col gap-10 px-6 pb-24 pt-16">
+      <section class="grid gap-10 lg:grid-cols-[1.3fr_1fr]">
+        <div class="rounded-3xl bg-white/5 p-[1px]">
+          <div class="rounded-[1.45rem] bg-slate-950/80 p-10 shadow-neon">
+            <p class="text-xs uppercase tracking-[0.35em] text-slate-400">Classement officiel</p>
+            <h1 class="mt-4 text-4xl font-black leading-tight text-white sm:text-5xl">
+              Top 100 des personnes les plus hype &amp; cool
+            </h1>
+            <p class="mt-6 max-w-xl text-base text-slate-300 sm:text-lg">
+              Ce classement mesure l'énergie que chaque voix apporte au serveur : l'impact sur la fréquentation, la durée de parole et la vibe générale. Les meilleures personnes font grimper le compteur comme personne.
+            </p>
+            <div class="mt-8 flex flex-wrap items-center gap-4">
+              <div class="hype-pulse inline-flex items-center gap-3 rounded-full bg-gradient-to-r from-sky-500/20 via-fuchsia-500/20 to-purple-500/20 px-5 py-3 text-sm font-semibold text-sky-200">
+                <span class="inline-flex h-3 w-3 animate-ping rounded-full bg-sky-400"></span>
+                Mise à jour en direct
+              </div>
+              <div class="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs uppercase tracking-widest text-slate-300">
+                <span class="h-2 w-2 rounded-full bg-emerald-400"></span>
+                Data temps réel
+              </div>
+            </div>
+          </div>
+        </div>
+        <aside class="flex flex-col gap-4">
+          <div class="rounded-3xl bg-white/5 p-[1px]">
+            <div class="rounded-[1.45rem] bg-slate-950/80 p-6">
+              <h2 class="text-sm font-semibold uppercase tracking-[0.3em] text-slate-400">Algorithme hype</h2>
+              <p class="mt-3 text-sm text-slate-300">
+                Le score hype pondère l'arrivée de nouvelles personnes juste après ta prise de parole, le nombre total de sessions et ta présence vocale. C'est une alchimie entre charisme, régularité et aura pure.
+              </p>
+            </div>
+          </div>
+          <div class="rounded-3xl bg-gradient-to-br from-sky-500/20 via-fuchsia-500/20 to-purple-500/20 p-[1px]">
+            <div class="rounded-[1.45rem] bg-slate-950/85 p-6">
+              <h2 class="text-sm font-semibold uppercase tracking-[0.3em] text-slate-400">Comment grimper ?</h2>
+              <ul class="mt-3 space-y-2 text-sm text-slate-200/90">
+                <li class="flex items-start gap-3">
+                  <span class="mt-1 h-2 w-2 rounded-full bg-sky-400"></span>
+                  Fais grimper l'audience quand tu te connectes.
+                </li>
+                <li class="flex items-start gap-3">
+                  <span class="mt-1 h-2 w-2 rounded-full bg-fuchsia-400"></span>
+                  Reste actif dans la discussion, sans spam.
+                </li>
+                <li class="flex items-start gap-3">
+                  <span class="mt-1 h-2 w-2 rounded-full bg-purple-400"></span>
+                  Propulse de la bonne humeur et des vibes mémorables.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </aside>
+      </section>
+
+      <section>
+        <div class="flex items-baseline justify-between">
+          <h2 class="text-2xl font-bold text-white">Classement Hype</h2>
+          <span id="leaderboard-meta" class="text-sm text-slate-400"></span>
+        </div>
+
+        <div id="leaderboard" class="mt-8 grid gap-6">
+          <div class="grid gap-4 rounded-3xl border border-white/5 bg-slate-950/60 p-10 text-center shadow-neon">
+            <div class="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-fuchsia-500/60 border-t-transparent"></div>
+            <p class="text-sm text-slate-300">Chargement du classement…</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="border-t border-white/5 bg-slate-950/80 py-10">
+      <div class="mx-auto flex max-w-6xl flex-col items-center gap-2 px-6 text-center text-xs text-slate-500">
+        <span>Libre Antenne · Vibes communautaires en continu</span>
+        <span>Classement généré automatiquement à partir des présences vocales Discord.</span>
+      </div>
+    </footer>
+
+    <script type="module">
+      const formatNumber = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2, minimumFractionDigits: 0 });
+      const formatScore = (value) => {
+        const numericValue = Number(value);
+        if (!Number.isFinite(numericValue)) {
+          return '0';
+        }
+        if (Math.abs(numericValue) >= 1000) {
+          return formatNumber.format(Math.round(numericValue));
+        }
+        return formatNumber.format(numericValue);
+      };
+
+      const pad = (value) => String(value).padStart(2, '0');
+
+      const leaderboardContainer = document.getElementById('leaderboard');
+      const metaElement = document.getElementById('leaderboard-meta');
+
+      const buildLeaderRow = (leader, index) => {
+        const rank = index + 1;
+        const highlight = rank <= 3 ? 'border-sky-500/60 bg-slate-900/70 shadow-neon' : 'border-white/5 bg-slate-900/50';
+        const accent = rank === 1 ? 'from-yellow-400/20 via-amber-500/10 to-transparent' : rank === 2 ? 'from-slate-200/20 to-transparent' : rank === 3 ? 'from-amber-500/10 via-fuchsia-400/10 to-transparent' : 'from-transparent to-transparent';
+
+        const container = document.createElement('article');
+        container.className = `leader-card relative overflow-hidden rounded-3xl border ${highlight}`;
+
+        container.innerHTML = `
+          <div class="absolute inset-0 bg-gradient-to-r ${rank <= 3 ? accent : 'from-transparent to-transparent'} opacity-[0.22]"></div>
+          <div class="relative flex flex-col gap-6 p-6 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex flex-1 items-center gap-5">
+              <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-lg font-extrabold text-white">${pad(rank)}</span>
+              <div>
+                <h3 class="text-lg font-semibold text-white">${leader.displayName}</h3>
+                <p class="mt-1 text-xs uppercase tracking-[0.25em] text-slate-400">${leader.sessions} sessions · +${formatScore(leader.totalPositiveInfluence)} influence</p>
+              </div>
+            </div>
+            <dl class="grid flex-1 grid-cols-2 gap-5 text-sm sm:grid-cols-4">
+              <div>
+                <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Hype score</dt>
+                <dd class="mt-1 text-base font-semibold text-sky-300">${formatScore(leader.weightedHypeScore)}</dd>
+              </div>
+              <div>
+                <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Boost moyen</dt>
+                <dd class="mt-1 text-base font-semibold text-fuchsia-300">+${formatScore(leader.averageIncrementalUsers)}</dd>
+              </div>
+              <div>
+                <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Médiane</dt>
+                <dd class="mt-1 text-base font-semibold text-purple-200">+${formatScore(leader.medianIncrement)}</dd>
+              </div>
+              <div>
+                <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Parole (s)</dt>
+                <dd class="mt-1 text-base font-semibold text-emerald-200">${formatNumber.format(Math.round(leader.totalTalkSeconds))}</dd>
+              </div>
+            </dl>
+          </div>
+        `;
+
+        return container;
+      };
+
+      const renderLeaderboard = (leaders) => {
+        leaderboardContainer.innerHTML = '';
+
+        if (!leaders || leaders.length === 0) {
+          const emptyState = document.createElement('div');
+          emptyState.className = 'rounded-3xl border border-dashed border-white/10 bg-slate-950/60 px-10 py-16 text-center';
+          emptyState.innerHTML = `
+            <div class="mx-auto h-14 w-14 rounded-full border border-white/10 bg-white/5"></div>
+            <p class="mt-6 text-lg font-semibold text-white">Pas encore de hype mesurée</p>
+            <p class="mt-2 text-sm text-slate-400">Connecte-toi au salon vocal pour lancer les festivités.</p>
+          `;
+          leaderboardContainer.appendChild(emptyState);
+          return;
+        }
+
+        leaders.slice(0, 100).forEach((leader, index) => {
+          leaderboardContainer.appendChild(buildLeaderRow(leader, index));
+        });
+      };
+
+      const displayMeta = (count) => {
+        const now = new Date();
+        const formatted = new Intl.DateTimeFormat('fr-FR', {
+          hour: '2-digit',
+          minute: '2-digit',
+          day: '2-digit',
+          month: 'long',
+        }).format(now);
+        metaElement.textContent = `${count} profils · Mise à jour ${formatted}`;
+      };
+
+      const fetchLeaderboard = async () => {
+        try {
+          const response = await fetch('/api/voice-activity/hype-leaders');
+          if (!response.ok) {
+            throw new Error('Failed to load hype leaders');
+          }
+          const payload = await response.json();
+          const leaders = Array.isArray(payload?.leaders) ? payload.leaders : [];
+          renderLeaderboard(leaders);
+          displayMeta(leaders.length);
+        } catch (error) {
+          console.error(error);
+          leaderboardContainer.innerHTML = '';
+          const errorState = document.createElement('div');
+          errorState.className = 'rounded-3xl border border-red-500/30 bg-red-500/10 px-10 py-12 text-center text-red-100';
+          errorState.innerHTML = `
+            <p class="text-base font-semibold">Impossible de charger le classement</p>
+            <p class="mt-2 text-sm text-red-100/80">Actualise la page ou reviens plus tard.</p>
+          `;
+          leaderboardContainer.appendChild(errorState);
+          displayMeta(0);
+        }
+      };
+
+      fetchLeaderboard();
+      setInterval(fetchLeaderboard, 60_000);
+    </script>
+  </body>
+</html>
