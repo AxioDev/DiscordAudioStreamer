@@ -659,6 +659,12 @@
       };
 
       const DailyActivityChart = ({ history, now }) => {
+        const scrollContainerRef = useRef(null);
+        const currentBinRef = useRef(null);
+        const setCurrentBinRef = useCallback((element) => {
+          currentBinRef.current = element ?? null;
+        }, []);
+
         const chart = useMemo(() => {
           const effectiveNow = Number.isFinite(now) ? now : Date.now();
           const anchor = new Date(effectiveNow);
@@ -735,6 +741,31 @@
           };
         }, [history, now]);
 
+        useEffect(() => {
+          if (typeof window === 'undefined') return;
+          const container = scrollContainerRef.current;
+          const current = currentBinRef.current;
+          if (!container || !current) return;
+
+          const containerRect = container.getBoundingClientRect();
+          const currentRect = current.getBoundingClientRect();
+          const currentCenter = currentRect.left - containerRect.left + container.scrollLeft + currentRect.width / 2;
+          const targetScrollLeft = currentCenter - container.clientWidth / 2;
+          const maxScroll = Math.max(0, container.scrollWidth - container.clientWidth);
+          const clampedTarget = Math.max(0, Math.min(targetScrollLeft, maxScroll));
+
+          if (Math.abs(container.scrollLeft - clampedTarget) <= 1) {
+            return;
+          }
+
+          const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+          if (prefersReducedMotion) {
+            container.scrollLeft = clampedTarget;
+          } else {
+            container.scrollTo({ left: clampedTarget, behavior: 'smooth' });
+          }
+        }, [chart]);
+
         const totalLabel = chart.totalDuration > 0 ? formatDuration(chart.totalDuration) : '0s';
         const peakLabel = chart.peakBin ? `${formatDuration(chart.peakBin.duration)} vers ${chart.peakBin.label}` : null;
         const hasData = chart.maxDuration > 0;
@@ -764,7 +795,7 @@
               </div>
               <div class="relative">
                 <div class="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-slate-950/80 to-transparent"></div>
-                <div class="overflow-x-auto">
+                <div ref=${scrollContainerRef} class="overflow-x-auto">
                   <div class="flex min-w-[48rem] items-end gap-2 pb-6 sm:gap-3 md:gap-4">
                     ${chart.bins.map((bin) => {
                       const rawPercent = chart.maxDuration > 0 ? (bin.duration / chart.maxDuration) * 100 : 0;
@@ -781,9 +812,12 @@
                         .filter(Boolean)
                         .join(' ');
                       const tooltip = bin.duration > 0 ? `≈ ${formatDuration(bin.duration)}` : 'Aucune activité';
-                      const statusLabel = bin.isCurrent ? 'en cours' : '';
                       return html`
-                        <div key=${bin.start} class="flex min-w-[2.5rem] flex-1 flex-col items-center gap-2 text-xs text-slate-300">
+                        <div
+                          key=${bin.start}
+                          ref=${bin.isCurrent ? setCurrentBinRef : null}
+                          class="flex min-w-[2.5rem] flex-1 flex-col items-center gap-2 text-xs text-slate-300"
+                        >
                           <div
                             class="flex h-48 w-full items-end rounded-2xl bg-white/5 p-1"
                             title=${tooltip}
@@ -792,7 +826,6 @@
                             <div class=${barClass} style=${barStyle}></div>
                           </div>
                           <span class=${`font-semibold ${bin.isCurrent ? 'text-white' : 'text-slate-200'}`}>${bin.label}</span>
-                          <span class="text-[0.65rem] uppercase tracking-[0.3em] text-indigo-200/80">${statusLabel}</span>
                         </div>
                       `;
                     })}
