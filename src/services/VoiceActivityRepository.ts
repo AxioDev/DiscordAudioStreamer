@@ -37,6 +37,25 @@ export interface VoiceActivityHistoryProfile {
   avatar: string | null;
 }
 
+export type HypeLeaderboardSortBy =
+  | 'displayName'
+  | 'sessions'
+  | 'averageIncrementalUsers'
+  | 'medianIncrement'
+  | 'totalPositiveInfluence'
+  | 'totalTalkSeconds'
+  | 'weightedHypeScore';
+
+export type HypeLeaderboardSortOrder = 'asc' | 'desc';
+
+export interface HypeLeaderboardQueryOptions {
+  limit?: number | null;
+  search?: string | null;
+  sortBy?: HypeLeaderboardSortBy | null;
+  sortOrder?: HypeLeaderboardSortOrder | null;
+  periodDays?: number | null;
+}
+
 export interface HypeLeaderEntry {
   userId: string;
   displayName: string;
@@ -99,6 +118,10 @@ export default class VoiceActivityRepository {
 
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private escapeLikePattern(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
   }
 
   private buildProfile({
@@ -221,7 +244,13 @@ export default class VoiceActivityRepository {
     }
   }
 
-  public async listHypeLeaders({ limit = 100 }: { limit?: number } = {}): Promise<HypeLeaderEntry[]> {
+  public async listHypeLeaders({
+    limit = 100,
+    search = null,
+    sortBy = 'weightedHypeScore',
+    sortOrder = 'desc',
+    periodDays = null,
+  }: HypeLeaderboardQueryOptions = {}): Promise<HypeLeaderEntry[]> {
     const pool = this.ensurePool();
     if (!pool) {
       return [];
@@ -234,6 +263,64 @@ export default class VoiceActivityRepository {
       const normalized = Math.max(1, Math.floor(Number(limit)));
       return Math.min(normalized, 200);
     })();
+
+    const normalizedSearch = this.normalizeString(search);
+    const sanitizedPeriodDays = (() => {
+      if (!Number.isFinite(periodDays)) {
+        return null;
+      }
+      const normalized = Math.max(1, Math.floor(Number(periodDays)));
+      return Math.min(normalized, 365);
+    })();
+
+    const sortColumn = (() => {
+      const mapping: Record<HypeLeaderboardSortBy, string> = {
+        displayName: 'display_name',
+        sessions: 'sessions',
+        averageIncrementalUsers: 'avg_incremental_users',
+        medianIncrement: 'median_increment',
+        totalPositiveInfluence: 'total_positive_influence',
+        totalTalkSeconds: 'total_talk_seconds',
+        weightedHypeScore: 'weighted_hype_score',
+      };
+      const candidate = sortBy && mapping[sortBy as HypeLeaderboardSortBy] ? (sortBy as HypeLeaderboardSortBy) : 'weightedHypeScore';
+      return mapping[candidate];
+    })();
+
+    const sortDirection = sortOrder === 'asc' ? 'ASC' : 'DESC';
+
+    const sinceIso = (() => {
+      if (!sanitizedPeriodDays) {
+        return null;
+      }
+      const now = Date.now();
+      const milliseconds = sanitizedPeriodDays * 24 * 60 * 60 * 1000;
+      const since = new Date(now - milliseconds);
+      return Number.isNaN(since.getTime()) ? null : since.toISOString();
+    })();
+
+    const params: Array<string | number> = [];
+    let parameterIndex = 1;
+
+    const presenceWhereClause = sinceIso ? `WHERE vp.joined_at >= $${parameterIndex++}::timestamptz` : '';
+    if (sinceIso) {
+      params.push(sinceIso);
+    }
+
+    const activityWhereClause = sinceIso ? `WHERE va.timestamp >= $${parameterIndex++}::timestamptz` : '';
+    if (sinceIso) {
+      params.push(sinceIso);
+    }
+
+    let searchCondition = '';
+    if (normalizedSearch) {
+      searchCondition = ` AND COALESCE(u.nickname, u.username, u.pseudo) ILIKE $${parameterIndex} ESCAPE '\\'`;
+      params.push(`%${this.escapeLikePattern(normalizedSearch)}%`);
+      parameterIndex += 1;
+    }
+
+    const limitParameter = `$${parameterIndex}`;
+    params.push(boundedLimit);
 
     const query = `WITH presence_windows AS (
         SELECT
@@ -257,6 +344,7 @@ export default class VoiceActivityRepository {
                   AND (vp3.left_at IS NULL OR vp3.left_at > vp.joined_at + interval '3 minutes')
             ) AS users_after
         FROM voice_presence vp
+        ${presenceWhereClause}
     ),
     activity AS (
         SELECT
@@ -264,6 +352,7 @@ export default class VoiceActivityRepository {
             va.guild_id,
             SUM(duration_ms)/1000.0 AS total_talk_seconds
         FROM voice_activity va
+        ${activityWhereClause}
         GROUP BY va.user_id, va.guild_id
     )
     SELECT
@@ -276,16 +365,17 @@ export default class VoiceActivityRepository {
         COALESCE(a.total_talk_seconds,0) AS total_talk_seconds,
         ROUND(AVG(users_after - users_before)::numeric * LOG(1 + COALESCE(a.total_talk_seconds,0)), 2) AS weighted_hype_score
     FROM presence_windows pw
-    INNER JOIN users u ON u.user_id = pw.user_id AND u.guild_id = pw.guild_id 
+    INNER JOIN users u ON u.user_id = pw.user_id AND u.guild_id = pw.guild_id
     LEFT JOIN activity a ON a.user_id = pw.user_id AND a.guild_id = pw.guild_id
     WHERE COALESCE(u.nickname, u.username, u.pseudo) IS NOT NULL
+    ${searchCondition}
 
     GROUP BY u.user_id, display_name, a.total_talk_seconds
-    ORDER BY weighted_hype_score DESC
-    LIMIT $1`;
+    ORDER BY ${sortColumn} ${sortDirection}, weighted_hype_score DESC, display_name ASC
+    LIMIT ${limitParameter}`;
 
     try {
-      const result = await pool.query(query, [boundedLimit]);
+      const result = await pool.query(query, params);
       return (result.rows ?? []).map((row) => {
         const parseNumber = (value: unknown): number => {
           const numeric = Number(value);
