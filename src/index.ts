@@ -7,6 +7,7 @@ import SpeakerTracker from './services/SpeakerTracker';
 import DiscordAudioBridge from './discord/DiscordAudioBridge';
 import AnonymousSpeechManager from './services/AnonymousSpeechManager';
 import ShopService from './services/ShopService';
+import VoiceActivityRepository from './services/VoiceActivityRepository';
 
 const mixer = new AudioMixer({
   frameBytes: config.audio.frameBytes,
@@ -50,7 +51,15 @@ const sseService = new SseService({
   keepAliveInterval: config.keepAliveInterval,
 });
 
-const speakerTracker = new SpeakerTracker({ sseService });
+const voiceActivityRepository = new VoiceActivityRepository({
+  url: config.database.url,
+  ssl: config.database.ssl,
+});
+
+const speakerTracker = new SpeakerTracker({
+  sseService,
+  voiceActivityRepository,
+});
 
 const discordBridge = new DiscordAudioBridge({
   config,
@@ -111,6 +120,10 @@ function shutdown(): void {
   } catch (error) {
     console.warn('Error while clearing speaker tracker', error);
   }
+
+  voiceActivityRepository
+    .close()
+    .catch((error) => console.warn('Error while closing voice activity repository', error));
 
   try {
     appServer.stop();
