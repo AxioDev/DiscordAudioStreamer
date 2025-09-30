@@ -704,7 +704,9 @@
           }
 
           const binsWithMeta = bins.map((bin) => {
-            const hourLabel = new Date(bin.start).toLocaleTimeString('fr-FR', { hour: '2-digit' });
+            const hourLabel = new Date(bin.start)
+              .toLocaleTimeString('fr-FR', { hour: '2-digit' })
+              .replace(/\s*[hH]$/, '');
             return {
               ...bin,
               label: `${hourLabel}h`,
@@ -779,7 +781,7 @@
                         .filter(Boolean)
                         .join(' ');
                       const tooltip = bin.duration > 0 ? `≈ ${formatDuration(bin.duration)}` : 'Aucune activité';
-                      const statusLabel = bin.isCurrent ? 'en cours' : bin.isPast ? 'passé' : 'à venir';
+                      const statusLabel = bin.isCurrent ? 'en cours' : '';
                       return html`
                         <div key=${bin.start} class="flex min-w-[2.5rem] flex-1 flex-col items-center gap-2 text-xs text-slate-300">
                           <div
