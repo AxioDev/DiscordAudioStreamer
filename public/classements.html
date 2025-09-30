@@ -219,6 +219,63 @@
           <span id="leaderboard-meta" class="text-sm text-slate-400"></span>
         </div>
 
+        <div
+          id="leaderboard-controls"
+          class="mt-6 grid gap-4 rounded-3xl border border-white/10 bg-slate-950/70 p-6 md:grid-cols-4 xl:grid-cols-5"
+        >
+          <label class="md:col-span-2 flex flex-col gap-2">
+            <span class="text-xs uppercase tracking-[0.3em] text-slate-400">Recherche</span>
+            <input
+              id="leaderboard-search"
+              type="search"
+              inputmode="search"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Rechercher un pseudo"
+              class="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-2 text-sm text-white placeholder-slate-500 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+            />
+          </label>
+          <label class="flex flex-col gap-2">
+            <span class="text-xs uppercase tracking-[0.3em] text-slate-400">Trier par</span>
+            <select
+              id="leaderboard-sort-by"
+              class="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-2 text-sm text-white transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+            >
+              <option value="weightedHypeScore">Score hype</option>
+              <option value="totalPositiveInfluence">Influence totale</option>
+              <option value="averageIncrementalUsers">Boost moyen</option>
+              <option value="medianIncrement">Médiane</option>
+              <option value="totalTalkSeconds">Temps de parole</option>
+              <option value="sessions">Sessions</option>
+              <option value="displayName">Pseudo</option>
+            </select>
+          </label>
+          <div class="flex flex-col gap-2">
+            <span class="text-xs uppercase tracking-[0.3em] text-slate-400">Ordre</span>
+            <button
+              id="leaderboard-sort-order"
+              type="button"
+              class="flex items-center justify-between gap-2 rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-2 text-sm font-medium text-white transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 hover:border-sky-500/60"
+            >
+              <span data-role="label" class="pointer-events-none select-none">Ordre descendant</span>
+              <span data-role="icon" aria-hidden="true" class="text-base leading-none">↓</span>
+            </button>
+          </div>
+          <label class="flex flex-col gap-2">
+            <span class="text-xs uppercase tracking-[0.3em] text-slate-400">Période</span>
+            <select
+              id="leaderboard-period"
+              class="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-2 text-sm text-white transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+            >
+              <option value="all" selected>Toujours</option>
+              <option value="7">7 jours</option>
+              <option value="30">30 jours</option>
+              <option value="90">90 jours</option>
+              <option value="365">365 jours</option>
+            </select>
+          </label>
+        </div>
+
         <div id="leaderboard" class="mt-8 grid gap-6">
           <div class="grid gap-4 rounded-3xl border border-white/5 bg-slate-950/60 p-10 text-center shadow-neon">
             <div class="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-fuchsia-500/60 border-t-transparent"></div>
@@ -252,6 +309,87 @@
 
       const leaderboardContainer = document.getElementById('leaderboard');
       const metaElement = document.getElementById('leaderboard-meta');
+      const searchInput = document.getElementById('leaderboard-search');
+      const sortBySelect = document.getElementById('leaderboard-sort-by');
+      const sortOrderButton = document.getElementById('leaderboard-sort-order');
+      const periodSelect = document.getElementById('leaderboard-period');
+      const sortOrderLabel = sortOrderButton?.querySelector('[data-role="label"]') ?? null;
+      const sortOrderIcon = sortOrderButton?.querySelector('[data-role="icon"]') ?? null;
+
+      const debounce = (fn, delay = 300) => {
+        let timeoutId;
+        return (...args) => {
+          if (timeoutId) {
+            window.clearTimeout(timeoutId);
+          }
+          timeoutId = window.setTimeout(() => fn(...args), delay);
+        };
+      };
+
+      const state = {
+        search: searchInput?.value?.trim?.() ?? '',
+        sortBy: sortBySelect?.value ?? 'weightedHypeScore',
+        sortOrder: 'desc',
+        period: periodSelect?.value ?? 'all',
+      };
+
+      const updateSortOrderButton = () => {
+        if (!sortOrderButton) {
+          return;
+        }
+        const isAsc = state.sortOrder === 'asc';
+        if (sortOrderLabel) {
+          sortOrderLabel.textContent = isAsc ? 'Ordre ascendant' : 'Ordre descendant';
+        }
+        if (sortOrderIcon) {
+          sortOrderIcon.textContent = isAsc ? '↑' : '↓';
+        }
+        sortOrderButton.setAttribute('aria-pressed', isAsc ? 'true' : 'false');
+      };
+
+      updateSortOrderButton();
+
+      const buildQueryParams = () => {
+        const params = new URLSearchParams();
+        params.set('sortBy', state.sortBy);
+        params.set('sortOrder', state.sortOrder);
+        if (state.search && state.search.length > 0) {
+          params.set('search', state.search);
+        }
+        if (state.period && state.period !== 'all') {
+          params.set('period', state.period);
+        }
+        return params;
+      };
+
+      const renderLoadingState = () => {
+        if (!leaderboardContainer) {
+          return;
+        }
+        leaderboardContainer.innerHTML = '';
+        const loadingCard = document.createElement('div');
+        loadingCard.className = 'grid gap-4 rounded-3xl border border-white/5 bg-slate-950/60 p-10 text-center shadow-neon';
+        loadingCard.innerHTML = `
+            <div class="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-fuchsia-500/60 border-t-transparent"></div>
+            <p class="text-sm text-slate-300">Chargement du classement…</p>
+          `;
+        leaderboardContainer.appendChild(loadingCard);
+      };
+
+      const renderErrorState = () => {
+        if (!leaderboardContainer) {
+          return;
+        }
+        leaderboardContainer.innerHTML = '';
+        const errorState = document.createElement('div');
+        errorState.className =
+          'rounded-3xl border border-red-500/30 bg-red-500/10 px-10 py-12 text-center text-red-100';
+        errorState.innerHTML = `
+            <p class="text-base font-semibold">Impossible de charger le classement</p>
+            <p class="mt-2 text-sm text-red-100/80">Actualise la page ou reviens plus tard.</p>
+          `;
+        leaderboardContainer.appendChild(errorState);
+      };
 
       const buildLeaderRow = (leader, index) => {
         const rank = index + 1;
@@ -296,6 +434,9 @@
       };
 
       const renderLeaderboard = (leaders) => {
+        if (!leaderboardContainer) {
+          return;
+        }
         leaderboardContainer.innerHTML = '';
 
         if (!leaders || leaders.length === 0) {
@@ -326,32 +467,92 @@
         metaElement.textContent = `${count} profils · Mise à jour ${formatted}`;
       };
 
-      const fetchLeaderboard = async () => {
+      let currentRequestController = null;
+      let hasLoadedOnce = false;
+
+      const fetchLeaderboard = async ({ showLoading = false } = {}) => {
+        if (!leaderboardContainer) {
+          return;
+        }
+
+        if (showLoading || !hasLoadedOnce) {
+          renderLoadingState();
+        }
+
+        if (currentRequestController) {
+          currentRequestController.abort();
+        }
+
+        const controller = new AbortController();
+        currentRequestController = controller;
+
         try {
-          const response = await fetch('/api/voice-activity/hype-leaders');
+          const params = buildQueryParams();
+          const queryString = params.toString();
+          const url = queryString
+            ? `/api/voice-activity/hype-leaders?${queryString}`
+            : '/api/voice-activity/hype-leaders';
+          const response = await fetch(url, { signal: controller.signal });
           if (!response.ok) {
             throw new Error('Failed to load hype leaders');
           }
           const payload = await response.json();
+          if (controller.signal.aborted) {
+            return;
+          }
           const leaders = Array.isArray(payload?.leaders) ? payload.leaders : [];
           renderLeaderboard(leaders);
           displayMeta(leaders.length);
+          hasLoadedOnce = true;
         } catch (error) {
+          if (controller.signal.aborted) {
+            return;
+          }
           console.error(error);
-          leaderboardContainer.innerHTML = '';
-          const errorState = document.createElement('div');
-          errorState.className = 'rounded-3xl border border-red-500/30 bg-red-500/10 px-10 py-12 text-center text-red-100';
-          errorState.innerHTML = `
-            <p class="text-base font-semibold">Impossible de charger le classement</p>
-            <p class="mt-2 text-sm text-red-100/80">Actualise la page ou reviens plus tard.</p>
-          `;
-          leaderboardContainer.appendChild(errorState);
+          renderErrorState();
           displayMeta(0);
+        }
+        finally {
+          if (currentRequestController === controller) {
+            currentRequestController = null;
+          }
         }
       };
 
-      fetchLeaderboard();
-      setInterval(fetchLeaderboard, 60_000);
+      if (searchInput) {
+        const handleSearchInput = debounce((value) => {
+          state.search = value.trim();
+          fetchLeaderboard({ showLoading: true });
+        }, 300);
+        searchInput.addEventListener('input', (event) => {
+          handleSearchInput(event.target.value);
+        });
+      }
+
+      if (sortBySelect) {
+        sortBySelect.addEventListener('change', (event) => {
+          state.sortBy = event.target.value;
+          fetchLeaderboard({ showLoading: true });
+        });
+      }
+
+      if (sortOrderButton) {
+        sortOrderButton.addEventListener('click', () => {
+          state.sortOrder = state.sortOrder === 'asc' ? 'desc' : 'asc';
+          updateSortOrderButton();
+          fetchLeaderboard({ showLoading: true });
+        });
+      }
+
+      if (periodSelect) {
+        periodSelect.addEventListener('change', (event) => {
+          state.period = event.target.value;
+          fetchLeaderboard({ showLoading: true });
+        });
+      }
+
+      fetchLeaderboard({ showLoading: true });
+      setInterval(() => fetchLeaderboard(), 60_000);
     </script>
   </body>
 </html>
