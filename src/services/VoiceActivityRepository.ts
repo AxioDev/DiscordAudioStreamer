@@ -187,13 +187,15 @@ export default class VoiceActivityRepository {
 
     const sinceIso = since instanceof Date && !Number.isNaN(since.getTime()) ? since.toISOString() : null;
     const untilIso = until instanceof Date && !Number.isNaN(until.getTime()) ? until.toISOString() : null;
+    const hasRangeConstraint = sinceIso != null || untilIso != null;
     const boundedLimit = (() => {
-      if (!Number.isFinite(limit)) {
-        return 500;
+      if (Number.isFinite(limit)) {
+        const normalized = Math.max(1, Math.floor(Number(limit)));
+        return Math.min(normalized, 2000);
       }
-      const normalized = Math.max(1, Math.floor(Number(limit)));
-      return Math.min(normalized, 2000);
+      return hasRangeConstraint ? null : 500;
     })();
+    const limitClause = boundedLimit ? `LIMIT ${boundedLimit}` : '';
 
     try {
       const result = await pool.query(
@@ -209,9 +211,9 @@ export default class VoiceActivityRepository {
            LEFT JOIN users AS u
              ON u.guild_id = va.guild_id AND u.user_id = va.user_id
           WHERE ($1::timestamptz IS NULL OR va.timestamp >= $1::timestamptz)
-            AND ($2::timestamptz IS NULL OR va.timestamp <= $2::timestamptz)
+           AND ($2::timestamptz IS NULL OR va.timestamp <= $2::timestamptz)
           ORDER BY va.timestamp DESC
-          LIMIT ${boundedLimit}`,
+          ${limitClause}`,
         [sinceIso, untilIso],
       );
 
