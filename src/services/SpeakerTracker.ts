@@ -1,5 +1,6 @@
 import type { ImageURLOptions } from 'discord.js';
 import SseService from './SseService';
+import VoiceActivityRepository from './VoiceActivityRepository';
 
 export interface VoiceStateSnapshot {
   channelId: string | null;
@@ -38,6 +39,7 @@ export type UserFetcher = (userId: string) => Promise<{
 
 export interface SpeakerTrackerOptions {
   sseService: SseService;
+  voiceActivityRepository?: VoiceActivityRepository | null;
 }
 
 export default class SpeakerTracker {
@@ -51,12 +53,15 @@ export default class SpeakerTracker {
 
   private userFetcher: UserFetcher | null;
 
-  constructor({ sseService }: SpeakerTrackerOptions) {
+  private readonly voiceActivityRepository: VoiceActivityRepository | null;
+
+  constructor({ sseService, voiceActivityRepository = null }: SpeakerTrackerOptions) {
     this.sseService = sseService;
     this.participants = new Map();
     this.userProfiles = new Map();
     this.pendingProfileFetches = new Set();
     this.userFetcher = null;
+    this.voiceActivityRepository = voiceActivityRepository;
   }
 
   public setUserFetcher(fetcher: UserFetcher): void {
@@ -141,11 +146,14 @@ export default class SpeakerTracker {
       return;
     }
 
+    const endedAt = Date.now();
+    this.persistVoiceActivity(participant, endedAt);
+
     const updated: Participant = {
       ...participant,
       isSpeaking: false,
       startedAt: null,
-      lastSpokeAt: Date.now(),
+      lastSpokeAt: endedAt,
     };
     this.participants.set(userId, updated);
     this.sseService.broadcast('speaking', { type: 'end', user: this.cloneParticipant(updated) });
@@ -154,6 +162,11 @@ export default class SpeakerTracker {
 
   public async handleVoiceStateUpdate(userId: string, voiceState: VoiceStateSnapshot | null): Promise<void> {
     if (!voiceState || !voiceState.channelId) {
+      const participant = this.participants.get(userId);
+      if (participant) {
+        this.persistVoiceActivity(participant, Date.now());
+      }
+
       if (this.participants.delete(userId)) {
         this.sseService.broadcast('speaking', { type: 'end', userId });
         this.broadcastState();
@@ -250,5 +263,28 @@ export default class SpeakerTracker {
     this.pendingProfileFetches.clear();
     this.userProfiles.clear();
     this.sseService.broadcast('state', { speakers: [] });
+  }
+
+  private persistVoiceActivity(participant: Participant, endedAt: number): void {
+    if (!this.voiceActivityRepository) {
+      return;
+    }
+
+    const startedAt = participant.startedAt;
+    const channelId = participant.voiceState?.channelId ?? null;
+    if (!startedAt || !channelId) {
+      return;
+    }
+
+    const durationMs = Math.max(endedAt - startedAt, 0);
+
+    void this.voiceActivityRepository.recordVoiceActivity({
+      userId: participant.id,
+      channelId,
+      guildId: participant.voiceState?.guildId ?? null,
+      durationMs,
+      startedAt: new Date(startedAt),
+      endedAt: new Date(endedAt),
+    });
   }
 }

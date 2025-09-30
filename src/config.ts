@@ -61,6 +61,11 @@ export interface ShopConfig {
   paypal: ShopPaypalConfig;
 }
 
+export interface DatabaseConfig {
+  url?: string;
+  ssl: boolean;
+}
+
 export interface Config {
   botToken: string;
   guildId?: string;
@@ -78,6 +83,7 @@ export interface Config {
   mimeTypes: Record<string, string>;
   excludedUserIds: string[];
   shop: ShopConfig;
+  database: DatabaseConfig;
 }
 
 const config: Config = {
@@ -133,6 +139,12 @@ const config: Config = {
       environment: process.env.SHOP_PAYPAL_ENVIRONMENT === 'live' ? 'live' : 'sandbox',
       brandName: process.env.SHOP_PAYPAL_BRAND_NAME || undefined,
     },
+  },
+  database: {
+    url: process.env.DATABASE_URL || undefined,
+    ssl:
+      process.env.DATABASE_SSL === 'true' ||
+      (process.env.NODE_ENV === 'production' && process.env.DATABASE_SSL !== 'false'),
   },
 };
 
