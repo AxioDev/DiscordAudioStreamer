@@ -11,6 +11,7 @@ import type DiscordAudioBridge from '../discord/DiscordAudioBridge';
 import type ShopService from '../services/ShopService';
 import { ShopError, type ShopProvider } from '../services/ShopService';
 import type VoiceActivityRepository from '../services/VoiceActivityRepository';
+import type { HypeLeaderEntry } from '../services/VoiceActivityRepository';
 
 export interface AppServerOptions {
   config: Config;
@@ -50,6 +51,12 @@ export default class AppServer {
   private readonly shopService: ShopService;
 
   private readonly voiceActivityRepository: VoiceActivityRepository | null;
+
+  private readonly hypeLeaderboardTtlMs = 60_000;
+
+  private hypeLeaderboardCache: { leaders: HypeLeaderEntry[]; expiresAt: number } | null = null;
+
+  private hypeLeaderboardPromise: Promise<HypeLeaderEntry[]> | null = null;
 
   constructor({
     config,
@@ -250,12 +257,14 @@ export default class AppServer {
 
     this.app.get('/api/voice-activity/hype-leaders', async (_req, res) => {
       if (!this.voiceActivityRepository) {
+        res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=30');
         res.json({ leaders: [] });
         return;
       }
 
       try {
-        const leaders = await this.voiceActivityRepository.listHypeLeaders({ limit: 100 });
+        const leaders = await this.getCachedHypeLeaders();
+        res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=30');
         res.json({ leaders });
       } catch (error) {
         console.error('Failed to retrieve hype leaderboard', error);
@@ -273,6 +282,37 @@ export default class AppServer {
     this.app.get('/', (_req, res) => {
       res.sendFile(path.resolve(__dirname, '..', '..', 'public', 'index.html'));
     });
+  }
+
+  private async getCachedHypeLeaders(): Promise<HypeLeaderEntry[]> {
+    const repository = this.voiceActivityRepository;
+    if (!repository) {
+      return [];
+    }
+
+    const now = Date.now();
+    if (this.hypeLeaderboardCache && this.hypeLeaderboardCache.expiresAt > now) {
+      return this.hypeLeaderboardCache.leaders;
+    }
+
+    if (this.hypeLeaderboardPromise) {
+      return this.hypeLeaderboardPromise;
+    }
+
+    this.hypeLeaderboardPromise = repository
+      .listHypeLeaders({ limit: 100 })
+      .then((leaders) => {
+        this.hypeLeaderboardCache = {
+          leaders,
+          expiresAt: Date.now() + this.hypeLeaderboardTtlMs,
+        };
+        return leaders;
+      })
+      .finally(() => {
+        this.hypeLeaderboardPromise = null;
+      });
+
+    return this.hypeLeaderboardPromise;
   }
 
   private handleTestBeep(_req: Request, res: Response): void {
