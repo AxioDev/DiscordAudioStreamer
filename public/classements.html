@@ -97,6 +97,14 @@
           transform: scale(1);
         }
       }
+
+      details > summary {
+        list-style: none;
+      }
+
+      details > summary::-webkit-details-marker {
+        display: none;
+      }
     </style>
   </head>
   <body class="min-h-screen text-slate-100 selection:bg-fuchsia-400/30 selection:text-white">
@@ -146,29 +154,42 @@
             </div>
           </div>
           <div class="rounded-3xl bg-white/5 p-[1px]">
-            <div class="rounded-[1.45rem] bg-slate-950/85 p-6">
-              <h2 class="text-sm font-semibold uppercase tracking-[0.3em] text-slate-400">Formule transparente</h2>
-              <p class="mt-3 text-sm text-slate-300">
-                Pour les classements <span class="font-semibold text-sky-200">Hype</span> &amp; <span class="font-semibold text-fuchsia-200">Cool</span>, nous calculons un score combinant l'effet d'entraînement et la constance vocale.
-              </p>
-              <div class="mt-4 rounded-2xl border border-white/10 bg-slate-900/80 p-4 font-mono text-xs text-sky-100 shadow-inner shadow-sky-500/10">
-                Score = moyenne(Δ utilisateurs) × ln(1 + temps_de_parole_total_en_secondes)
+            <details class="group rounded-[1.45rem] bg-slate-950/85 p-0">
+              <summary
+                class="flex cursor-pointer items-center justify-between gap-4 rounded-[1.45rem] px-6 py-5 text-sm font-semibold uppercase tracking-[0.3em] text-slate-400 transition hover:text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60"
+              >
+                <span>Formule transparente</span>
+                <span
+                  class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 text-xs text-slate-400 transition group-open:rotate-45 group-open:text-slate-200"
+                  aria-hidden="true"
+                >
+                  +
+                </span>
+              </summary>
+              <div class="px-6 pb-6">
+                <p class="text-sm text-slate-300">
+                  Pour les classements <span class="font-semibold text-sky-200">Hype</span> &amp;
+                  <span class="font-semibold text-fuchsia-200">Cool</span>, nous calculons un score combinant l'effet d'entraînement et la constance vocale.
+                </p>
+                <div class="mt-4 rounded-2xl border border-white/10 bg-slate-900/80 p-4 font-mono text-xs text-sky-100 shadow-inner shadow-sky-500/10">
+                  Score = moyenne(Δ utilisateurs) × ln(1 + temps_de_parole_total_en_secondes)
+                </div>
+                <ul class="mt-4 space-y-2 text-sm text-slate-300">
+                  <li class="flex items-start gap-3">
+                    <span class="mt-1 h-2.5 w-2.5 rounded-full bg-sky-400"></span>
+                    <span>moyenne(Δ utilisateurs) mesure combien de nouvelles personnes arrivent dans les 3 minutes suivant ton arrivée.</span>
+                  </li>
+                  <li class="flex items-start gap-3">
+                    <span class="mt-1 h-2.5 w-2.5 rounded-full bg-emerald-400"></span>
+                    <span>Le logarithme naturel limite l'avantage des très longues présences tout en valorisant la régularité.</span>
+                  </li>
+                  <li class="flex items-start gap-3">
+                    <span class="mt-1 h-2.5 w-2.5 rounded-full bg-fuchsia-400"></span>
+                    <span>Le score final est arrondi à deux décimales pour une lecture claire et reste mis à jour en temps réel.</span>
+                  </li>
+                </ul>
               </div>
-              <ul class="mt-4 space-y-2 text-sm text-slate-300">
-                <li class="flex items-start gap-3">
-                  <span class="mt-1 h-2.5 w-2.5 rounded-full bg-sky-400"></span>
-                  <span>moyenne(Δ utilisateurs) mesure combien de nouvelles personnes arrivent dans les 3 minutes suivant ton arrivée.</span>
-                </li>
-                <li class="flex items-start gap-3">
-                  <span class="mt-1 h-2.5 w-2.5 rounded-full bg-emerald-400"></span>
-                  <span>Le logarithme naturel limite l'avantage des très longues présences tout en valorisant la régularité.</span>
-                </li>
-                <li class="flex items-start gap-3">
-                  <span class="mt-1 h-2.5 w-2.5 rounded-full bg-fuchsia-400"></span>
-                  <span>Le score final est arrondi à deux décimales pour une lecture claire et reste mis à jour en temps réel.</span>
-                </li>
-              </ul>
-            </div>
+            </details>
           </div>
           <div class="rounded-3xl bg-gradient-to-br from-sky-500/20 via-fuchsia-500/20 to-purple-500/20 p-[1px]">
             <div class="rounded-[1.45rem] bg-slate-950/85 p-6">
