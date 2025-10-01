@@ -40,11 +40,12 @@ export interface VoiceActivityHistoryProfile {
 export type HypeLeaderboardSortBy =
   | 'displayName'
   | 'sessions'
-  | 'averageIncrementalUsers'
-  | 'medianIncrement'
-  | 'totalPositiveInfluence'
-  | 'totalTalkSeconds'
-  | 'weightedHypeScore';
+  | 'arrivalEffect'
+  | 'departureEffect'
+  | 'retentionMinutes'
+  | 'activityScore'
+  | 'schRaw'
+  | 'schScoreNorm';
 
 export type HypeLeaderboardSortOrder = 'asc' | 'desc';
 
@@ -61,11 +62,12 @@ export interface HypeLeaderEntry {
   displayName: string;
   username: string | null;
   sessions: number;
-  averageIncrementalUsers: number;
-  medianIncrement: number;
-  totalPositiveInfluence: number;
-  totalTalkSeconds: number;
-  weightedHypeScore: number;
+  arrivalEffect: number;
+  departureEffect: number;
+  retentionMinutes: number;
+  activityScore: number;
+  schRaw: number;
+  schScoreNorm: number;
 }
 
 export default class VoiceActivityRepository {
@@ -250,7 +252,7 @@ export default class VoiceActivityRepository {
   public async listHypeLeaders({
     limit = 100,
     search = null,
-    sortBy = 'weightedHypeScore',
+    sortBy = 'schScoreNorm',
     sortOrder = 'desc',
     periodDays = null,
   }: HypeLeaderboardQueryOptions = {}): Promise<HypeLeaderEntry[]> {
@@ -279,14 +281,16 @@ export default class VoiceActivityRepository {
     const sortColumn = (() => {
       const mapping: Record<HypeLeaderboardSortBy, string> = {
         displayName: 'display_name',
-        sessions: 'sessions',
-        averageIncrementalUsers: 'avg_incremental_users',
-        medianIncrement: 'median_increment',
-        totalPositiveInfluence: 'total_positive_influence',
-        totalTalkSeconds: 'total_talk_seconds',
-        weightedHypeScore: 'weighted_hype_score',
+        sessions: 'session_count',
+        arrivalEffect: 'arrival_effect',
+        departureEffect: 'departure_effect',
+        retentionMinutes: 'retention_minutes',
+        activityScore: 'activity_score',
+        schRaw: 'sch_raw',
+        schScoreNorm: 'sch_score_norm',
       };
-      const candidate = sortBy && mapping[sortBy as HypeLeaderboardSortBy] ? (sortBy as HypeLeaderboardSortBy) : 'weightedHypeScore';
+      const candidate =
+        sortBy && mapping[sortBy as HypeLeaderboardSortBy] ? (sortBy as HypeLeaderboardSortBy) : 'schScoreNorm';
       return mapping[candidate];
     })();
 
@@ -305,19 +309,41 @@ export default class VoiceActivityRepository {
     const params: Array<string | number> = [];
     let parameterIndex = 1;
 
-    const presenceWhereClause = sinceIso ? `WHERE vp.joined_at >= $${parameterIndex++}::timestamptz` : '';
+    let presenceSinceParamIndex: number | null = null;
     if (sinceIso) {
+      presenceSinceParamIndex = parameterIndex;
       params.push(sinceIso);
+      parameterIndex += 1;
     }
 
-    const activityWhereClause = sinceIso ? `WHERE va.timestamp >= $${parameterIndex++}::timestamptz` : '';
+    const presenceWhereClause = (alias: string) => {
+      if (!presenceSinceParamIndex) {
+        return '';
+      }
+      return `WHERE ${alias}.joined_at >= $${presenceSinceParamIndex}::timestamptz`;
+    };
+
+    const presenceAndClause = (alias: string) => {
+      if (!presenceSinceParamIndex) {
+        return '';
+      }
+      return ` AND ${alias}.joined_at >= $${presenceSinceParamIndex}::timestamptz`;
+    };
+
+    let activitySinceParamIndex: number | null = null;
     if (sinceIso) {
+      activitySinceParamIndex = parameterIndex;
       params.push(sinceIso);
+      parameterIndex += 1;
     }
 
-    let searchCondition = '';
+    const activityWhereClause = activitySinceParamIndex
+      ? `WHERE va.timestamp >= $${activitySinceParamIndex}::timestamptz`
+      : '';
+
+    let searchClause = '';
     if (normalizedSearch) {
-      searchCondition = ` AND COALESCE(u.nickname, u.username, u.pseudo) ILIKE $${parameterIndex} ESCAPE '\\'`;
+      searchClause = `  AND COALESCE(u.nickname, u.username, u.pseudo, 'Inconnu') ILIKE $${parameterIndex} ESCAPE '\\'`;
       params.push(`%${this.escapeLikePattern(normalizedSearch)}%`);
       parameterIndex += 1;
     }
@@ -325,58 +351,132 @@ export default class VoiceActivityRepository {
     const limitParameter = `$${parameterIndex}`;
     params.push(boundedLimit);
 
-    const query = `WITH presence_windows AS (
-        SELECT
-            vp.guild_id,
-            vp.channel_id,
-            vp.user_id,
-            vp.joined_at,
-            vp.left_at,
-            (
-                SELECT COUNT(DISTINCT vp2.user_id)
-                FROM voice_presence vp2
-                WHERE vp2.channel_id = vp.channel_id
-                  AND vp2.joined_at <= vp.joined_at
-                  AND (vp2.left_at IS NULL OR vp2.left_at > vp.joined_at)
-            ) AS users_before,
-            (
-                SELECT COUNT(DISTINCT vp3.user_id)
-                FROM voice_presence vp3
-                WHERE vp3.channel_id = vp.channel_id
-                  AND vp3.joined_at <= vp.joined_at + interval '3 minutes'
-                  AND (vp3.left_at IS NULL OR vp3.left_at > vp.joined_at + interval '3 minutes')
-            ) AS users_after
+    const query = `WITH
+    sessions_count AS (
+        SELECT user_id, guild_id, COUNT(*) AS session_count
         FROM voice_presence vp
-        ${presenceWhereClause}
+        ${presenceWhereClause('vp')}
+        GROUP BY user_id, guild_id
     ),
+
+    arrival AS (
+        SELECT
+            vp.user_id,
+            vp.guild_id,
+            AVG(
+                (
+                    SELECT COUNT(DISTINCT vp3.user_id)
+                    FROM voice_presence vp3
+                    WHERE vp3.channel_id = vp.channel_id
+                      AND vp3.joined_at <= vp.joined_at + interval '3 minutes'
+                      AND (vp3.left_at IS NULL OR vp3.left_at > vp.joined_at + interval '3 minutes')
+                      ${presenceAndClause('vp3')}
+                ) -
+                (
+                    SELECT COUNT(DISTINCT vp2.user_id)
+                    FROM voice_presence vp2
+                    WHERE vp2.channel_id = vp.channel_id
+                      AND vp2.joined_at <= vp.joined_at
+                      AND (vp2.left_at IS NULL OR vp2.left_at > vp.joined_at)
+                      ${presenceAndClause('vp2')}
+                )
+            ) AS arrival_effect
+        FROM voice_presence vp
+        ${presenceWhereClause('vp')}
+        GROUP BY vp.user_id, vp.guild_id
+    ),
+
+    departure AS (
+        SELECT
+            vp.user_id,
+            vp.guild_id,
+            AVG(
+                (
+                    SELECT COUNT(DISTINCT vp3.user_id)
+                    FROM voice_presence vp3
+                    WHERE vp3.channel_id = vp.channel_id
+                      AND vp3.joined_at <= vp.left_at + interval '3 minutes'
+                      AND (vp3.left_at IS NULL OR vp3.left_at > vp.left_at + interval '3 minutes')
+                      ${presenceAndClause('vp3')}
+                ) -
+                (
+                    SELECT COUNT(DISTINCT vp2.user_id)
+                    FROM voice_presence vp2
+                    WHERE vp2.channel_id = vp.channel_id
+                      AND vp2.joined_at <= vp.left_at
+                      AND (vp2.left_at IS NULL OR vp2.left_at > vp.left_at)
+                      ${presenceAndClause('vp2')}
+                )
+            ) * -1 AS departure_effect
+        FROM voice_presence vp
+        WHERE vp.left_at IS NOT NULL${presenceAndClause('vp')}
+        GROUP BY vp.user_id, vp.guild_id
+    ),
+
+    retention AS (
+        SELECT
+            i.user_id AS influencer,
+            i.guild_id,
+            AVG(EXTRACT(EPOCH FROM (s.left_at - s.joined_at))) FILTER (WHERE o.overlap_time > interval '0') -
+            AVG(EXTRACT(EPOCH FROM (s.left_at - s.joined_at))) FILTER (WHERE o.overlap_time IS NULL) AS retention_uplift
+        FROM voice_presence s
+        ${presenceWhereClause('s')}
+        JOIN voice_presence i
+          ON s.channel_id = i.channel_id
+         AND s.guild_id = i.guild_id
+         AND s.user_id <> i.user_id
+         AND s.joined_at < i.left_at
+         AND i.joined_at < s.left_at
+         ${presenceAndClause('i')}
+        LEFT JOIN LATERAL (
+            SELECT LEAST(s.left_at, i.left_at) - GREATEST(s.joined_at, i.joined_at) AS overlap_time
+        ) o ON true
+        GROUP BY i.user_id, i.guild_id
+    ),
+
     activity AS (
         SELECT
             va.user_id,
             va.guild_id,
-            SUM(duration_ms)/1000.0 AS total_talk_seconds
+            LOG(1 + SUM(duration_ms)/1000.0) AS activity_score
         FROM voice_activity va
         ${activityWhereClause}
         GROUP BY va.user_id, va.guild_id
     )
-    SELECT
-        u.user_id,
-        COALESCE(u.nickname, u.username, u.pseudo) AS display_name,
-        u.username,
-        COUNT(*) AS sessions,
-        ROUND(AVG(users_after - users_before)::numeric, 2) AS avg_incremental_users,
-        ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY users_after - users_before)::numeric, 2) AS median_increment,
-        SUM(GREATEST(users_after - users_before, 0)) AS total_positive_influence,
-        COALESCE(a.total_talk_seconds,0) AS total_talk_seconds,
-        ROUND(AVG(users_after - users_before)::numeric * LOG(1 + COALESCE(a.total_talk_seconds,0)), 2) AS weighted_hype_score
-    FROM presence_windows pw
-    INNER JOIN users u ON u.user_id = pw.user_id AND u.guild_id = pw.guild_id
-    LEFT JOIN activity a ON a.user_id = pw.user_id AND a.guild_id = pw.guild_id
-    WHERE COALESCE(u.nickname, u.username, u.pseudo) IS NOT NULL
-    ${searchCondition}
 
-    GROUP BY u.user_id, display_name, u.username, a.total_talk_seconds
-    ORDER BY ${sortColumn} ${sortDirection}, weighted_hype_score DESC, display_name ASC
-    LIMIT ${limitParameter}`;
+SELECT
+    u.user_id,
+    COALESCE(u.nickname, u.username, u.pseudo, 'Inconnu') AS display_name,
+    u.username,
+    sc.session_count,
+    COALESCE(a.arrival_effect, 0) AS arrival_effect,
+    COALESCE(d.departure_effect, 0) AS departure_effect,
+    ROUND((COALESCE(r.retention_uplift, 0) / 60.0)::numeric, 2) AS retention_minutes,
+    COALESCE(ac.activity_score, 0) AS activity_score,
+    (
+        0.4 * COALESCE(a.arrival_effect, 0) +
+        0.3 * COALESCE(d.departure_effect, 0) +
+        0.2 * (COALESCE(r.retention_uplift, 0) / 60.0) +
+        0.1 * COALESCE(ac.activity_score, 0)
+    ) AS sch_raw,
+    ROUND((
+        (
+            0.4 * COALESCE(a.arrival_effect, 0) +
+            0.3 * COALESCE(d.departure_effect, 0) +
+            0.2 * (COALESCE(r.retention_uplift, 0) / 60.0) +
+            0.1 * COALESCE(ac.activity_score, 0)
+        ) / LOG(1 + sc.session_count)
+    )::numeric, 2) AS sch_score_norm
+FROM users u
+JOIN sessions_count sc ON u.user_id = sc.user_id AND u.guild_id = sc.guild_id
+LEFT JOIN arrival a   ON u.user_id = a.user_id AND u.guild_id = a.guild_id
+LEFT JOIN departure d ON u.user_id = d.user_id AND u.guild_id = d.guild_id
+LEFT JOIN retention r ON u.user_id = r.influencer AND u.guild_id = r.guild_id
+LEFT JOIN activity ac ON u.user_id = ac.user_id AND u.guild_id = ac.guild_id
+WHERE sc.session_count >= 5
+${searchClause}
+ORDER BY ${sortColumn} ${sortDirection}, sch_score_norm DESC, display_name ASC
+LIMIT ${limitParameter}`;
 
     try {
       const result = await pool.query(query, params);
@@ -397,12 +497,13 @@ export default class VoiceActivityRepository {
           userId: String(row.user_id ?? ''),
           displayName,
           username,
-          sessions: Number.isFinite(Number(row.sessions)) ? Number(row.sessions) : 0,
-          averageIncrementalUsers: parseNumber(row.avg_incremental_users),
-          medianIncrement: parseNumber(row.median_increment),
-          totalPositiveInfluence: parseNumber(row.total_positive_influence),
-          totalTalkSeconds: parseNumber(row.total_talk_seconds),
-          weightedHypeScore: parseNumber(row.weighted_hype_score),
+          sessions: Number.isFinite(Number(row.session_count)) ? Number(row.session_count) : 0,
+          arrivalEffect: parseNumber(row.arrival_effect),
+          departureEffect: parseNumber(row.departure_effect),
+          retentionMinutes: parseNumber(row.retention_minutes),
+          activityScore: parseNumber(row.activity_score),
+          schRaw: parseNumber(row.sch_raw),
+          schScoreNorm: parseNumber(row.sch_score_norm),
         };
       });
     } catch (error) {

@@ -299,11 +299,12 @@ export default class AppServer {
   }
 
   private static readonly hypeLeaderboardSortableColumns: readonly HypeLeaderboardSortBy[] = [
-    'weightedHypeScore',
-    'totalPositiveInfluence',
-    'averageIncrementalUsers',
-    'medianIncrement',
-    'totalTalkSeconds',
+    'schScoreNorm',
+    'schRaw',
+    'arrivalEffect',
+    'departureEffect',
+    'retentionMinutes',
+    'activityScore',
     'sessions',
     'displayName',
   ];
@@ -311,7 +312,7 @@ export default class AppServer {
   private readonly leaderboardDefaultOptions: NormalizedHypeLeaderboardQueryOptions = {
     limit: 100,
     search: null,
-    sortBy: 'weightedHypeScore',
+    sortBy: 'schScoreNorm',
     sortOrder: 'desc',
     periodDays: null,
   };
