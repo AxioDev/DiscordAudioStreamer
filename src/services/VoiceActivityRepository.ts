@@ -59,6 +59,7 @@ export interface HypeLeaderboardQueryOptions {
 export interface HypeLeaderEntry {
   userId: string;
   displayName: string;
+  username: string | null;
   sessions: number;
   averageIncrementalUsers: number;
   medianIncrement: number;
@@ -360,6 +361,7 @@ export default class VoiceActivityRepository {
     SELECT
         u.user_id,
         COALESCE(u.nickname, u.username, u.pseudo) AS display_name,
+        u.username,
         COUNT(*) AS sessions,
         ROUND(AVG(users_after - users_before)::numeric, 2) AS avg_incremental_users,
         ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY users_after - users_before)::numeric, 2) AS median_increment,
@@ -372,7 +374,7 @@ export default class VoiceActivityRepository {
     WHERE COALESCE(u.nickname, u.username, u.pseudo) IS NOT NULL
     ${searchCondition}
 
-    GROUP BY u.user_id, display_name, a.total_talk_seconds
+    GROUP BY u.user_id, display_name, u.username, a.total_talk_seconds
     ORDER BY ${sortColumn} ${sortDirection}, weighted_hype_score DESC, display_name ASC
     LIMIT ${limitParameter}`;
 
@@ -389,9 +391,12 @@ export default class VoiceActivityRepository {
 
         const displayName = this.normalizeString(row.display_name) ?? 'Anonyme';
 
+        const username = this.normalizeString(row.username);
+
         return {
           userId: String(row.user_id ?? ''),
           displayName,
+          username,
           sessions: Number.isFinite(Number(row.sessions)) ? Number(row.sessions) : 0,
           averageIncrementalUsers: parseNumber(row.avg_incremental_users),
           medianIncrement: parseNumber(row.median_increment),
