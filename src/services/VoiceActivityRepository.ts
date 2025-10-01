@@ -481,6 +481,13 @@ export default class VoiceActivityRepository {
         GROUP BY user_id, guild_id
     ),
 
+    days_present AS (
+        SELECT user_id, guild_id, COUNT(DISTINCT DATE(joined_at)) AS days_count
+        FROM voice_presence vp
+        ${presenceWhereClause('vp')}
+        GROUP BY user_id, guild_id
+    ),
+
     arrival AS (
         SELECT
             vp.user_id,
@@ -571,6 +578,7 @@ SELECT
     COALESCE(u.nickname, u.username, u.pseudo, 'Inconnu') AS display_name,
     u.username,
     sc.session_count,
+    dp.days_count,
     COALESCE(a.arrival_effect, 0) AS arrival_effect,
     COALESCE(d.departure_effect, 0) AS departure_effect,
     ROUND((COALESCE(r.retention_uplift, 0) / 60.0)::numeric, 2) AS retention_minutes,
@@ -591,11 +599,14 @@ SELECT
     )::numeric, 2) AS sch_score_norm
 FROM users u
 JOIN sessions_count sc ON u.user_id = sc.user_id AND u.guild_id = sc.guild_id
+JOIN days_present dp   ON u.user_id = dp.user_id AND u.guild_id = dp.guild_id
 LEFT JOIN arrival a   ON u.user_id = a.user_id AND u.guild_id = a.guild_id
 LEFT JOIN departure d ON u.user_id = d.user_id AND u.guild_id = d.guild_id
 LEFT JOIN retention r ON u.user_id = r.influencer AND u.guild_id = r.guild_id
 LEFT JOIN activity ac ON u.user_id = ac.user_id AND u.guild_id = ac.guild_id
 WHERE sc.session_count >= 5
+  AND dp.days_count >= 3
+  AND u.user_id NOT IN ('1419381362116268112')
 ${searchClause}
 ORDER BY ${sortColumn} ${sortDirection}, sch_score_norm DESC, display_name ASC
 LIMIT ${limitParameter}`;
