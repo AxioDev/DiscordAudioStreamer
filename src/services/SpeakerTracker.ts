@@ -135,6 +135,7 @@ export default class SpeakerTracker {
       this.participants.set(userId, updated);
       this.sseService.broadcast('speaking', { type: 'start', user: this.cloneParticipant(updated) });
       this.broadcastState();
+      this.recordVoiceInterrupts(updated, now);
     } catch (error) {
       console.error('Failed to handle speaking start', error);
     }
@@ -164,7 +165,9 @@ export default class SpeakerTracker {
     if (!voiceState || !voiceState.channelId) {
       const participant = this.participants.get(userId);
       if (participant) {
-        this.persistVoiceActivity(participant, Date.now());
+        const leftAt = Date.now();
+        this.persistVoiceActivity(participant, leftAt);
+        this.recordVoicePresenceLeave(participant, leftAt);
       }
 
       if (this.participants.delete(userId)) {
@@ -177,7 +180,14 @@ export default class SpeakerTracker {
     try {
       const participant = await this.ensureParticipant(userId);
       const sameChannel = participant.voiceState?.channelId === voiceState.channelId;
-      const joinedAt = sameChannel && participant.joinedAt ? participant.joinedAt : Date.now();
+      const now = Date.now();
+      const joinedAt = sameChannel && participant.joinedAt ? participant.joinedAt : now;
+
+      if (!sameChannel) {
+        this.recordVoicePresenceTransition(participant, voiceState, now);
+      }
+
+      this.recordMuteAndCameraEvents(participant, voiceState, now);
 
       const updated: Participant = {
         ...participant,
@@ -286,5 +296,136 @@ export default class SpeakerTracker {
       startedAt: new Date(startedAt),
       endedAt: new Date(endedAt),
     });
+  }
+
+  private recordVoicePresenceTransition(
+    participant: Participant,
+    newVoiceState: VoiceStateSnapshot,
+    timestampMs: number,
+  ): void {
+    if (!this.voiceActivityRepository) {
+      return;
+    }
+
+    const previousChannelId = participant.voiceState?.channelId;
+    const previousGuildId = participant.voiceState?.guildId;
+    const nextChannelId = newVoiceState.channelId;
+    const nextGuildId = newVoiceState.guildId || previousGuildId || null;
+    const timestamp = new Date(timestampMs);
+
+    if (previousChannelId && previousGuildId) {
+      void this.voiceActivityRepository.recordVoicePresenceEnd({
+        userId: participant.id,
+        guildId: previousGuildId,
+        channelId: previousChannelId,
+        leftAt: timestamp,
+      });
+    }
+
+    if (nextChannelId && nextGuildId) {
+      void this.voiceActivityRepository.recordVoicePresenceStart({
+        userId: participant.id,
+        guildId: nextGuildId,
+        channelId: nextChannelId,
+        joinedAt: timestamp,
+      });
+    }
+  }
+
+  private recordVoicePresenceLeave(participant: Participant, timestampMs: number): void {
+    if (!this.voiceActivityRepository) {
+      return;
+    }
+
+    const channelId = participant.voiceState?.channelId;
+    const guildId = participant.voiceState?.guildId;
+    if (!channelId || !guildId) {
+      return;
+    }
+
+    void this.voiceActivityRepository.recordVoicePresenceEnd({
+      userId: participant.id,
+      guildId,
+      channelId,
+      leftAt: new Date(timestampMs),
+    });
+  }
+
+  private recordMuteAndCameraEvents(
+    participant: Participant,
+    newVoiceState: VoiceStateSnapshot,
+    timestampMs: number,
+  ): void {
+    if (!this.voiceActivityRepository) {
+      return;
+    }
+
+    const guildId = newVoiceState.guildId || participant.voiceState?.guildId || null;
+    const channelId = newVoiceState.channelId;
+    if (!guildId || !channelId) {
+      return;
+    }
+
+    const previousVoiceState = participant.voiceState;
+    const wasMuted = Boolean(previousVoiceState?.mute) || Boolean(previousVoiceState?.selfMute);
+    const isMuted = Boolean(newVoiceState.mute) || Boolean(newVoiceState.selfMute);
+
+    if (!wasMuted && isMuted) {
+      void this.voiceActivityRepository.recordVoiceMuteEvent({
+        userId: participant.id,
+        guildId,
+        channelId,
+        timestamp: new Date(timestampMs),
+      });
+    }
+
+    const hadVideo = Boolean(previousVoiceState?.video);
+    const hasVideo = Boolean(newVoiceState.video);
+
+    if (!hadVideo && hasVideo) {
+      void this.voiceActivityRepository.recordVoiceCamEvent({
+        userId: participant.id,
+        guildId,
+        channelId,
+        timestamp: new Date(timestampMs),
+      });
+    }
+  }
+
+  private recordVoiceInterrupts(participant: Participant, timestampMs: number): void {
+    if (!this.voiceActivityRepository) {
+      return;
+    }
+
+    const channelId = participant.voiceState?.channelId;
+    const guildId = participant.voiceState?.guildId;
+    if (!channelId || !guildId) {
+      return;
+    }
+
+    const timestamp = new Date(timestampMs);
+
+    for (const other of this.participants.values()) {
+      if (other.id === participant.id) {
+        continue;
+      }
+      if (!other.isSpeaking) {
+        continue;
+      }
+      if (other.voiceState?.channelId !== channelId) {
+        continue;
+      }
+      if (other.voiceState?.guildId !== guildId) {
+        continue;
+      }
+
+      void this.voiceActivityRepository.recordVoiceInterrupt({
+        userId: participant.id,
+        interruptedUserId: other.id,
+        guildId,
+        channelId,
+        timestamp,
+      });
+    }
   }
 }

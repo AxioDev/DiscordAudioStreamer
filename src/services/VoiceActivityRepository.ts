@@ -15,6 +15,42 @@ export interface VoiceActivityRecord {
   endedAt: Date;
 }
 
+export interface VoicePresenceStartRecord {
+  userId: string;
+  guildId: string;
+  channelId: string;
+  joinedAt: Date;
+}
+
+export interface VoicePresenceEndRecord {
+  userId: string;
+  guildId: string;
+  channelId: string;
+  leftAt: Date;
+}
+
+export interface VoiceInterruptRecord {
+  userId: string;
+  interruptedUserId: string;
+  guildId: string;
+  channelId: string;
+  timestamp: Date;
+}
+
+export interface VoiceMuteEventRecord {
+  userId: string;
+  guildId: string;
+  channelId: string;
+  timestamp: Date;
+}
+
+export interface VoiceCamEventRecord {
+  userId: string;
+  guildId: string;
+  channelId: string;
+  timestamp: Date;
+}
+
 export interface VoiceActivityQueryOptions {
   since?: Date | null;
   until?: Date | null;
@@ -175,6 +211,107 @@ export default class VoiceActivityRepository {
       );
     } catch (error) {
       console.error('Failed to persist voice activity', error);
+    }
+  }
+
+  public async recordVoicePresenceStart(record: VoicePresenceStartRecord): Promise<void> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return;
+    }
+
+    try {
+      await pool.query(
+        `INSERT INTO voice_presence (user_id, guild_id, channel_id, joined_at)
+         VALUES ($1, $2, $3, $4)`,
+        [record.userId, record.guildId, record.channelId, record.joinedAt],
+      );
+    } catch (error) {
+      console.error('Failed to persist voice presence start', error);
+    }
+  }
+
+  public async recordVoicePresenceEnd(record: VoicePresenceEndRecord): Promise<void> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return;
+    }
+
+    try {
+      await pool.query(
+        `UPDATE voice_presence
+            SET left_at = $4
+          WHERE id = (
+            SELECT id
+              FROM voice_presence
+             WHERE user_id = $1
+               AND guild_id = $2
+               AND channel_id = $3
+               AND left_at IS NULL
+             ORDER BY joined_at DESC
+             LIMIT 1
+          )`,
+        [record.userId, record.guildId, record.channelId, record.leftAt],
+      );
+    } catch (error) {
+      console.error('Failed to persist voice presence end', error);
+    }
+  }
+
+  public async recordVoiceInterrupt(record: VoiceInterruptRecord): Promise<void> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return;
+    }
+
+    try {
+      await pool.query(
+        `INSERT INTO voice_interrupts (user_id, interrupted_user_id, guild_id, channel_id, timestamp)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          record.userId,
+          record.interruptedUserId,
+          record.guildId,
+          record.channelId,
+          record.timestamp,
+        ],
+      );
+    } catch (error) {
+      console.error('Failed to persist voice interrupt', error);
+    }
+  }
+
+  public async recordVoiceMuteEvent(record: VoiceMuteEventRecord): Promise<void> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return;
+    }
+
+    try {
+      await pool.query(
+        `INSERT INTO voice_mute_events (user_id, guild_id, channel_id, timestamp)
+         VALUES ($1, $2, $3, $4)`,
+        [record.userId, record.guildId, record.channelId, record.timestamp],
+      );
+    } catch (error) {
+      console.error('Failed to persist voice mute event', error);
+    }
+  }
+
+  public async recordVoiceCamEvent(record: VoiceCamEventRecord): Promise<void> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return;
+    }
+
+    try {
+      await pool.query(
+        `INSERT INTO voice_cam (user_id, guild_id, channel_id, timestamp)
+         VALUES ($1, $2, $3, $4)`,
+        [record.userId, record.guildId, record.channelId, record.timestamp],
+      );
+    } catch (error) {
+      console.error('Failed to persist voice camera event', error);
     }
   }
 
