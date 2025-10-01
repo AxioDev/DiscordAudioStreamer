@@ -399,6 +399,12 @@
         const container = document.createElement('article');
         container.className = `leader-card relative overflow-hidden rounded-3xl border ${highlight}`;
 
+        const rawUsername = typeof leader.username === 'string' ? leader.username.trim() : '';
+        const normalizedUsername = rawUsername.startsWith('@') ? rawUsername : rawUsername ? `@${rawUsername}` : '';
+        const usernameMarkup = normalizedUsername
+          ? `<p class="mt-1 text-xs font-medium text-slate-400/80">${normalizedUsername}</p>`
+          : '';
+
         container.innerHTML = `
           <div class="absolute inset-0 bg-gradient-to-r ${rank <= 3 ? accent : 'from-transparent to-transparent'} opacity-[0.22]"></div>
           <div class="relative flex flex-col gap-6 p-6 sm:flex-row sm:items-center sm:justify-between">
@@ -406,6 +412,7 @@
               <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-lg font-extrabold text-white">${pad(rank)}</span>
               <div>
                 <h3 class="text-lg font-semibold text-white">${leader.displayName}</h3>
+                ${usernameMarkup}
                 <p class="mt-1 text-xs uppercase tracking-[0.25em] text-slate-400">${leader.sessions} sessions · +${formatScore(leader.totalPositiveInfluence)} influence</p>
               </div>
             </div>
