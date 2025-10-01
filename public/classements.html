@@ -358,6 +358,24 @@
         period: periodSelect?.value ?? 'all',
       };
 
+      const sortableColumns = new Set([
+        'schScoreNorm',
+        'schRaw',
+        'arrivalEffect',
+        'departureEffect',
+        'retentionMinutes',
+        'activityScore',
+        'sessions',
+        'displayName',
+      ]);
+
+      const periodOptions = (() => {
+        if (!periodSelect) {
+          return new Set(['all']);
+        }
+        return new Set(Array.from(periodSelect.options).map((option) => option.value || 'all'));
+      })();
+
       const updateSortOrderButton = () => {
         if (!sortOrderButton) {
           return;
@@ -372,7 +390,75 @@
         sortOrderButton.setAttribute('aria-pressed', isAsc ? 'true' : 'false');
       };
 
-      updateSortOrderButton();
+      const applyInitialStateFromUrl = () => {
+        const params = new URLSearchParams(window.location.search);
+
+        const searchParam = params.get('search');
+        if (searchParam && searchParam.trim().length > 0) {
+          state.search = searchParam.trim();
+          if (searchInput) {
+            searchInput.value = state.search;
+          }
+        }
+
+        const sortByParam = params.get('sortBy');
+        if (sortByParam && sortableColumns.has(sortByParam)) {
+          state.sortBy = sortByParam;
+          if (sortBySelect) {
+            sortBySelect.value = sortByParam;
+          }
+        }
+
+        const sortOrderParam = params.get('sortOrder');
+        if (sortOrderParam === 'asc' || sortOrderParam === 'desc') {
+          state.sortOrder = sortOrderParam;
+        }
+
+        const periodParam = params.get('period');
+        if (periodParam) {
+          const normalized = (() => {
+            const trimmed = periodParam.trim().toLowerCase();
+            if (!trimmed || trimmed === 'all' || trimmed === 'tout') {
+              return 'all';
+            }
+            const parsed = Number.parseInt(trimmed, 10);
+            if (!Number.isFinite(parsed) || parsed <= 0) {
+              return 'all';
+            }
+            const clamped = Math.min(Math.max(parsed, 1), 365);
+            return String(clamped);
+          })();
+
+          if (normalized === 'all') {
+            state.period = 'all';
+          } else if (periodOptions.has(normalized)) {
+            state.period = normalized;
+          } else {
+            state.period = 'all';
+          }
+        }
+
+        if (searchInput && searchInput.value !== state.search) {
+          searchInput.value = state.search;
+        }
+
+        if (sortBySelect && sortBySelect.value !== state.sortBy) {
+          sortBySelect.value = state.sortBy;
+        }
+
+        if (periodSelect) {
+          if (!periodOptions.has(state.period)) {
+            state.period = 'all';
+          }
+          periodSelect.value = state.period;
+        }
+
+        updateSortOrderButton();
+      };
+
+      applyInitialStateFromUrl();
+
+      let lastQueryString = null;
 
       const buildQueryParams = () => {
         const params = new URLSearchParams();
@@ -385,6 +471,17 @@
           params.set('period', state.period);
         }
         return params;
+      };
+
+      const syncUrlWithState = (params) => {
+        const queryString = params.toString();
+        if (queryString === lastQueryString) {
+          return queryString;
+        }
+        const newUrl = queryString ? `${window.location.pathname}?${queryString}` : window.location.pathname;
+        window.history.replaceState(null, '', newUrl);
+        lastQueryString = queryString;
+        return queryString;
       };
 
       const renderLoadingState = () => {
@@ -524,7 +621,7 @@
 
         try {
           const params = buildQueryParams();
-          const queryString = params.toString();
+          const queryString = syncUrlWithState(params);
           const url = queryString
             ? `/api/voice-activity/hype-leaders?${queryString}`
             : '/api/voice-activity/hype-leaders';
