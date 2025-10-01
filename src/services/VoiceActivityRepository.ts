@@ -433,23 +433,23 @@ export default class VoiceActivityRepository {
 
     const sortDirection = sortOrder === 'asc' ? 'ASC' : 'DESC';
 
-    const sinceIso = (() => {
+    const sinceDate = (() => {
       if (!sanitizedPeriodDays) {
         return null;
       }
       const now = Date.now();
       const milliseconds = sanitizedPeriodDays * 24 * 60 * 60 * 1000;
       const since = new Date(now - milliseconds);
-      return Number.isNaN(since.getTime()) ? null : since.toISOString();
+      return Number.isNaN(since.getTime()) ? null : since;
     })();
 
-    const params: Array<string | number> = [];
+    const params: Array<string | number | Date> = [];
     let parameterIndex = 1;
 
     let presenceSinceParamIndex: number | null = null;
-    if (sinceIso) {
+    if (sinceDate) {
       presenceSinceParamIndex = parameterIndex;
-      params.push(sinceIso);
+      params.push(sinceDate);
       parameterIndex += 1;
     }
 
@@ -457,25 +457,25 @@ export default class VoiceActivityRepository {
       if (!presenceSinceParamIndex) {
         return '';
       }
-      return `WHERE ${alias}.joined_at >= $${presenceSinceParamIndex}::timestamptz`;
+      return `WHERE ${alias}.joined_at >= $${presenceSinceParamIndex}`;
     };
 
     const presenceAndClause = (alias: string) => {
       if (!presenceSinceParamIndex) {
         return '';
       }
-      return ` AND ${alias}.joined_at >= $${presenceSinceParamIndex}::timestamptz`;
+      return ` AND ${alias}.joined_at >= $${presenceSinceParamIndex}`;
     };
 
     let activitySinceParamIndex: number | null = null;
-    if (sinceIso) {
+    if (sinceDate) {
       activitySinceParamIndex = parameterIndex;
-      params.push(sinceIso);
+      params.push(sinceDate);
       parameterIndex += 1;
     }
 
     const activityWhereClause = activitySinceParamIndex
-      ? `WHERE va.timestamp >= $${activitySinceParamIndex}::timestamptz`
+      ? `WHERE va.timestamp >= $${activitySinceParamIndex}`
       : '';
 
     let searchClause = '';
