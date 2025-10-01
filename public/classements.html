@@ -149,7 +149,7 @@
             <div class="rounded-[1.45rem] bg-slate-950/80 p-6">
               <h2 class="text-sm font-semibold uppercase tracking-[0.3em] text-slate-400">Algorithme hype</h2>
               <p class="mt-3 text-sm text-slate-300">
-                Le score hype pondère l'arrivée de nouvelles personnes juste après ta prise de parole, le nombre total de sessions et ta présence vocale. C'est une alchimie entre charisme, régularité et aura pure.
+                Le score hype combine l'effet de ton arrivée, l'impact quand tu quittes, ta capacité à retenir les autres et ton activité vocale. C'est une alchimie entre charisme, régularité et aura pure.
               </p>
             </div>
           </div>
@@ -167,27 +167,36 @@
                 </span>
               </summary>
               <div class="px-6 pb-6">
-                <p class="text-sm text-slate-300">
-                  Pour les classements <span class="font-semibold text-sky-200">Hype</span> &amp;
-                  <span class="font-semibold text-fuchsia-200">Cool</span>, nous calculons un score combinant l'effet d'entraînement et la constance vocale.
-                </p>
-                <div class="mt-4 rounded-2xl border border-white/10 bg-slate-900/80 p-4 font-mono text-xs text-sky-100 shadow-inner shadow-sky-500/10">
-                  Score = moyenne(Δ utilisateurs) × ln(1 + temps_de_parole_total_en_secondes)
-                </div>
-                <ul class="mt-4 space-y-2 text-sm text-slate-300">
-                  <li class="flex items-start gap-3">
-                    <span class="mt-1 h-2.5 w-2.5 rounded-full bg-sky-400"></span>
-                    <span>moyenne(Δ utilisateurs) mesure combien de nouvelles personnes arrivent dans les 3 minutes suivant ton arrivée.</span>
-                  </li>
-                  <li class="flex items-start gap-3">
-                    <span class="mt-1 h-2.5 w-2.5 rounded-full bg-emerald-400"></span>
-                    <span>Le logarithme naturel limite l'avantage des très longues présences tout en valorisant la régularité.</span>
-                  </li>
-                  <li class="flex items-start gap-3">
-                    <span class="mt-1 h-2.5 w-2.5 rounded-full bg-fuchsia-400"></span>
-                    <span>Le score final est arrondi à deux décimales pour une lecture claire et reste mis à jour en temps réel.</span>
-                  </li>
-                </ul>
+                  <p class="text-sm text-slate-300">
+                    Pour les classements <span class="font-semibold text-sky-200">Hype</span> &amp;
+                    <span class="font-semibold text-fuchsia-200">Cool</span>, nous combinons quatre signaux puis nous normalisons par le nombre de sessions.
+                  </p>
+                  <div class="mt-4 space-y-2 text-xs text-slate-200">
+                    <div class="rounded-2xl border border-white/10 bg-slate-900/80 p-4 font-mono text-sky-100 shadow-inner shadow-sky-500/10">
+                      SCH brut = 0.4 × effet_arrivée + 0.3 × effet_départ + 0.2 × rétention_minutes + 0.1 × score_activité
+                    </div>
+                    <div class="rounded-2xl border border-white/10 bg-slate-900/80 p-4 font-mono text-sky-100 shadow-inner shadow-sky-500/10">
+                      Score hype = SCH brut ÷ ln(1 + sessions)
+                    </div>
+                  </div>
+                  <ul class="mt-4 space-y-2 text-sm text-slate-300">
+                    <li class="flex items-start gap-3">
+                      <span class="mt-1 h-2.5 w-2.5 rounded-full bg-sky-400"></span>
+                      <span>L'effet d'arrivée mesure la variation de fréquentation dans les 3 minutes suivant ton arrivée.</span>
+                    </li>
+                    <li class="flex items-start gap-3">
+                      <span class="mt-1 h-2.5 w-2.5 rounded-full bg-emerald-400"></span>
+                      <span>L'effet de départ détecte si la salle se vide ou reste pleine juste après ton départ.</span>
+                    </li>
+                    <li class="flex items-start gap-3">
+                      <span class="mt-1 h-2.5 w-2.5 rounded-full bg-amber-400"></span>
+                      <span>La rétention compare la durée moyenne des autres quand tu es présent·e versus quand tu es absent·e.</span>
+                    </li>
+                    <li class="flex items-start gap-3">
+                      <span class="mt-1 h-2.5 w-2.5 rounded-full bg-fuchsia-400"></span>
+                      <span>Le score d'activité valorise les minutes parlées sans sur-récompenser les très longues sessions.</span>
+                    </li>
+                  </ul>
               </div>
             </details>
           </div>
@@ -241,11 +250,12 @@
               id="leaderboard-sort-by"
               class="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-2 text-sm text-white transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
             >
-              <option value="weightedHypeScore">Score hype</option>
-              <option value="totalPositiveInfluence">Influence totale</option>
-              <option value="averageIncrementalUsers">Boost moyen</option>
-              <option value="medianIncrement">Médiane</option>
-              <option value="totalTalkSeconds">Temps de parole</option>
+              <option value="schScoreNorm">Score hype (normalisé)</option>
+              <option value="schRaw">Score hype (brut)</option>
+              <option value="arrivalEffect">Effet d'arrivée</option>
+              <option value="departureEffect">Effet de départ</option>
+              <option value="retentionMinutes">Rétention (minutes)</option>
+              <option value="activityScore">Score d'activité</option>
               <option value="sessions">Sessions</option>
               <option value="displayName">Pseudo</option>
             </select>
@@ -305,6 +315,21 @@
         return formatNumber.format(numericValue);
       };
 
+      const formatSigned = (value) => {
+        const numericValue = Number(value);
+        if (!Number.isFinite(numericValue)) {
+          return '0';
+        }
+        const formatted = formatScore(Math.abs(numericValue));
+        if (numericValue > 0) {
+          return `+${formatted}`;
+        }
+        if (numericValue < 0) {
+          return `-${formatted}`;
+        }
+        return formatted;
+      };
+
       const pad = (value) => String(value).padStart(2, '0');
 
       const leaderboardContainer = document.getElementById('leaderboard');
@@ -328,7 +353,7 @@
 
       const state = {
         search: searchInput?.value?.trim?.() ?? '',
-        sortBy: sortBySelect?.value ?? 'weightedHypeScore',
+        sortBy: sortBySelect?.value ?? 'schScoreNorm',
         sortOrder: 'desc',
         period: periodSelect?.value ?? 'all',
       };
@@ -413,25 +438,29 @@
               <div>
                 <h3 class="text-lg font-semibold text-white">${leader.displayName}</h3>
                 ${usernameMarkup}
-                <p class="mt-1 text-xs uppercase tracking-[0.25em] text-slate-400">${leader.sessions} sessions · +${formatScore(leader.totalPositiveInfluence)} influence</p>
+                <p class="mt-1 text-xs uppercase tracking-[0.25em] text-slate-400">${leader.sessions} sessions · Activité ${formatScore(leader.activityScore)}</p>
               </div>
             </div>
-            <dl class="grid flex-1 grid-cols-2 gap-5 text-sm sm:grid-cols-4">
+            <dl class="grid flex-1 grid-cols-2 gap-5 text-sm sm:grid-cols-5">
               <div>
-                <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Hype score</dt>
-                <dd class="mt-1 text-base font-semibold text-sky-300">${formatScore(leader.weightedHypeScore)}</dd>
+                <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Score hype (norm)</dt>
+                <dd class="mt-1 text-base font-semibold text-sky-300">${formatScore(leader.schScoreNorm)}</dd>
               </div>
               <div>
-                <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Boost moyen</dt>
-                <dd class="mt-1 text-base font-semibold text-fuchsia-300">+${formatScore(leader.averageIncrementalUsers)}</dd>
+                <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Score hype (brut)</dt>
+                <dd class="mt-1 text-base font-semibold text-fuchsia-300">${formatScore(leader.schRaw)}</dd>
               </div>
               <div>
-                <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Médiane</dt>
-                <dd class="mt-1 text-base font-semibold text-purple-200">+${formatScore(leader.medianIncrement)}</dd>
+                <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Effet arrivée</dt>
+                <dd class="mt-1 text-base font-semibold text-purple-200">${formatSigned(leader.arrivalEffect)}</dd>
               </div>
               <div>
-                <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Parole (s)</dt>
-                <dd class="mt-1 text-base font-semibold text-emerald-200">${formatNumber.format(Math.round(leader.totalTalkSeconds))}</dd>
+                <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Effet départ</dt>
+                <dd class="mt-1 text-base font-semibold text-emerald-200">${formatSigned(leader.departureEffect)}</dd>
+              </div>
+              <div>
+                <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Rétention (min)</dt>
+                <dd class="mt-1 text-base font-semibold text-amber-200">${formatSigned(leader.retentionMinutes)}</dd>
               </div>
             </dl>
           </div>
