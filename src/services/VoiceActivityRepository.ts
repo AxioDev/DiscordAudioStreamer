@@ -433,50 +433,35 @@ export default class VoiceActivityRepository {
 
     const sortDirection = sortOrder === 'asc' ? 'ASC' : 'DESC';
 
-    const sinceDate = (() => {
-      if (!sanitizedPeriodDays) {
-        return null;
-      }
-      const now = Date.now();
-      const milliseconds = sanitizedPeriodDays * 24 * 60 * 60 * 1000;
-      const since = new Date(now - milliseconds);
-      return Number.isNaN(since.getTime()) ? null : since;
-    })();
-
-    const params: Array<string | number | Date> = [];
+    const params: Array<string | number> = [];
     let parameterIndex = 1;
 
-    let presenceSinceParamIndex: number | null = null;
-    if (sinceDate) {
-      presenceSinceParamIndex = parameterIndex;
-      params.push(sinceDate);
+    let sinceDaysParamIndex: number | null = null;
+    if (sanitizedPeriodDays) {
+      sinceDaysParamIndex = parameterIndex;
+      params.push(sanitizedPeriodDays);
       parameterIndex += 1;
     }
 
+    const sinceExpression = sinceDaysParamIndex
+      ? `CURRENT_TIMESTAMP - $${sinceDaysParamIndex} * INTERVAL '1 day'`
+      : null;
+
     const presenceWhereClause = (alias: string) => {
-      if (!presenceSinceParamIndex) {
+      if (!sinceExpression) {
         return '';
       }
-      return `WHERE ${alias}.joined_at >= $${presenceSinceParamIndex}`;
+      return `WHERE ${alias}.joined_at >= ${sinceExpression}`;
     };
 
     const presenceAndClause = (alias: string) => {
-      if (!presenceSinceParamIndex) {
+      if (!sinceExpression) {
         return '';
       }
-      return ` AND ${alias}.joined_at >= $${presenceSinceParamIndex}`;
+      return ` AND ${alias}.joined_at >= ${sinceExpression}`;
     };
 
-    let activitySinceParamIndex: number | null = null;
-    if (sinceDate) {
-      activitySinceParamIndex = parameterIndex;
-      params.push(sinceDate);
-      parameterIndex += 1;
-    }
-
-    const activityWhereClause = activitySinceParamIndex
-      ? `WHERE va.timestamp >= $${activitySinceParamIndex}`
-      : '';
+    const activityWhereClause = sinceExpression ? `WHERE va.timestamp >= ${sinceExpression}` : '';
 
     let searchClause = '';
     if (normalizedSearch) {
