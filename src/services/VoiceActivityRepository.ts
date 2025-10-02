@@ -117,12 +117,27 @@ export default class VoiceActivityRepository {
 
   private warnedAboutMissingConnection: boolean;
 
+  private schemaIntrospectionPromise: Promise<void> | null;
+
+  private voiceInterruptsColumns: Set<string> | null;
+
+  private voiceMuteEventsColumns: Set<string> | null;
+
+  private voiceCamColumns: Set<string> | null;
+
+  private readonly missingColumnWarnings: Set<string>;
+
   constructor({ url, ssl, poolConfig }: VoiceActivityRepositoryOptions) {
     this.connectionString = url;
     this.ssl = Boolean(ssl);
     this.poolConfig = poolConfig;
     this.pool = null;
     this.warnedAboutMissingConnection = false;
+    this.schemaIntrospectionPromise = null;
+    this.voiceInterruptsColumns = null;
+    this.voiceMuteEventsColumns = null;
+    this.voiceCamColumns = null;
+    this.missingColumnWarnings = new Set();
   }
 
   private ensurePool(): Pool | null {
@@ -148,6 +163,68 @@ export default class VoiceActivityRepository {
     }
 
     return this.pool;
+  }
+
+  private async ensureSchemaIntrospection(pool: Pool): Promise<void> {
+    if (
+      this.voiceInterruptsColumns &&
+      this.voiceMuteEventsColumns &&
+      this.voiceCamColumns
+    ) {
+      return;
+    }
+
+    if (!this.schemaIntrospectionPromise) {
+      this.schemaIntrospectionPromise = this.loadSchemaIntrospection(pool).finally(() => {
+        this.schemaIntrospectionPromise = null;
+      });
+    }
+
+    await this.schemaIntrospectionPromise;
+  }
+
+  private async loadSchemaIntrospection(pool: Pool): Promise<void> {
+    try {
+      const tables = ['voice_interrupts', 'voice_mute_events', 'voice_cam'];
+      const result = await pool.query<{ table_name: string; column_name: string }>(
+        `SELECT table_name, column_name
+           FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = ANY($1::text[])`,
+        [tables],
+      );
+
+      const map = new Map<string, Set<string>>();
+      for (const table of tables) {
+        map.set(table, new Set<string>());
+      }
+
+      for (const row of result.rows) {
+        map.get(row.table_name)?.add(row.column_name);
+      }
+
+      this.voiceInterruptsColumns = map.get('voice_interrupts') ?? new Set<string>();
+      this.voiceMuteEventsColumns = map.get('voice_mute_events') ?? new Set<string>();
+      this.voiceCamColumns = map.get('voice_cam') ?? new Set<string>();
+    } catch (error) {
+      console.error('Failed to introspect voice activity database schema', error);
+
+      this.voiceInterruptsColumns ??= new Set<string>();
+      this.voiceMuteEventsColumns ??= new Set<string>();
+      this.voiceCamColumns ??= new Set<string>();
+    }
+  }
+
+  private warnAboutMissingColumn(table: string, column: string): void {
+    const key = `${table}.${column}`;
+    if (this.missingColumnWarnings.has(key)) {
+      return;
+    }
+
+    this.missingColumnWarnings.add(key);
+    console.warn(
+      `Column "${column}" is not present on "${table}". Some voice activity metrics may be limited until the database is migrated.`,
+    );
   }
 
   private normalizeString(value: unknown): string | null {
@@ -265,16 +342,36 @@ export default class VoiceActivityRepository {
     }
 
     try {
+      await this.ensureSchemaIntrospection(pool);
+
+      const columns = ['user_id', 'guild_id', 'timestamp'];
+      const values: Array<string | Date | number | null> = [
+        record.userId,
+        record.guildId,
+        record.timestamp,
+      ];
+
+      const voiceInterruptsColumns = this.voiceInterruptsColumns ?? new Set<string>();
+
+      if (voiceInterruptsColumns.has('interrupted_user_id')) {
+        columns.push('interrupted_user_id');
+        values.push(record.interruptedUserId ?? null);
+      } else {
+        this.warnAboutMissingColumn('voice_interrupts', 'interrupted_user_id');
+      }
+
+      if (voiceInterruptsColumns.has('channel_id')) {
+        columns.push('channel_id');
+        values.push(record.channelId ?? null);
+      } else {
+        this.warnAboutMissingColumn('voice_interrupts', 'channel_id');
+      }
+
+      const placeholders = columns.map((_, index) => `$${index + 1}`);
+
       await pool.query(
-        `INSERT INTO voice_interrupts (user_id, interrupted_user_id, guild_id, channel_id, timestamp)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [
-          record.userId,
-          record.interruptedUserId,
-          record.guildId,
-          record.channelId,
-          record.timestamp,
-        ],
+        `INSERT INTO voice_interrupts (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`,
+        values,
       );
     } catch (error) {
       console.error('Failed to persist voice interrupt', error);
@@ -288,10 +385,29 @@ export default class VoiceActivityRepository {
     }
 
     try {
+      await this.ensureSchemaIntrospection(pool);
+
+      const columns = ['user_id', 'guild_id', 'timestamp'];
+      const values: Array<string | Date | number | null> = [
+        record.userId,
+        record.guildId,
+        record.timestamp,
+      ];
+
+      const voiceMuteEventsColumns = this.voiceMuteEventsColumns ?? new Set<string>();
+
+      if (voiceMuteEventsColumns.has('channel_id')) {
+        columns.push('channel_id');
+        values.push(record.channelId ?? null);
+      } else {
+        this.warnAboutMissingColumn('voice_mute_events', 'channel_id');
+      }
+
+      const placeholders = columns.map((_, index) => `$${index + 1}`);
+
       await pool.query(
-        `INSERT INTO voice_mute_events (user_id, guild_id, channel_id, timestamp)
-         VALUES ($1, $2, $3, $4)`,
-        [record.userId, record.guildId, record.channelId, record.timestamp],
+        `INSERT INTO voice_mute_events (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`,
+        values,
       );
     } catch (error) {
       console.error('Failed to persist voice mute event', error);
@@ -305,10 +421,34 @@ export default class VoiceActivityRepository {
     }
 
     try {
+      await this.ensureSchemaIntrospection(pool);
+
+      const columns = ['user_id', 'guild_id', 'timestamp'];
+      const values: Array<string | Date | number | null> = [
+        record.userId,
+        record.guildId,
+        record.timestamp,
+      ];
+
+      const voiceCamColumns = this.voiceCamColumns ?? new Set<string>();
+
+      if (voiceCamColumns.has('channel_id')) {
+        columns.push('channel_id');
+        values.push(record.channelId ?? null);
+      } else {
+        this.warnAboutMissingColumn('voice_cam', 'channel_id');
+      }
+
+      if (voiceCamColumns.has('duration_ms')) {
+        columns.push('duration_ms');
+        values.push(0);
+      }
+
+      const placeholders = columns.map((_, index) => `$${index + 1}`);
+
       await pool.query(
-        `INSERT INTO voice_cam (user_id, guild_id, channel_id, timestamp)
-         VALUES ($1, $2, $3, $4)`,
-        [record.userId, record.guildId, record.channelId, record.timestamp],
+        `INSERT INTO voice_cam (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`,
+        values,
       );
     } catch (error) {
       console.error('Failed to persist voice camera event', error);
