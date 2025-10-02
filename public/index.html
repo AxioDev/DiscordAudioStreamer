@@ -3039,7 +3039,7 @@
         context.restore();
 
         context.fillStyle = '#facc15';
-        context.font = 'bold 320px "Inter"';
+        context.font = 'bold 360px "Inter"';
         context.textAlign = 'center';
         context.textBaseline = 'middle';
         context.shadowColor = 'rgba(234, 179, 8, 0.35)';
@@ -3164,15 +3164,6 @@
             targetRotation.x = THREE.MathUtils.clamp(defaultRotation.x - relativeY * 1.2, -0.2, 0.85);
           };
 
-          const handlePointerDown = (event) => {
-            if (event.isPrimary === false) {
-              return;
-            }
-            container.setPointerCapture?.(event.pointerId);
-            updateRotationFromPointer(event.clientX, event.clientY);
-            container.style.cursor = 'grabbing';
-          };
-
           const handlePointerMove = (event) => {
             if (event.isPrimary === false) {
               return;
@@ -3180,25 +3171,7 @@
             updateRotationFromPointer(event.clientX, event.clientY);
           };
 
-          const handlePointerLeave = () => {
-            targetRotation.x = defaultRotation.x;
-            targetRotation.y = defaultRotation.y;
-            container.style.cursor = 'grab';
-          };
-
-          const handlePointerUp = (event) => {
-            if (event.isPrimary === false) {
-              return;
-            }
-            container.releasePointerCapture?.(event.pointerId);
-            handlePointerLeave();
-          };
-
-          container.addEventListener('pointerdown', handlePointerDown);
-          container.addEventListener('pointermove', handlePointerMove);
-          container.addEventListener('pointerup', handlePointerUp);
-          container.addEventListener('pointercancel', handlePointerUp);
-          container.addEventListener('pointerleave', handlePointerLeave);
+          window.addEventListener('pointermove', handlePointerMove);
 
           const handleResize = () => {
             setRendererSize();
@@ -3221,11 +3194,7 @@
           return () => {
             cancelAnimationFrame(animationFrameId);
             window.removeEventListener('resize', handleResize);
-            container.removeEventListener('pointerdown', handlePointerDown);
-            container.removeEventListener('pointermove', handlePointerMove);
-            container.removeEventListener('pointerup', handlePointerUp);
-            container.removeEventListener('pointercancel', handlePointerUp);
-            container.removeEventListener('pointerleave', handlePointerLeave);
+            window.removeEventListener('pointermove', handlePointerMove);
             canGeometry.dispose();
             lipGeometry.dispose();
             topCapGeometry.dispose();
@@ -3251,7 +3220,6 @@
               ></div>
               <span class="sr-only">Canette de bière 8.6 interactive qui réagit aux mouvements de la souris.</span>
             </div>
-            <p class="text-[0.65rem] text-slate-400 lg:text-right">Fais bouger ta souris pour la faire tourner.</p>
           </div>
         `;
       };
