@@ -453,7 +453,7 @@ export default class AppServer {
       const now = new Date();
       const untilCandidate = this.parseTimestamp(untilParam) ?? now;
       const sinceCandidate = this.parseTimestamp(sinceParam)
-        ?? new Date(untilCandidate.getTime() - 24 * 60 * 60 * 1000);
+        ?? new Date(untilCandidate.getTime() - 30 * 24 * 60 * 60 * 1000);
 
       if (Number.isNaN(sinceCandidate.getTime()) || Number.isNaN(untilCandidate.getTime())) {
         res
