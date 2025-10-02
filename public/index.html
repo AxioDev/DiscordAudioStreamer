@@ -942,6 +942,37 @@
                     </p>`}
               </div>
             </div>
+            ${isAvatarExpanded
+              ? html`<div
+                  class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-6 backdrop-blur-sm"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Avatar agrandi"
+                  onClick=${closeAvatar}
+                >
+                  <div class="relative" onClick=${(event) => event.stopPropagation()}>
+                    ${safeProfile.avatarUrl
+                      ? html`<img
+                          src=${safeProfile.avatarUrl}
+                          alt=${`Avatar de ${displayName}`}
+                          class="max-h-[80vh] max-w-[90vw] rounded-[3rem] border border-white/30 object-contain shadow-[0_40px_120px_rgba(236,72,153,0.45)]"
+                        />`
+                      : html`<div
+                          class="flex h-64 w-64 items-center justify-center rounded-[3rem] border border-dashed border-white/30 bg-black/60 text-6xl font-semibold uppercase text-fuchsia-100"
+                        >
+                          ${initials || '??'}
+                        </div>`}
+                    <button
+                      type="button"
+                      class="absolute -right-4 -top-4 flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-sm font-semibold uppercase tracking-wide text-white shadow-lg backdrop-blur"
+                      onClick=${closeAvatar}
+                      aria-label="Fermer l'aperçu de l'avatar"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>`
+              : null}
           </section>
         `;
       };
@@ -3241,6 +3272,24 @@
           .join('')
           .slice(0, 2)
           .toUpperCase();
+        const [isAvatarExpanded, setAvatarExpanded] = useState(false);
+        const openAvatar = useCallback(() => setAvatarExpanded(true), []);
+        const closeAvatar = useCallback(() => setAvatarExpanded(false), []);
+
+        useEffect(() => {
+          if (!isAvatarExpanded) {
+            return undefined;
+          }
+
+          const handleKeyDown = (event) => {
+            if (event.key === 'Escape') {
+              setAvatarExpanded(false);
+            }
+          };
+
+          window.addEventListener('keydown', handleKeyDown);
+          return () => window.removeEventListener('keydown', handleKeyDown);
+        }, [isAvatarExpanded]);
 
         return html`
           <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-slate-950/40 backdrop-blur-xl">
@@ -3248,17 +3297,24 @@
             <div class="pointer-events-none absolute -right-24 bottom-[-6rem] h-64 w-64 rounded-full bg-fuchsia-500/20 blur-[110px]"></div>
             <div class="relative flex flex-col gap-6 sm:flex-row sm:items-center">
               <div class="flex-shrink-0">
-                ${safeProfile.avatarUrl
-                  ? html`<img
-                      src=${safeProfile.avatarUrl}
-                      alt=${`Avatar de ${displayName}`}
-                      class="h-24 w-24 rounded-3xl border border-white/20 object-cover shadow-lg shadow-fuchsia-900/30"
-                    />`
-                  : html`<div
-                      class="flex h-24 w-24 items-center justify-center rounded-3xl border border-dashed border-white/20 bg-black/40 text-2xl font-semibold uppercase text-fuchsia-200"
-                    >
-                      ${initials || '??'}
-                    </div>`}
+                <button
+                  type="button"
+                  class="group relative block rounded-3xl focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  onClick=${openAvatar}
+                  aria-label="Agrandir l'avatar"
+                >
+                  ${safeProfile.avatarUrl
+                    ? html`<img
+                        src=${safeProfile.avatarUrl}
+                        alt=${`Avatar de ${displayName}`}
+                        class="h-32 w-32 rounded-[2.25rem] border border-white/20 object-cover shadow-xl shadow-fuchsia-900/30 transition-transform duration-200 group-hover:scale-[1.02]"
+                      />`
+                    : html`<div
+                        class="flex h-32 w-32 items-center justify-center rounded-[2.25rem] border border-dashed border-white/20 bg-black/40 text-3xl font-semibold uppercase text-fuchsia-200 transition-transform duration-200 group-hover:scale-[1.02]"
+                      >
+                        ${initials || '??'}
+                      </div>`}
+                </button>
               </div>
               <div class="flex flex-1 flex-col gap-3">
                 <div>
