@@ -766,6 +766,12 @@ export default class AppServer {
         res.status(500).json({
           error: 'HYPE_LEADERBOARD_FETCH_FAILED',
           message: "Impossible de récupérer le classement hype.",
+          debug: {
+            error: this.describeError(error),
+            request: {
+              query: this.captureQueryParams(req.query),
+            },
+          },
         });
       }
     });
@@ -961,6 +967,110 @@ export default class AppServer {
       sortOrder: fallbackSortOrder,
       periodDays: fallbackPeriodDays,
     };
+  }
+
+  private captureQueryParams(query: Request['query']): Record<string, unknown> {
+    if (!query) {
+      return {};
+    }
+
+    try {
+      return JSON.parse(JSON.stringify(query));
+    } catch (error) {
+      console.warn('Failed to serialize query parameters for debug payload', error);
+      return {};
+    }
+  }
+
+  private describeError(error: unknown, seen = new Set<unknown>()): Record<string, unknown> {
+    if (error === null) {
+      return { type: 'NullError' };
+    }
+
+    if (error === undefined) {
+      return { type: 'UndefinedError' };
+    }
+
+    if (typeof error === 'string') {
+      return { type: 'StringError', message: error };
+    }
+
+    if (typeof error === 'number') {
+      return { type: 'NumberError', value: error };
+    }
+
+    if (typeof error === 'boolean') {
+      return { type: 'BooleanError', value: error };
+    }
+
+    if (error instanceof ShopError) {
+      return {
+        type: 'ShopError',
+        code: error.code,
+        status: error.status,
+        message: error.message,
+      };
+    }
+
+    if (error instanceof Error) {
+      if (seen.has(error)) {
+        return {
+          type: error.name || 'Error',
+          message: error.message,
+          note: 'circular error reference detected',
+        };
+      }
+
+      seen.add(error);
+
+      const payload: Record<string, unknown> = {
+        type: error.name || 'Error',
+        message: error.message,
+      };
+
+      const withCode = error as NodeJS.ErrnoException;
+      if (typeof withCode.code === 'string') {
+        payload.code = withCode.code;
+      }
+
+      const withStatus = error as { status?: number };
+      if (typeof withStatus.status === 'number') {
+        payload.status = withStatus.status;
+      }
+
+      if (error.stack) {
+        payload.stack = error.stack;
+      }
+
+      const withCause = error as { cause?: unknown };
+      if (withCause.cause !== undefined) {
+        payload.cause = this.describeError(withCause.cause, seen);
+      }
+
+      return payload;
+    }
+
+    if (typeof error === 'object') {
+      if (seen.has(error)) {
+        return { type: 'CircularReference' };
+      }
+
+      seen.add(error);
+
+      const prototype = Object.getPrototypeOf(error);
+      const typeName = prototype && prototype.constructor ? prototype.constructor.name : 'Object';
+      const payload: Record<string, unknown> = { type: typeName };
+
+      for (const [key, value] of Object.entries(error as Record<string, unknown>)) {
+        if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+          payload[key] = value;
+        }
+      }
+
+      return payload;
+    }
+
+    return { type: typeof error };
   }
 
   private handleTestBeep(_req: Request, res: Response): void {
