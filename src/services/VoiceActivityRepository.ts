@@ -904,7 +904,7 @@ export default class VoiceActivityRepository {
                         timestamp,
                         ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY timestamp DESC) AS rn
                    FROM text_messages
-                  WHERE user_id = ANY($1::text[])
+                  WHERE user_id::text = ANY($1::text[])
                 ) ranked
           WHERE rn <= $2
           ORDER BY user_id, timestamp DESC`,
