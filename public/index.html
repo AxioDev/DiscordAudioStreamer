@@ -747,7 +747,7 @@
         `;
       };
 
-      const DailyActivityChart = ({ history, now }) => {
+      const DailyActivityChart = ({ history, now, isHistoryLoading }) => {
         const scrollContainerRef = useRef(null);
         const currentBinRef = useRef(null);
         const setCurrentBinRef = useCallback((element) => {
@@ -3057,6 +3057,7 @@
         now,
         anonymousSlot,
         speakingHistory,
+        isHistoryLoading,
         selectedWindowMinutes,
         onWindowChange,
         onViewProfile,
@@ -3112,7 +3113,11 @@
           <${AudioPlayer} streamInfo=${streamInfo} audioKey=${audioKey} status=${status} />
         </section>
 
-        <${DailyActivityChart} history=${speakingHistory} now=${now} />
+        <${DailyActivityChart}
+          history=${speakingHistory}
+          now=${now}
+          isHistoryLoading=${isHistoryLoading}
+        />
 
           <${RealTimeTalkChart}
           history=${speakingHistory}
@@ -5157,6 +5162,7 @@
                           now=${now}
                           anonymousSlot=${anonymousSlot}
                           speakingHistory=${speakingHistory}
+                          isHistoryLoading=${isHistoryLoading}
                           selectedWindowMinutes=${selectedWindowMinutes}
                           onWindowChange=${handleWindowChange}
                           onViewProfile=${handleProfileOpen}
