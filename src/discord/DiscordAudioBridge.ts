@@ -63,6 +63,29 @@ export interface DiscordUserIdentity {
   } | null;
 }
 
+export interface DiscordGuildMemberSummary {
+  id: string;
+  displayName: string | null;
+  username: string | null;
+  nickname: string | null;
+  avatarUrl: string | null;
+  joinedAt: string | null;
+  roles: Array<{ id: string; name: string }>;
+  isBot: boolean;
+}
+
+export interface GuildMembersListOptions {
+  limit?: number | null;
+  after?: string | null;
+  search?: string | null;
+}
+
+export interface GuildMembersListResult {
+  members: DiscordGuildMemberSummary[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
 export default class DiscordAudioBridge {
   private readonly config: Config;
 
@@ -280,6 +303,86 @@ export default class DiscordAudioBridge {
     } catch (error) {
       console.warn('Failed to fetch Discord user identity', userId, (error as Error)?.message ?? error);
       return null;
+    }
+  }
+
+  public async listGuildMembers({
+    limit = 25,
+    after = null,
+    search = null,
+  }: GuildMembersListOptions = {}): Promise<GuildMembersListResult> {
+    const guildId = this.config.guildId ?? this.currentGuildId;
+    if (!guildId) {
+      const error = new Error('GUILD_UNAVAILABLE');
+      error.name = 'GUILD_UNAVAILABLE';
+      throw error;
+    }
+
+    const normalizedLimit = (() => {
+      const numeric = Number(limit);
+      if (!Number.isFinite(numeric) || numeric <= 0) {
+        return 25;
+      }
+      return Math.min(Math.max(Math.floor(numeric), 1), search ? 100 : 1000);
+    })();
+
+    const normalizedSearch = typeof search === 'string' ? search.trim() : '';
+    const normalizedAfter = typeof after === 'string' && after.trim().length > 0 ? after.trim() : null;
+
+    const cachedGuild = this.client.guilds.cache.get(guildId);
+    const guild = cachedGuild ?? (await this.client.guilds.fetch(guildId));
+    if (!guild) {
+      const error = new Error('GUILD_UNAVAILABLE');
+      error.name = 'GUILD_UNAVAILABLE';
+      throw error;
+    }
+
+    try {
+      const collection = normalizedSearch
+        ? await guild.members.search({ query: normalizedSearch, limit: normalizedLimit })
+        : await guild.members.list({ limit: normalizedLimit, after: normalizedAfter ?? undefined });
+
+      const members = Array.from(collection.values()).map<DiscordGuildMemberSummary>((member) => {
+        const username = typeof member.user?.username === 'string' ? member.user.username : null;
+        const nickname = typeof member.nickname === 'string' ? member.nickname : null;
+        const globalName = typeof member.user?.globalName === 'string' ? member.user.globalName : null;
+        const displayName = typeof member.displayName === 'string'
+          ? member.displayName
+          : nickname ?? globalName ?? username ?? null;
+        const avatarUrl = typeof member.displayAvatarURL === 'function'
+          ? member.displayAvatarURL({ extension: 'png', size: 128 })
+          : null;
+        const joinedAt = member.joinedAt instanceof Date && !Number.isNaN(member.joinedAt.getTime())
+          ? member.joinedAt.toISOString()
+          : null;
+        const roles = Array.from(member.roles.cache.values())
+          .filter((role) => role.id !== guildId)
+          .map((role) => ({ id: role.id, name: role.name }));
+
+        return {
+          id: member.id,
+          displayName,
+          username,
+          nickname,
+          avatarUrl,
+          joinedAt,
+          roles,
+          isBot: Boolean(member.user?.bot),
+        };
+      });
+
+      const nextCursor = !normalizedSearch && members.length === normalizedLimit
+        ? members[members.length - 1]?.id ?? null
+        : null;
+
+      return {
+        members,
+        nextCursor,
+        hasMore: Boolean(nextCursor),
+      };
+    } catch (error) {
+      console.warn('Failed to list guild members', (error as Error)?.message ?? error);
+      throw error;
     }
   }
 

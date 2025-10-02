@@ -560,6 +560,46 @@ export default class AppServer {
       }
     });
 
+    this.app.get('/api/members', async (req, res) => {
+      const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+      const afterParam = Array.isArray(req.query.after) ? req.query.after[0] : req.query.after;
+      const searchParam = Array.isArray(req.query.search) ? req.query.search[0] : req.query.search;
+
+      const parsedLimit = typeof limitParam === 'string' ? Number.parseInt(limitParam, 10) : NaN;
+      const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 24;
+
+      const after = typeof afterParam === 'string' ? afterParam.trim() : '';
+      const search = typeof searchParam === 'string' ? searchParam.trim() : '';
+
+      try {
+        const result = await this.discordBridge.listGuildMembers({
+          limit,
+          after: after.length > 0 ? after : null,
+          search: search.length > 0 ? search : null,
+        });
+
+        res.json({
+          members: result.members,
+          nextCursor: result.nextCursor,
+          hasMore: result.hasMore,
+        });
+      } catch (error) {
+        if ((error as Error)?.name === 'GUILD_UNAVAILABLE' || (error as Error)?.message === 'GUILD_UNAVAILABLE') {
+          res.status(503).json({
+            error: 'GUILD_UNAVAILABLE',
+            message: 'Le serveur Discord est momentanément indisponible.',
+          });
+          return;
+        }
+
+        console.error('Failed to retrieve guild members', error);
+        res.status(500).json({
+          error: 'MEMBER_LIST_FAILED',
+          message: 'Impossible de récupérer la liste des membres.',
+        });
+      }
+    });
+
     this.app.get('/api/voice-activity/hype-leaders', async (req, res) => {
       if (!this.voiceActivityRepository) {
         res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=30');
@@ -583,6 +623,10 @@ export default class AppServer {
 
     this.app.get('/classements', (_req, res) => {
       res.sendFile(path.resolve(__dirname, '..', '..', 'public', 'classements.html'));
+    });
+
+    this.app.get('/membres', (_req, res) => {
+      res.sendFile(path.resolve(__dirname, '..', '..', 'public', 'index.html'));
     });
 
     this.app.get('/', (_req, res) => {
