@@ -198,6 +198,7 @@
     <script type="module">
       import { h, render, Fragment } from 'https://esm.sh/preact@10.19.2';
       import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'https://esm.sh/preact@10.19.2/hooks';
+      import Chart from 'https://esm.sh/chart.js@4.4.2/auto';
       import {
         Activity,
         AlertCircle,
@@ -235,6 +236,10 @@
       import htm from 'https://esm.sh/htm@3.1.1?deps=preact@10.19.2';
 
       const html = htm.bind(h);
+
+      Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
+      Chart.defaults.color = '#e2e8f0';
+      Chart.defaults.borderColor = 'rgba(148, 163, 184, 0.25)';
 
       const STATUS_LABELS = {
         connecting: {
@@ -334,7 +339,8 @@
         24 * 60 * 60 * 1000,
       );
       const HOURS_IN_DAY = 24;
-      const HOUR_MS = 60 * 60 * 1000;
+      const MINUTE_MS = 60 * 1000;
+      const HOUR_MS = 60 * MINUTE_MS;
       const DAY_MS = 24 * HOUR_MS;
       const FALLBACK_SEGMENT_MS = 1000;
       const DEFAULT_PROFILE_RANGE_MS = 24 * HOUR_MS;
@@ -2964,125 +2970,368 @@
       };
 
       const ProfileActivityTimeline = ({ range, presenceSegments = [], speakingSegments = [], messageEvents = [] }) => {
-        const timeline = useMemo(() => {
+        const canvasRef = useRef(null);
+        const chartRef = useRef(null);
+
+        const chartData = useMemo(() => {
           const rangeStart = Number(range?.sinceMs);
           const rangeEnd = Number(range?.untilMs);
           if (!Number.isFinite(rangeStart) || !Number.isFinite(rangeEnd) || rangeEnd <= rangeStart) {
             return {
               hasValidRange: false,
-              presenceBars: [],
-              speakingBars: [],
-              messagePoints: [],
-              ticks: [],
+              labels: [],
+              presenceMinutes: [],
+              speakingMinutes: [],
+              messageCounts: [],
+              buckets: [],
+              totals: { presenceMs: 0, speakingMs: 0, messageCount: 0 },
             };
           }
 
           const duration = rangeEnd - rangeStart;
+          let bucketCount = Math.round(duration / HOUR_MS);
+          if (!Number.isFinite(bucketCount) || bucketCount <= 0) {
+            bucketCount = 12;
+          }
+          bucketCount = Math.min(90, Math.max(12, bucketCount));
+          const bucketSize = duration / bucketCount;
 
-          const clamp = (start, end) => {
-            const safeStart = Math.max(rangeStart, start);
-            const safeEnd = Math.min(rangeEnd, end);
-            if (!Number.isFinite(safeStart) || !Number.isFinite(safeEnd) || safeEnd <= safeStart) {
-              return null;
-            }
-            return [safeStart, safeEnd];
-          };
+          const buckets = Array.from({ length: bucketCount }, (_, index) => {
+            const start = rangeStart + bucketSize * index;
+            const end = index === bucketCount - 1 ? rangeEnd : rangeStart + bucketSize * (index + 1);
+            return {
+              key: `${start}-${end}-${index}`,
+              start,
+              end,
+              presenceMs: 0,
+              speakingMs: 0,
+              messageCount: 0,
+            };
+          });
 
-          const createBars = (segments, getBounds) => {
-            const bars = [];
+          const accumulateSegments = (segments, boundsGetter, field) => {
             for (const segment of Array.isArray(segments) ? segments : []) {
               if (!segment) {
                 continue;
               }
-              const bounds = getBounds(segment);
+              const bounds = boundsGetter(segment);
               if (!bounds) {
                 continue;
               }
-              const [start, end] = bounds;
-              const clamped = clamp(start, end);
-              if (!clamped) {
+              const [rawStart, rawEnd] = bounds;
+              if (!Number.isFinite(rawStart) || !Number.isFinite(rawEnd) || rawEnd <= rawStart) {
                 continue;
               }
-              const [clampedStart, clampedEnd] = clamped;
-              const leftPercent = ((clampedStart - rangeStart) / duration) * 100;
-              const widthPercent = Math.max(((clampedEnd - clampedStart) / duration) * 100, 0.8);
-              bars.push({
-                key: `${clampedStart}-${clampedEnd}-${bars.length}`,
-                start: clampedStart,
-                end: clampedEnd,
-                leftPercent,
-                widthPercent,
-              });
+              const clampedStart = Math.max(rangeStart, rawStart);
+              const clampedEnd = Math.min(rangeEnd, rawEnd);
+              if (clampedEnd <= clampedStart) {
+                continue;
+              }
+
+              let bucketIndexStart = Math.floor((clampedStart - rangeStart) / bucketSize);
+              let bucketIndexEnd = Math.floor((clampedEnd - rangeStart) / bucketSize);
+              bucketIndexStart = Math.max(0, Math.min(bucketCount - 1, bucketIndexStart));
+              bucketIndexEnd = Math.max(0, Math.min(bucketCount - 1, bucketIndexEnd));
+
+              for (let index = bucketIndexStart; index <= bucketIndexEnd; index += 1) {
+                const bucket = buckets[index];
+                if (!bucket) {
+                  continue;
+                }
+                const overlapStart = Math.max(bucket.start, clampedStart);
+                const overlapEnd = Math.min(bucket.end, clampedEnd);
+                const overlap = overlapEnd - overlapStart;
+                if (overlap > 0) {
+                  bucket[field] += overlap;
+                }
+              }
             }
-            return bars.sort((a, b) => a.start - b.start);
           };
 
-          const presenceBars = createBars(presenceSegments, (segment) => {
-            const start = Number(segment?.joinedAtMs);
-            const endCandidate = Number(segment?.leftAtMs);
-            const end = Number.isFinite(endCandidate) ? endCandidate : rangeEnd;
-            if (!Number.isFinite(start)) {
-              return null;
-            }
-            return [start, end];
-          });
-
-          const speakingBars = createBars(speakingSegments, (segment) => {
-            const start = Number(segment?.startedAtMs);
-            const durationMs = Number(segment?.durationMs);
-            if (!Number.isFinite(start)) {
-              return null;
-            }
-            const end = Number.isFinite(durationMs) ? start + Math.max(durationMs, 0) : start;
-            return [start, end];
-          });
-
-          const messagePoints = (Array.isArray(messageEvents) ? messageEvents : [])
-            .map((entry, index) => {
-              const timestamp = Number(entry?.timestampMs);
-              if (!Number.isFinite(timestamp) || timestamp < rangeStart || timestamp > rangeEnd) {
+          accumulateSegments(
+            presenceSegments,
+            (segment) => {
+              const start = Number(segment?.joinedAtMs);
+              const endCandidate = Number(segment?.leftAtMs);
+              const end = Number.isFinite(endCandidate) ? endCandidate : rangeEnd;
+              if (!Number.isFinite(start)) {
                 return null;
               }
-              const leftPercent = ((timestamp - rangeStart) / duration) * 100;
-              return {
-                key: `${timestamp}-${index}`,
-                timestamp,
-                leftPercent,
-              };
-            })
-            .filter(Boolean)
-            .sort((a, b) => a.timestamp - b.timestamp);
+              return [start, end];
+            },
+            'presenceMs',
+          );
 
-          const tickCount = 6;
-          const ticks = Array.from({ length: tickCount }, (_, index) => {
-            const ratio = tickCount === 1 ? 0 : index / (tickCount - 1);
-            const value = rangeStart + duration * ratio;
-            const label = duration <= 6 * HOUR_MS
-              ? new Date(value).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
-              : new Date(value).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
-            return {
-              key: `${value}-${index}`,
-              leftPercent: ratio * 100,
-              label,
-            };
-          });
+          accumulateSegments(
+            speakingSegments,
+            (segment) => {
+              const start = Number(segment?.startedAtMs);
+              const durationMs = Number(segment?.durationMs);
+              if (!Number.isFinite(start)) {
+                return null;
+              }
+              const end = Number.isFinite(durationMs) ? start + Math.max(durationMs, 0) : start;
+              return [start, end];
+            },
+            'speakingMs',
+          );
+
+          for (const entry of Array.isArray(messageEvents) ? messageEvents : []) {
+            if (!entry) {
+              continue;
+            }
+            const timestamp = Number(entry?.timestampMs);
+            if (!Number.isFinite(timestamp) || timestamp < rangeStart || timestamp > rangeEnd) {
+              continue;
+            }
+            const relative = timestamp - rangeStart;
+            let index = Math.floor(relative / bucketSize);
+            if (!Number.isFinite(index)) {
+              continue;
+            }
+            if (index >= buckets.length) {
+              index = buckets.length - 1;
+            }
+            if (index < 0) {
+              index = 0;
+            }
+            const bucket = buckets[index];
+            if (bucket) {
+              bucket.messageCount += 1;
+            }
+          }
+
+          const formatBucketLabel = (start, end) => {
+            const midpoint = start + (end - start) / 2;
+            if (duration <= 6 * HOUR_MS) {
+              return new Date(midpoint).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+            }
+            if (duration <= 48 * HOUR_MS) {
+              return new Date(midpoint).toLocaleString('fr-FR', {
+                weekday: 'short',
+                hour: '2-digit',
+                minute: '2-digit',
+              });
+            }
+            return new Date(midpoint).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
+          };
+
+          const labels = buckets.map((bucket) => formatBucketLabel(bucket.start, bucket.end));
+          const presenceMinutes = buckets.map((bucket) => Number((bucket.presenceMs / MINUTE_MS).toFixed(2)));
+          const speakingMinutes = buckets.map((bucket) => Number((bucket.speakingMs / MINUTE_MS).toFixed(2)));
+          const messageCounts = buckets.map((bucket) => bucket.messageCount);
+
+          const totals = {
+            presenceMs: buckets.reduce((acc, bucket) => acc + bucket.presenceMs, 0),
+            speakingMs: buckets.reduce((acc, bucket) => acc + bucket.speakingMs, 0),
+            messageCount: buckets.reduce((acc, bucket) => acc + bucket.messageCount, 0),
+          };
 
           return {
             hasValidRange: true,
-            presenceBars,
-            speakingBars,
-            messagePoints,
-            ticks,
-            rangeStart,
-            rangeEnd,
-            duration,
+            labels,
+            presenceMinutes,
+            speakingMinutes,
+            messageCounts,
+            buckets,
+            totals,
           };
         }, [range?.sinceMs, range?.untilMs, presenceSegments, speakingSegments, messageEvents]);
 
+        useEffect(() => {
+          const canvas = canvasRef.current;
+          if (!canvas) {
+            if (chartRef.current) {
+              chartRef.current.destroy();
+              chartRef.current = null;
+            }
+            return undefined;
+          }
+
+          if (!chartData.hasValidRange || chartData.labels.length === 0) {
+            if (chartRef.current) {
+              chartRef.current.destroy();
+              chartRef.current = null;
+            }
+            return undefined;
+          }
+
+          const context = canvas.getContext('2d');
+          if (!context) {
+            return undefined;
+          }
+
+          if (chartRef.current) {
+            chartRef.current.destroy();
+            chartRef.current = null;
+          }
+
+          const presenceGradient = context.createLinearGradient(0, 0, 0, canvas.height || 300);
+          presenceGradient.addColorStop(0, 'rgba(16, 185, 129, 0.85)');
+          presenceGradient.addColorStop(1, 'rgba(16, 185, 129, 0.45)');
+
+          const speakingGradient = context.createLinearGradient(0, 0, 0, canvas.height || 300);
+          speakingGradient.addColorStop(0, 'rgba(236, 72, 153, 0.85)');
+          speakingGradient.addColorStop(1, 'rgba(236, 72, 153, 0.45)');
+
+          const bucketMeta = chartData.buckets;
+
+          const chart = new Chart(context, {
+            type: 'bar',
+            data: {
+              labels: chartData.labels,
+              datasets: [
+                {
+                  type: 'bar',
+                  label: 'Présence vocale',
+                  data: chartData.presenceMinutes,
+                  backgroundColor: presenceGradient,
+                  borderRadius: 6,
+                  borderSkipped: false,
+                  stack: 'activity',
+                  barPercentage: 1,
+                  categoryPercentage: 0.9,
+                },
+                {
+                  type: 'bar',
+                  label: 'Parole',
+                  data: chartData.speakingMinutes,
+                  backgroundColor: speakingGradient,
+                  borderRadius: 6,
+                  borderSkipped: false,
+                  stack: 'activity',
+                  barPercentage: 1,
+                  categoryPercentage: 0.9,
+                },
+                {
+                  type: 'line',
+                  label: 'Messages',
+                  data: chartData.messageCounts,
+                  yAxisID: 'y1',
+                  borderColor: 'rgba(129, 140, 248, 0.85)',
+                  backgroundColor: 'rgba(129, 140, 248, 0.4)',
+                  borderWidth: 2,
+                  tension: 0.35,
+                  pointRadius: 4,
+                  pointHoverRadius: 6,
+                  fill: false,
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              interaction: {
+                mode: 'index',
+                intersect: false,
+              },
+              plugins: {
+                legend: {
+                  display: false,
+                },
+                tooltip: {
+                  backgroundColor: 'rgba(15, 23, 42, 0.92)',
+                  titleColor: '#e2e8f0',
+                  bodyColor: '#cbd5f5',
+                  borderColor: 'rgba(148, 163, 184, 0.25)',
+                  borderWidth: 1,
+                  padding: 12,
+                  callbacks: {
+                    title(items) {
+                      const first = items?.[0];
+                      if (!first) {
+                        return '';
+                      }
+                      const bucket = bucketMeta[first.dataIndex];
+                      if (!bucket) {
+                        return first.label ?? '';
+                      }
+                      return `${formatDateTimeLabel(bucket.start)} → ${formatDateTimeLabel(bucket.end)}`;
+                    },
+                    label(context) {
+                      const index = context.dataIndex;
+                      const bucket = bucketMeta[index];
+                      if (!bucket) {
+                        return context.formattedValue;
+                      }
+                      if (context.dataset.type === 'line') {
+                        const count = bucket.messageCount;
+                        return `Messages : ${count}`;
+                      }
+                      if (context.dataset.label === 'Présence vocale') {
+                        return `Présence : ${formatDuration(bucket.presenceMs)}`;
+                      }
+                      if (context.dataset.label === 'Parole') {
+                        return `Parole : ${formatDuration(bucket.speakingMs)}`;
+                      }
+                      return context.formattedValue;
+                    },
+                  },
+                },
+              },
+              scales: {
+                x: {
+                  ticks: {
+                    maxRotation: 0,
+                    color: 'rgba(203, 213, 225, 0.9)',
+                  },
+                  grid: {
+                    color: 'rgba(30, 41, 59, 0.55)',
+                  },
+                },
+                y: {
+                  stacked: true,
+                  beginAtZero: true,
+                  title: {
+                    display: true,
+                    text: 'Minutes de présence/parole',
+                    color: 'rgba(203, 213, 225, 0.9)',
+                  },
+                  ticks: {
+                    color: 'rgba(203, 213, 225, 0.9)',
+                    callback(value) {
+                      if (!Number.isFinite(value)) {
+                        return value;
+                      }
+                      return `${value} min`;
+                    },
+                  },
+                  grid: {
+                    color: 'rgba(30, 41, 59, 0.5)',
+                  },
+                },
+                y1: {
+                  position: 'right',
+                  beginAtZero: true,
+                  title: {
+                    display: true,
+                    text: 'Messages',
+                    color: 'rgba(203, 213, 225, 0.9)',
+                  },
+                  ticks: {
+                    color: 'rgba(203, 213, 225, 0.9)',
+                    precision: 0,
+                  },
+                  grid: {
+                    drawOnChartArea: false,
+                  },
+                },
+              },
+            },
+          });
+
+          chartRef.current = chart;
+
+          return () => {
+            chart.destroy();
+            chartRef.current = null;
+          };
+        }, [chartData]);
+
         const hasAnyActivity =
-          timeline.presenceBars.length > 0
-          || timeline.speakingBars.length > 0
-          || timeline.messagePoints.length > 0;
+          chartData.totals.presenceMs > 0
+          || chartData.totals.speakingMs > 0
+          || chartData.totals.messageCount > 0;
         const rangeLabel = formatRangeLabel(range?.sinceMs, range?.untilMs);
 
         return html`
@@ -3110,67 +3359,15 @@
                 </div>
               </div>
               <div class="relative overflow-hidden rounded-3xl border border-white/10 bg-slate-950/80 p-6">
-                ${hasAnyActivity && timeline.hasValidRange
+                ${hasAnyActivity && chartData.hasValidRange
                   ? html`
-                      <div class="relative h-32">
-                        <div class="absolute inset-0">
-                          ${timeline.ticks.map(
-                            (tick) => html`<div
-                              key=${tick.key}
-                              class="absolute inset-y-0 w-px bg-white/5"
-                              style=${{ left: `${tick.leftPercent}%` }}
-                            ></div>`,
-                          )}
-                        </div>
-                        <div class="absolute inset-x-0 top-2 flex h-3 items-center">
-                          <div class="relative h-full w-full rounded-full bg-white/5">
-                            ${timeline.presenceBars.map(
-                              (bar) => html`<span
-                                key=${`presence-${bar.key}`}
-                                class="absolute h-full rounded-full bg-gradient-to-r from-emerald-500/70 via-emerald-400/80 to-emerald-300/80 shadow-[0_0_18px_rgba(16,185,129,0.45)]"
-                                style=${{ left: `${bar.leftPercent}%`, width: `${bar.widthPercent}%` }}
-                                title=${`Présence · ${formatDateTimeLabel(bar.start)} → ${formatDateTimeLabel(bar.end)}`}
-                              ></span>`,
-                            )}
-                          </div>
-                        </div>
-                        <div class="absolute inset-x-0 top-14 flex h-3 items-center">
-                          <div class="relative h-full w-full rounded-full bg-white/5">
-                            ${timeline.speakingBars.map(
-                              (bar) => html`<span
-                                key=${`speaking-${bar.key}`}
-                                class="absolute h-full rounded-full bg-gradient-to-r from-fuchsia-500/80 via-rose-500/80 to-fuchsia-400/80 shadow-[0_0_18px_rgba(236,72,153,0.45)]"
-                                style=${{ left: `${bar.leftPercent}%`, width: `${bar.widthPercent}%` }}
-                                title=${`Parole · ${formatDateTimeLabel(bar.start)} → ${formatDateTimeLabel(bar.end)}`}
-                              ></span>`,
-                            )}
-                          </div>
-                        </div>
-                        <div class="absolute inset-x-0 top-[6.5rem] flex h-4 items-center">
-                          <div class="relative h-full w-full">
-                            ${timeline.messagePoints.map(
-                              (point) => html`<span
-                                key=${`message-${point.key}`}
-                                class="absolute flex h-4 w-4 -translate-x-1/2 items-center justify-center rounded-full bg-indigo-500/30 text-indigo-200"
-                                style=${{ left: `${point.leftPercent}%` }}
-                                title=${`Message · ${formatDateTimeLabel(point.timestamp)}`}
-                              >
-                                <span class="h-2 w-2 rounded-full bg-indigo-300 shadow-[0_0_12px_rgba(129,140,248,0.75)]"></span>
-                              </span>`,
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div class="relative mt-6 h-6 text-[0.7rem] font-semibold uppercase tracking-[0.25em] text-slate-300">
-                        ${timeline.ticks.map(
-                          (tick) => html`<span
-                            key=${`label-${tick.key}`}
-                            class="absolute -translate-x-1/2 whitespace-nowrap"
-                            style=${{ left: `${tick.leftPercent}%` }}
-                          >
-                            ${tick.label}
-                          </span>`,
-                        )}
+                      <div class="h-64 w-full">
+                        <canvas
+                          ref=${canvasRef}
+                          class="h-full w-full"
+                          role="img"
+                          aria-label=${`Graphique Chart.js de l'activité détaillée ${rangeLabel ? `pour ${rangeLabel}` : ''}`}
+                        ></canvas>
                       </div>
                     `
                   : html`
