@@ -942,37 +942,6 @@
                     </p>`}
               </div>
             </div>
-            ${isAvatarExpanded
-              ? html`<div
-                  class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-6 backdrop-blur-sm"
-                  role="dialog"
-                  aria-modal="true"
-                  aria-label="Avatar agrandi"
-                  onClick=${closeAvatar}
-                >
-                  <div class="relative" onClick=${(event) => event.stopPropagation()}>
-                    ${safeProfile.avatarUrl
-                      ? html`<img
-                          src=${safeProfile.avatarUrl}
-                          alt=${`Avatar de ${displayName}`}
-                          class="max-h-[80vh] max-w-[90vw] rounded-[3rem] border border-white/30 object-contain shadow-[0_40px_120px_rgba(236,72,153,0.45)]"
-                        />`
-                      : html`<div
-                          class="flex h-64 w-64 items-center justify-center rounded-[3rem] border border-dashed border-white/30 bg-black/60 text-6xl font-semibold uppercase text-fuchsia-100"
-                        >
-                          ${initials || '??'}
-                        </div>`}
-                    <button
-                      type="button"
-                      class="absolute -right-4 -top-4 flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-sm font-semibold uppercase tracking-wide text-white shadow-lg backdrop-blur"
-                      onClick=${closeAvatar}
-                      aria-label="Fermer l'aperçu de l'avatar"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>`
-              : null}
           </section>
         `;
       };
@@ -3362,11 +3331,42 @@
                       )}
                     </div>`
                   : null}
-              </div>
             </div>
-          </section>
-        `;
-      };
+          </div>
+          ${isAvatarExpanded
+            ? html`<div
+                class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-6 backdrop-blur-sm"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Avatar agrandi"
+                onClick=${closeAvatar}
+              >
+                <div class="relative" onClick=${(event) => event.stopPropagation()}>
+                  ${safeProfile.avatarUrl
+                    ? html`<img
+                        src=${safeProfile.avatarUrl}
+                        alt=${`Avatar de ${displayName}`}
+                        class="max-h-[80vh] max-w-[90vw] rounded-[3rem] border border-white/30 object-contain shadow-[0_40px_120px_rgba(236,72,153,0.45)]"
+                      />`
+                    : html`<div
+                        class="flex h-64 w-64 items-center justify-center rounded-[3rem] border border-dashed border-white/30 bg-black/60 text-6xl font-semibold uppercase text-fuchsia-100"
+                      >
+                        ${initials || '??'}
+                      </div>`}
+                  <button
+                    type="button"
+                    class="absolute -right-4 -top-4 flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-sm font-semibold uppercase tracking-wide text-white shadow-lg backdrop-blur"
+                    onClick=${closeAvatar}
+                    aria-label="Fermer l'aperçu de l'avatar"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>`
+            : null}
+        </section>
+      `;
+    };
 
       const ProfileSummaryCards = ({ stats }) => {
         if (!stats) {
