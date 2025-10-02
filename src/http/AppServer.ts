@@ -12,7 +12,6 @@ import type ShopService from '../services/ShopService';
 import { ShopError, type ShopProvider } from '../services/ShopService';
 import type VoiceActivityRepository from '../services/VoiceActivityRepository';
 import type {
-  HypeLeaderEntry,
   HypeLeaderboardQueryOptions,
   HypeLeaderboardSortBy,
   HypeLeaderboardSortOrder,
@@ -20,6 +19,10 @@ import type {
   UserVoiceActivitySegment,
   UserVoicePresenceSegment,
 } from '../services/VoiceActivityRepository';
+import HypeLeaderboardService, {
+  type HypeLeaderboardResult,
+  type NormalizedHypeLeaderboardQueryOptions,
+} from '../services/HypeLeaderboardService';
 
 export interface AppServerOptions {
   config: Config;
@@ -35,14 +38,6 @@ export interface AppServerOptions {
 type FlushCapableResponse = Response & {
   flushHeaders?: () => void;
   flush?: () => void;
-};
-
-type NormalizedHypeLeaderboardQueryOptions = {
-  limit: number;
-  search: string | null;
-  sortBy: HypeLeaderboardSortBy;
-  sortOrder: HypeLeaderboardSortOrder;
-  periodDays: number | null;
 };
 
 export default class AppServer {
@@ -70,9 +65,11 @@ export default class AppServer {
 
   private readonly hypeLeaderboardTtlMs = 60_000;
 
-  private readonly hypeLeaderboardCache = new Map<string, { leaders: HypeLeaderEntry[]; expiresAt: number }>();
+  private readonly hypeLeaderboardCache = new Map<string, { result: HypeLeaderboardResult; expiresAt: number }>();
 
-  private readonly hypeLeaderboardPromise = new Map<string, Promise<HypeLeaderEntry[]>>();
+  private readonly hypeLeaderboardPromise = new Map<string, Promise<HypeLeaderboardResult>>();
+
+  private readonly hypeLeaderboardService: HypeLeaderboardService | null;
 
   constructor({
     config,
@@ -92,6 +89,9 @@ export default class AppServer {
     this.discordBridge = discordBridge;
     this.shopService = shopService;
     this.voiceActivityRepository = voiceActivityRepository;
+    this.hypeLeaderboardService = voiceActivityRepository
+      ? new HypeLeaderboardService({ repository: voiceActivityRepository })
+      : null;
 
     this.configureMiddleware();
     this.registerRoutes();
@@ -632,17 +632,23 @@ export default class AppServer {
     });
 
     this.app.get('/api/voice-activity/hype-leaders', async (req, res) => {
-      if (!this.voiceActivityRepository) {
+      if (!this.voiceActivityRepository || !this.hypeLeaderboardService) {
         res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=30');
-        res.json({ leaders: [] });
+        res.json({
+          leaders: [],
+          snapshot: {
+            bucketStart: new Date().toISOString(),
+            comparedTo: null,
+          },
+        });
         return;
       }
 
       try {
         const options = this.parseLeaderboardRequest(req);
-        const leaders = await this.getCachedHypeLeaders(options);
+        const result = await this.getCachedHypeLeaders(options);
         res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=30');
-        res.json({ leaders });
+        res.json({ leaders: result.leaders, snapshot: result.snapshot });
       } catch (error) {
         console.error('Failed to retrieve hype leaderboard', error);
         res.status(500).json({
@@ -676,27 +682,25 @@ export default class AppServer {
     'displayName',
   ];
 
-  private readonly leaderboardDefaultOptions: NormalizedHypeLeaderboardQueryOptions = {
-    limit: 100,
-    search: null,
-    sortBy: 'schScoreNorm',
-    sortOrder: 'desc',
-    periodDays: null,
-  };
-
-  private async getCachedHypeLeaders(options: NormalizedHypeLeaderboardQueryOptions): Promise<HypeLeaderEntry[]> {
-    const repository = this.voiceActivityRepository;
-    if (!repository) {
-      return [];
+  private async getCachedHypeLeaders(options: NormalizedHypeLeaderboardQueryOptions): Promise<HypeLeaderboardResult> {
+    const service = this.hypeLeaderboardService;
+    if (!service) {
+      return {
+        leaders: [],
+        snapshot: {
+          bucketStart: new Date(),
+          comparedTo: null,
+        },
+      };
     }
 
-    const normalized = this.normalizeLeaderboardOptions(options);
-    const cacheKey = this.buildLeaderboardCacheKey(normalized);
+    const normalized = service.normalizeOptions(options);
+    const cacheKey = service.buildCacheKey(normalized);
     const now = Date.now();
     const cached = this.hypeLeaderboardCache.get(cacheKey);
     if (cached) {
       if (cached.expiresAt > now) {
-        return cached.leaders;
+        return cached.result;
       }
       this.hypeLeaderboardCache.delete(cacheKey);
     }
@@ -706,14 +710,14 @@ export default class AppServer {
       return inflight;
     }
 
-    const promise = repository
-      .listHypeLeaders(normalized)
-      .then((leaders) => {
+    const promise = service
+      .getLeaderboardWithTrends(normalized)
+      .then((result) => {
         this.hypeLeaderboardCache.set(cacheKey, {
-          leaders,
+          result,
           expiresAt: Date.now() + this.hypeLeaderboardTtlMs,
         });
-        return leaders;
+        return result;
       })
       .finally(() => {
         this.hypeLeaderboardPromise.delete(cacheKey);
@@ -771,63 +775,6 @@ export default class AppServer {
     return parsed;
   }
 
-  private normalizeSearchTerm(value: string | null | undefined): string | null {
-    if (typeof value !== 'string') {
-      return null;
-    }
-
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  }
-
-  private normalizeLeaderboardOptions(
-    options?: HypeLeaderboardQueryOptions | NormalizedHypeLeaderboardQueryOptions | null,
-  ): NormalizedHypeLeaderboardQueryOptions {
-    const limit = (() => {
-      if (!options || !Number.isFinite(options.limit)) {
-        return this.leaderboardDefaultOptions.limit;
-      }
-      const normalized = Math.max(1, Math.floor(Number(options.limit)));
-      return Math.min(normalized, 200);
-    })();
-
-    const search = this.normalizeSearchTerm(options?.search) ?? this.leaderboardDefaultOptions.search;
-
-    const sortBy = (() => {
-      const candidate = options?.sortBy ?? null;
-      if (
-        candidate &&
-        AppServer.hypeLeaderboardSortableColumns.includes(candidate as HypeLeaderboardSortBy)
-      ) {
-        return candidate as HypeLeaderboardSortBy;
-      }
-      return this.leaderboardDefaultOptions.sortBy;
-    })();
-
-    const sortOrder: HypeLeaderboardSortOrder = options?.sortOrder === 'asc' ? 'asc' : 'desc';
-
-    const periodDays = (() => {
-      if (!options || !Number.isFinite(options.periodDays)) {
-        return this.leaderboardDefaultOptions.periodDays;
-      }
-      const normalized = Math.max(1, Math.floor(Number(options.periodDays)));
-      return Math.min(normalized, 365);
-    })();
-
-    return { limit, search, sortBy, sortOrder, periodDays };
-  }
-
-  private buildLeaderboardCacheKey(options: NormalizedHypeLeaderboardQueryOptions): string {
-    const parts = [
-      `limit:${options.limit}`,
-      `search:${options.search ?? ''}`,
-      `sortBy:${options.sortBy}`,
-      `sortOrder:${options.sortOrder}`,
-      `period:${options.periodDays ?? 'all'}`,
-    ];
-    return parts.join('|');
-  }
-
   private parseLeaderboardRequest(req: Request): NormalizedHypeLeaderboardQueryOptions {
     const limit = this.parseIntegerParam(this.extractQueryParam(req.query.limit));
     const search = this.extractQueryParam(req.query.search);
@@ -852,7 +799,48 @@ export default class AppServer {
       periodDays: periodParam,
     };
 
-    return this.normalizeLeaderboardOptions(options);
+    const service = this.hypeLeaderboardService;
+    if (service) {
+      return service.normalizeOptions(options);
+    }
+
+    const fallbackLimit = (() => {
+      if (!Number.isFinite(options.limit)) {
+        return 100;
+      }
+      const normalized = Math.max(1, Math.floor(Number(options.limit)));
+      return Math.min(normalized, 200);
+    })();
+
+    const fallbackSearch = typeof options.search === 'string' && options.search.trim().length > 0
+      ? options.search.trim()
+      : null;
+
+    const fallbackSortBy: HypeLeaderboardSortBy = (() => {
+      const candidate = options.sortBy;
+      if (candidate && AppServer.hypeLeaderboardSortableColumns.includes(candidate)) {
+        return candidate;
+      }
+      return 'schScoreNorm';
+    })();
+
+    const fallbackSortOrder: HypeLeaderboardSortOrder = options.sortOrder === 'asc' ? 'asc' : 'desc';
+
+    const fallbackPeriodDays = (() => {
+      if (!Number.isFinite(options.periodDays)) {
+        return null;
+      }
+      const normalized = Math.max(1, Math.floor(Number(options.periodDays)));
+      return Math.min(normalized, 365);
+    })();
+
+    return {
+      limit: fallbackLimit,
+      search: fallbackSearch,
+      sortBy: fallbackSortBy,
+      sortOrder: fallbackSortOrder,
+      periodDays: fallbackPeriodDays,
+    };
   }
 
   private handleTestBeep(_req: Request, res: Response): void {
