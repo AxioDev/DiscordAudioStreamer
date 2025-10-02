@@ -195,6 +195,7 @@ export default class DiscordAudioBridge {
           userId: message.author.id,
           guildId: message.guildId ?? null,
           channelId: message.channelId,
+          content: message.content ?? null,
           timestamp: createdAt,
         })
         .catch((error) => {
