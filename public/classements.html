@@ -274,9 +274,9 @@
               id="leaderboard-period"
               class="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-2 text-sm text-white transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
             >
-              <option value="all" selected>Toujours</option>
+              <option value="all">Toujours</option>
               <option value="7">7 jours</option>
-              <option value="30">30 jours</option>
+              <option value="30" selected>30 jours</option>
               <option value="90">90 jours</option>
               <option value="365">365 jours</option>
             </select>
@@ -352,7 +352,7 @@
         search: searchInput?.value?.trim?.() ?? '',
         sortBy: sortBySelect?.value ?? 'schScoreNorm',
         sortOrder: 'desc',
-        period: periodSelect?.value ?? 'all',
+        period: periodSelect?.value ?? '30',
       };
 
       const sortableColumns = new Set([
@@ -365,7 +365,7 @@
 
       const periodOptions = (() => {
         if (!periodSelect) {
-          return new Set(['all']);
+          return new Set(['30', 'all']);
         }
         return new Set(Array.from(periodSelect.options).map((option) => option.value || 'all'));
       })();
@@ -428,7 +428,7 @@
           } else if (periodOptions.has(normalized)) {
             state.period = normalized;
           } else {
-            state.period = 'all';
+            state.period = '30';
           }
         }
 
@@ -442,7 +442,7 @@
 
         if (periodSelect) {
           if (!periodOptions.has(state.period)) {
-            state.period = 'all';
+            state.period = '30';
           }
           periodSelect.value = state.period;
         }
@@ -461,7 +461,7 @@
         if (state.search && state.search.length > 0) {
           params.set('search', state.search);
         }
-        if (state.period && state.period !== 'all') {
+        if (state.period && state.period.length > 0) {
           params.set('period', state.period);
         }
         return params;
