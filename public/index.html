@@ -5290,10 +5290,15 @@
                 <div class="mx-auto flex max-w-5xl items-center justify-between px-6 py-4 sm:px-10">
                   <a
                     href="#/"
-                    class="text-base font-semibold uppercase tracking-[0.35em] text-slate-200 transition hover:text-white"
+                    class="group flex items-center gap-3 text-base font-semibold text-slate-200 transition hover:text-white"
                     onClick=${(event) => handleNavigate(event, 'home')}
                   >
-                    Libre Antenne
+                    <span
+                      class="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 via-fuchsia-500 to-purple-600 text-lg font-extrabold text-white shadow-neon transition duration-300 group-hover:scale-105"
+                    >
+                      LA
+                    </span>
+                    <span class="text-lg font-semibold transition duration-300 group-hover:text-white">Libre Antenne</span>
                   </a>
                   <nav class="hidden items-center gap-6 md:flex">
                     ${NAV_LINKS.map((link) =>
