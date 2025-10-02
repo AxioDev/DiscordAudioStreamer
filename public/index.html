@@ -924,7 +924,7 @@
         `;
       };
 
-      const RealTimeTalkChart = ({ history, speakers, now, selectedWindowMinutes, onWindowChange }) => {
+      const RealTimeTalkChart = ({ history, speakers, now, selectedWindowMinutes, onWindowChange, onViewProfile }) => {
         const windowMs = selectedWindowMinutes * 60 * 1000;
 
         const speakerIndex = useMemo(() => {
@@ -2644,12 +2644,13 @@
 
         <${DailyActivityChart} history=${speakingHistory} now=${now} />
 
-        <${RealTimeTalkChart}
+          <${RealTimeTalkChart}
           history=${speakingHistory}
           speakers=${speakers}
           now=${now}
             selectedWindowMinutes=${selectedWindowMinutes}
             onWindowChange=${onWindowChange}
+            onViewProfile=${onViewProfile}
           />
 
           <${AnonymousBooth} slot=${anonymousSlot} now=${now} />
