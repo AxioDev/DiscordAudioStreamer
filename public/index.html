@@ -883,6 +883,21 @@
                 </div>
               </div>
               <div class="relative">
+                ${
+                  isHistoryLoading
+                    ? html`<div
+                        role="status"
+                        aria-live="polite"
+                        class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-3xl bg-slate-950/80 backdrop-blur-sm"
+                      >
+                        <div class="h-10 w-10 animate-spin rounded-full border-2 border-indigo-300/70 border-t-transparent"></div>
+                        <p class="text-sm font-medium text-slate-200/90">
+                          Chargement des activités vocales…
+                        </p>
+                        <span class="sr-only">Chargement des activités vocales</span>
+                      </div>`
+                    : null
+                }
                 <div class="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-slate-950/80 to-transparent"></div>
                 <div ref=${scrollContainerRef} class="overflow-x-auto">
                   <div class="flex min-w-[48rem] items-end gap-2 pb-6 sm:gap-3 md:gap-4">
@@ -4545,6 +4560,7 @@
         const [status, setStatus] = useState('connecting');
         const [participantsMap, setParticipantsMap] = useState(() => new Map());
         const [speakingHistory, setSpeakingHistory] = useState(() => []);
+        const [isHistoryLoading, setIsHistoryLoading] = useState(true);
         const [selectedWindowMinutes, setSelectedWindowMinutes] = useState(DEFAULT_WINDOW_MINUTES);
         const participantsRef = useRef(new Map());
         const [streamInfo, setStreamInfo] = useState({ path: '/stream', format: 'opus', mimeType: 'audio/ogg' });
@@ -4646,6 +4662,9 @@
           };
 
           const fetchHistory = async () => {
+            if (!cancelled) {
+              setIsHistoryLoading(true);
+            }
             const params = new URLSearchParams();
             const sinceTs = Date.now() - HISTORY_RETENTION_MS;
             if (Number.isFinite(sinceTs)) {
@@ -4667,6 +4686,9 @@
 
               const segments = Array.isArray(payload?.segments) ? payload.segments : [];
               if (!segments.length) {
+                if (!cancelled) {
+                  setIsHistoryLoading(false);
+                }
                 return;
               }
 
@@ -4734,11 +4756,20 @@
                 const combined = [...prev, ...normalized];
                 return sortSegments(trimSegments(combined, nowTs));
               });
+              if (!cancelled) {
+                setIsHistoryLoading(false);
+              }
             } catch (error) {
               if (error && error.name === 'AbortError') {
+                if (!cancelled) {
+                  setIsHistoryLoading(false);
+                }
                 return;
               }
               console.warn("Impossible de récupérer l'historique vocal", error);
+              if (!cancelled) {
+                setIsHistoryLoading(false);
+              }
             }
           };
 
@@ -4829,6 +4860,7 @@
                 });
                 return sortSegments(trimSegments(segments, nowTs));
               });
+              setIsHistoryLoading(false);
               setLastUpdate(nowTs);
             }
 
@@ -4872,6 +4904,7 @@
                   segments = ensureOpenSegment(segments, userId, startTime, user);
                   return sortSegments(trimSegments(segments, eventNow));
                 });
+                setIsHistoryLoading(false);
                 setLastUpdate(eventNow);
               } else if (data?.type === 'end') {
                 const targetId = data.user?.id ?? data.userId;
@@ -4900,6 +4933,7 @@
                     segments = closeOpenSegment(segments, targetId, endTimestamp, data.user ?? {}, { createIfMissing: true });
                     return sortSegments(trimSegments(segments, eventNow));
                   });
+                  setIsHistoryLoading(false);
                   setLastUpdate(eventNow);
                 }
               }
