@@ -3168,6 +3168,8 @@
         { label: '30 j', description: '30 derniers jours', durationMs: 30 * DAY_MS },
       ];
 
+      const MESSAGE_PAGE_SIZE_OPTIONS = [10, 25, 50];
+
       const toInputValue = (ms) => {
         if (!Number.isFinite(ms)) {
           return '';
@@ -4008,6 +4010,222 @@
         `;
       };
 
+
+      const ProfileMessagesCard = ({ messageEvents = [] }) => {
+        const [pageSize, setPageSize] = useState(MESSAGE_PAGE_SIZE_OPTIONS[0]);
+        const [pageIndex, setPageIndex] = useState(0);
+
+        const normalizedMessages = useMemo(() => {
+          if (!Array.isArray(messageEvents)) {
+            return [];
+          }
+          return messageEvents
+            .map((entry) => {
+              const rawTimestampMs = Number(entry?.timestampMs);
+              const parsedTimestamp =
+                typeof entry?.timestamp === 'string' || entry?.timestamp instanceof Date
+                  ? Date.parse(String(entry.timestamp))
+                  : NaN;
+              const timestampMs = Number.isFinite(rawTimestampMs)
+                ? rawTimestampMs
+                : Number.isFinite(parsedTimestamp)
+                ? parsedTimestamp
+                : null;
+              const rawContent = entry?.content;
+              const content =
+                typeof rawContent === 'string'
+                  ? rawContent
+                  : rawContent == null
+                  ? ''
+                  : String(rawContent);
+              return {
+                messageId: entry?.messageId ?? null,
+                channelId: entry?.channelId ?? null,
+                guildId: entry?.guildId ?? null,
+                content,
+                timestampMs,
+              };
+            })
+            .sort((a, b) => {
+              if (a.timestampMs == null && b.timestampMs == null) {
+                return 0;
+              }
+              if (a.timestampMs == null) {
+                return 1;
+              }
+              if (b.timestampMs == null) {
+                return -1;
+              }
+              return b.timestampMs - a.timestampMs;
+            });
+        }, [messageEvents]);
+
+        useEffect(() => {
+          setPageIndex(0);
+        }, [messageEvents, pageSize]);
+
+        useEffect(() => {
+          setPageIndex((current) => {
+            const totalPages = normalizedMessages.length > 0
+              ? Math.ceil(normalizedMessages.length / pageSize)
+              : 1;
+            const clamped = Math.min(Math.max(current, 0), totalPages - 1);
+            return Number.isFinite(clamped) ? clamped : 0;
+          });
+        }, [normalizedMessages, pageSize]);
+
+        const totalCount = normalizedMessages.length;
+        const totalPages = totalCount > 0 ? Math.ceil(totalCount / pageSize) : 1;
+        const currentPageIndex = Math.min(Math.max(pageIndex, 0), totalPages - 1);
+        const startIndex = currentPageIndex * pageSize;
+        const endIndex = Math.min(startIndex + pageSize, totalCount);
+        const pageMessages = useMemo(
+          () => normalizedMessages.slice(startIndex, endIndex),
+          [normalizedMessages, startIndex, endIndex],
+        );
+
+        const handlePageSizeChange = useCallback((event) => {
+          const nextValue = Number(event?.currentTarget?.value);
+          if (Number.isFinite(nextValue) && nextValue > 0) {
+            setPageSize(nextValue);
+          } else {
+            setPageSize(MESSAGE_PAGE_SIZE_OPTIONS[0]);
+          }
+        }, []);
+
+        const handlePrevious = useCallback(() => {
+          setPageIndex((current) => Math.max(current - 1, 0));
+        }, []);
+
+        const handleNext = useCallback(() => {
+          setPageIndex((current) => Math.min(current + 1, totalPages - 1));
+        }, [totalPages]);
+
+        const displayStart = totalCount === 0 ? 0 : startIndex + 1;
+        const displayEnd = totalCount === 0 ? 0 : endIndex;
+        const hasMessages = totalCount > 0;
+
+        return html`
+          <section class="rounded-3xl border border-white/10 bg-slate-950/60 p-6 shadow-xl shadow-slate-950/40 backdrop-blur-xl">
+            <div class="flex flex-col gap-6">
+              <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                <div>
+                  <p class="text-xs uppercase tracking-[0.35em] text-indigo-200/80">Messages</p>
+                  <h2 class="text-2xl font-semibold text-white">Historique des messages</h2>
+                  <p class="text-sm text-slate-300">Consulte les messages envoyés pendant la période sélectionnée.</p>
+                </div>
+                ${hasMessages
+                  ? html`<span class="inline-flex items-center gap-2 self-start rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-indigo-200">
+                      Page ${currentPageIndex + 1} / ${totalPages}
+                    </span>`
+                  : null}
+              </div>
+
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div class="text-xs text-slate-300">
+                  ${hasMessages
+                    ? `Affichage ${displayStart} – ${displayEnd} sur ${totalCount} message${totalCount > 1 ? 's' : ''}`
+                    : 'Aucun message sur cette période.'}
+                </div>
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+                  <label class="flex items-center gap-2 text-xs text-slate-300">
+                    <span>Par page</span>
+                    <select
+                      class="rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-1.5 text-xs text-white shadow-inner shadow-black/20 focus:border-fuchsia-300 focus:outline-none focus:ring-1 focus:ring-fuchsia-300"
+                      value=${pageSize}
+                      onChange=${handlePageSizeChange}
+                    >
+                      ${MESSAGE_PAGE_SIZE_OPTIONS.map((option) =>
+                        html`<option key=${option} value=${option}>${option}</option>`,
+                      )}
+                    </select>
+                  </label>
+                  <div class="flex items-center gap-2">
+                    <button
+                      type="button"
+                      class=${[
+                        'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition',
+                        'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white',
+                        !hasMessages || currentPageIndex === 0 ? 'cursor-not-allowed opacity-50 hover:bg-white/5 hover:text-slate-200' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      onClick=${handlePrevious}
+                      disabled=${!hasMessages || currentPageIndex === 0}
+                    >
+                      <${ArrowLeft} class="h-4 w-4" aria-hidden="true" />
+                      Précédent
+                    </button>
+                    <button
+                      type="button"
+                      class=${[
+                        'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition',
+                        'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white',
+                        !hasMessages || currentPageIndex >= totalPages - 1
+                          ? 'cursor-not-allowed opacity-50 hover:bg-white/5 hover:text-slate-200'
+                          : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      onClick=${handleNext}
+                      disabled=${!hasMessages || currentPageIndex >= totalPages - 1}
+                    >
+                      Suivant
+                      <${ArrowRight} class="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="grid gap-3">
+                ${hasMessages
+                  ? pageMessages.map((message, index) => {
+                      const contentTrimmed = message.content?.trim?.() ?? '';
+                      const key =
+                        message.messageId
+                          ?? (message.timestampMs != null
+                            ? `${message.timestampMs}-${startIndex + index}`
+                            : `message-${startIndex + index}`);
+                      return html`<article
+                        key=${key}
+                        class="flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/40 p-4"
+                      >
+                        <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300">
+                          <span class="inline-flex items-center gap-2 font-semibold text-white">
+                            <${MessageSquare} class="h-4 w-4 text-fuchsia-200" aria-hidden="true" />
+                            ${message.timestampMs != null
+                              ? formatDateTimeLabel(message.timestampMs, { includeSeconds: true })
+                              : 'Date inconnue'}
+                          </span>
+                          ${message.channelId
+                            ? html`<span class="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[0.6rem] uppercase tracking-[0.35em] text-slate-300">
+                                ${message.channelId}
+                              </span>`
+                            : null}
+                        </div>
+                        <p
+                          class=${[
+                            'whitespace-pre-wrap break-words text-sm leading-relaxed',
+                            contentTrimmed.length > 0 ? 'text-slate-200' : 'italic text-slate-400',
+                          ].join(' ')}
+                        >
+                          ${contentTrimmed.length > 0 ? message.content : 'Message sans contenu texte.'}
+                        </p>
+                        ${message.messageId
+                          ? html`<div class="flex flex-wrap items-center gap-2 text-[0.6rem] uppercase tracking-[0.35em] text-slate-400">
+                              <span>ID ${message.messageId}</span>
+                            </div>`
+                          : null}
+                      </article>`;
+                    })
+                  : html`<div class="rounded-2xl border border-white/10 bg-black/40 px-6 py-10 text-center text-sm text-slate-300">
+                      Aucun message n'a été envoyé pendant cette période.
+                    </div>`}
+              </div>
+            </div>
+          </section>
+        `;
+      };
       const ProfilePage = ({ params, onNavigateHome, onUpdateRange }) => {
         const userId = typeof params?.userId === 'string' && params.userId.trim().length > 0 ? params.userId.trim() : null;
         const [range, setRange] = useState(() => normalizeProfileRange(params ?? {}));
@@ -4308,6 +4526,7 @@
                             speakingSegments=${data.speakingSegments}
                             messageEvents=${data.messageEvents}
                           />
+                          <${ProfileMessagesCard} messageEvents=${data.messageEvents} />
                         `
                       : null}
                   </div>
