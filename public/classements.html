@@ -250,13 +250,10 @@
               id="leaderboard-sort-by"
               class="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-2 text-sm text-white transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
             >
-              <option value="schScoreNorm">Score hype (normalisé)</option>
-              <option value="schRaw">Score hype (brut)</option>
+              <option value="schScoreNorm">Score hype</option>
               <option value="arrivalEffect">Effet d'arrivée</option>
               <option value="departureEffect">Effet de départ</option>
-              <option value="retentionMinutes">Rétention (minutes)</option>
               <option value="activityScore">Score d'activité</option>
-              <option value="sessions">Sessions</option>
               <option value="displayName">Pseudo</option>
             </select>
           </label>
@@ -360,12 +357,9 @@
 
       const sortableColumns = new Set([
         'schScoreNorm',
-        'schRaw',
         'arrivalEffect',
         'departureEffect',
-        'retentionMinutes',
         'activityScore',
-        'sessions',
         'displayName',
       ]);
 
@@ -515,8 +509,23 @@
 
       const buildLeaderRow = (leader, index) => {
         const rank = index + 1;
-        const highlight = rank <= 3 ? 'border-sky-500/60 bg-slate-900/70 shadow-neon' : 'border-white/5 bg-slate-900/50';
-        const accent = rank === 1 ? 'from-yellow-400/20 via-amber-500/10 to-transparent' : rank === 2 ? 'from-slate-200/20 to-transparent' : rank === 3 ? 'from-amber-500/10 via-fuchsia-400/10 to-transparent' : 'from-transparent to-transparent';
+        const topThreeStyles = [
+          {
+            highlight: 'border-[#0085C7] bg-slate-900/70 shadow-lg shadow-[0_0_45px_rgba(0,133,199,0.35)]',
+            accent: 'from-[#0085C7]/35 via-[#0085C7]/10 to-transparent',
+          },
+          {
+            highlight: 'border-[#F4C300] bg-slate-900/70 shadow-lg shadow-[0_0_45px_rgba(244,195,0,0.35)]',
+            accent: 'from-[#F4C300]/35 via-[#F4C300]/10 to-transparent',
+          },
+          {
+            highlight: 'border-black bg-slate-900/70 shadow-lg shadow-[0_0_45px_rgba(0,0,0,0.45)]',
+            accent: 'from-black/40 via-slate-900/60 to-transparent',
+          },
+        ];
+        const highlighted = rank <= 3 ? topThreeStyles[rank - 1] : null;
+        const highlight = highlighted ? highlighted.highlight : 'border-white/5 bg-slate-900/50';
+        const accent = highlighted ? highlighted.accent : 'from-transparent to-transparent';
 
         const container = document.createElement('article');
         container.className = `leader-card relative overflow-hidden rounded-3xl border ${highlight}`;
@@ -585,17 +594,13 @@
               <div>
                 <h3 class="text-lg font-semibold text-white">${leader.displayName}</h3>
                 ${usernameMarkup}
-                <p class="mt-1 text-xs uppercase tracking-[0.25em] text-slate-400">${leader.sessions} sessions · Activité ${formatScore(leader.activityScore)}</p>
+                <p class="mt-1 text-xs uppercase tracking-[0.25em] text-slate-400">Activité ${formatScore(leader.activityScore)}</p>
               </div>
             </div>
-            <dl class="grid flex-1 grid-cols-2 gap-5 text-sm sm:grid-cols-5">
+            <dl class="grid flex-1 grid-cols-2 gap-5 text-sm sm:grid-cols-4">
               <div>
-                <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Score hype (norm)</dt>
+                <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Score hype</dt>
                 <dd class="mt-1 text-base font-semibold text-sky-300">${formatScore(leader.schScoreNorm)}</dd>
-              </div>
-              <div>
-                <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Score hype (brut)</dt>
-                <dd class="mt-1 text-base font-semibold text-fuchsia-300">${formatScore(leader.schRaw)}</dd>
               </div>
               <div>
                 <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Effet arrivée</dt>
@@ -606,8 +611,8 @@
                 <dd class="mt-1 text-base font-semibold text-emerald-200">${formatSigned(leader.departureEffect)}</dd>
               </div>
               <div>
-                <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Rétention (min)</dt>
-                <dd class="mt-1 text-base font-semibold text-amber-200">${formatSigned(leader.retentionMinutes)}</dd>
+                <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Indice d'activité</dt>
+                <dd class="mt-1 text-base font-semibold text-fuchsia-300">${formatScore(leader.activityScore)}</dd>
               </div>
             </dl>
           </div>
