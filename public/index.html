@@ -199,6 +199,7 @@
       import { h, render, Fragment } from 'https://esm.sh/preact@10.19.2';
       import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'https://esm.sh/preact@10.19.2/hooks';
       import Chart from 'https://esm.sh/chart.js@4.4.2/auto';
+      import * as THREE from 'https://esm.sh/three@0.161.0';
       import {
         Activity,
         AlertCircle,
@@ -3009,9 +3010,254 @@
         `;
       };
 
+      const createBeerCanTexture = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1024;
+        canvas.height = 512;
+        const context = canvas.getContext('2d');
+        if (!context) {
+          return null;
+        }
+
+        const gradient = context.createLinearGradient(0, 0, 0, canvas.height);
+        gradient.addColorStop(0, '#111827');
+        gradient.addColorStop(0.35, '#1f3a8a');
+        gradient.addColorStop(0.7, '#1e293b');
+        gradient.addColorStop(1, '#0f172a');
+        context.fillStyle = gradient;
+        context.fillRect(0, 0, canvas.width, canvas.height);
+
+        context.save();
+        context.globalAlpha = 0.18;
+        for (let index = 0; index < 24; index += 1) {
+          const x = (index / 24) * canvas.width;
+          const brightness = 0.5 + 0.5 * Math.sin(index * 0.7);
+          const color = Math.floor(180 + brightness * 50);
+          context.fillStyle = `rgba(${color}, ${color}, ${color}, 0.6)`;
+          context.fillRect(x, 0, canvas.width / 48, canvas.height);
+        }
+        context.restore();
+
+        context.fillStyle = '#facc15';
+        context.font = 'bold 320px "Inter"';
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.shadowColor = 'rgba(234, 179, 8, 0.35)';
+        context.shadowBlur = 18;
+        context.fillText('8.6', canvas.width / 2, canvas.height / 2 - 18);
+
+        context.shadowColor = 'transparent';
+        context.fillStyle = '#f8fafc';
+        context.font = '600 54px "Inter"';
+        context.fillText('BIÈRE FORTEMENT HOUBLONNÉE', canvas.width / 2, canvas.height - 110);
+
+        context.fillStyle = 'rgba(148, 163, 184, 0.35)';
+        context.font = '600 44px "Inter"';
+        context.fillText('DIEU DES NUITS BLANCHES', canvas.width / 2, 110);
+
+        return new THREE.CanvasTexture(canvas);
+      };
+
+      const BeerCanDisplay = () => {
+        const containerRef = useRef(null);
+
+        useEffect(() => {
+          const container = containerRef.current;
+          if (!container) {
+            return undefined;
+          }
+
+          const scene = new THREE.Scene();
+          const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 20);
+          camera.position.set(0, 0, 4);
+
+          const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+          const setRendererSize = () => {
+            const width = container.clientWidth || 1;
+            const height = container.clientHeight || 1;
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+            renderer.setSize(width, height, false);
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+          };
+
+          renderer.domElement.style.width = '100%';
+          renderer.domElement.style.height = '100%';
+          renderer.domElement.style.display = 'block';
+
+          container.innerHTML = '';
+          container.appendChild(renderer.domElement);
+          container.style.touchAction = 'none';
+          container.style.cursor = 'grab';
+
+          const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+          scene.add(ambientLight);
+
+          const keyLight = new THREE.DirectionalLight(0xffffff, 0.9);
+          keyLight.position.set(3, 4, 5);
+          scene.add(keyLight);
+
+          const rimLight = new THREE.PointLight(0x6366f1, 0.7);
+          rimLight.position.set(-4, -3, -2);
+          scene.add(rimLight);
+
+          const canGroup = new THREE.Group();
+          scene.add(canGroup);
+
+          const canGeometry = new THREE.CylinderGeometry(0.6, 0.6, 2, 128, 1, false);
+          const canTexture = createBeerCanTexture();
+          if (canTexture) {
+            canTexture.wrapS = THREE.RepeatWrapping;
+            canTexture.wrapT = THREE.ClampToEdgeWrapping;
+            canTexture.repeat.x = 1;
+            canTexture.anisotropy = renderer.capabilities.getMaxAnisotropy?.() ?? canTexture.anisotropy;
+          }
+          const sideMaterial = new THREE.MeshStandardMaterial({
+            map: canTexture || undefined,
+            color: canTexture ? 0xffffff : 0x1e293b,
+            metalness: 0.55,
+            roughness: 0.33,
+          });
+          const topMaterial = new THREE.MeshStandardMaterial({
+            color: 0xe2e8f0,
+            metalness: 0.95,
+            roughness: 0.25,
+          });
+          const canMesh = new THREE.Mesh(canGeometry, [sideMaterial, topMaterial, topMaterial]);
+          canGroup.add(canMesh);
+
+          const lipGeometry = new THREE.TorusGeometry(0.58, 0.025, 22, 100);
+          const lipMaterial = new THREE.MeshStandardMaterial({
+            color: 0xf1f5f9,
+            metalness: 0.9,
+            roughness: 0.2,
+          });
+          const topLip = new THREE.Mesh(lipGeometry, lipMaterial);
+          topLip.position.y = 1;
+          topLip.rotation.x = Math.PI / 2;
+          canGroup.add(topLip);
+          const bottomLip = topLip.clone();
+          bottomLip.position.y = -1;
+          canGroup.add(bottomLip);
+
+          const topCapGeometry = new THREE.CircleGeometry(0.35, 48);
+          const topCapMaterial = new THREE.MeshStandardMaterial({
+            color: 0xcbd5f5,
+            metalness: 0.95,
+            roughness: 0.28,
+          });
+          const topCap = new THREE.Mesh(topCapGeometry, topCapMaterial);
+          topCap.position.y = 1.01;
+          topCap.rotation.x = -Math.PI / 2;
+          canGroup.add(topCap);
+
+          const defaultRotation = { x: 0.35, y: -0.4 };
+          const targetRotation = { ...defaultRotation };
+          const currentRotation = { ...defaultRotation };
+          canGroup.rotation.set(defaultRotation.x, defaultRotation.y, 0);
+
+          const updateRotationFromPointer = (clientX, clientY) => {
+            const rect = container.getBoundingClientRect();
+            const relativeX = (clientX - rect.left) / rect.width - 0.5;
+            const relativeY = (clientY - rect.top) / rect.height - 0.5;
+            targetRotation.y = THREE.MathUtils.clamp(relativeX * 1.2, -1.1, 1.1);
+            targetRotation.x = THREE.MathUtils.clamp(defaultRotation.x - relativeY * 1.2, -0.2, 0.85);
+          };
+
+          const handlePointerDown = (event) => {
+            if (event.isPrimary === false) {
+              return;
+            }
+            container.setPointerCapture?.(event.pointerId);
+            updateRotationFromPointer(event.clientX, event.clientY);
+            container.style.cursor = 'grabbing';
+          };
+
+          const handlePointerMove = (event) => {
+            if (event.isPrimary === false) {
+              return;
+            }
+            updateRotationFromPointer(event.clientX, event.clientY);
+          };
+
+          const handlePointerLeave = () => {
+            targetRotation.x = defaultRotation.x;
+            targetRotation.y = defaultRotation.y;
+            container.style.cursor = 'grab';
+          };
+
+          const handlePointerUp = (event) => {
+            if (event.isPrimary === false) {
+              return;
+            }
+            container.releasePointerCapture?.(event.pointerId);
+            handlePointerLeave();
+          };
+
+          container.addEventListener('pointerdown', handlePointerDown);
+          container.addEventListener('pointermove', handlePointerMove);
+          container.addEventListener('pointerup', handlePointerUp);
+          container.addEventListener('pointercancel', handlePointerUp);
+          container.addEventListener('pointerleave', handlePointerLeave);
+
+          const handleResize = () => {
+            setRendererSize();
+          };
+          handleResize();
+          window.addEventListener('resize', handleResize);
+
+          let animationFrameId = 0;
+          const animate = (time) => {
+            animationFrameId = requestAnimationFrame(animate);
+            currentRotation.x += (targetRotation.x - currentRotation.x) * 0.075;
+            currentRotation.y += (targetRotation.y - currentRotation.y) * 0.075;
+            canGroup.rotation.x = currentRotation.x + Math.sin(time * 0.00045) * 0.05;
+            canGroup.rotation.y = currentRotation.y + Math.cos(time * 0.00035) * 0.04;
+            canGroup.position.y = Math.sin(time * 0.0006) * 0.05;
+            renderer.render(scene, camera);
+          };
+          animationFrameId = requestAnimationFrame(animate);
+
+          return () => {
+            cancelAnimationFrame(animationFrameId);
+            window.removeEventListener('resize', handleResize);
+            container.removeEventListener('pointerdown', handlePointerDown);
+            container.removeEventListener('pointermove', handlePointerMove);
+            container.removeEventListener('pointerup', handlePointerUp);
+            container.removeEventListener('pointercancel', handlePointerUp);
+            container.removeEventListener('pointerleave', handlePointerLeave);
+            canGeometry.dispose();
+            lipGeometry.dispose();
+            topCapGeometry.dispose();
+            sideMaterial.dispose();
+            topMaterial.dispose();
+            lipMaterial.dispose();
+            topCapMaterial.dispose();
+            canTexture?.dispose?.();
+            renderer.dispose();
+            container.style.touchAction = '';
+            container.style.cursor = '';
+            container.innerHTML = '';
+          };
+        }, []);
+
+        return html`
+          <div class="flex flex-col items-start gap-2 lg:items-end">
+            <div class="relative">
+              <div
+                ref=${containerRef}
+                class="pointer-events-auto h-32 w-32 sm:h-36 sm:w-36"
+                role="presentation"
+              ></div>
+              <span class="sr-only">Canette de bière 8.6 interactive qui réagit aux mouvements de la souris.</span>
+            </div>
+            <p class="text-[0.65rem] text-slate-400 lg:text-right">Fais bouger ta souris pour la faire tourner.</p>
+          </div>
+        `;
+      };
+
       const HomePage = ({
         status,
-        lastUpdateLabel,
         streamInfo,
         audioKey,
         speakers,
@@ -3055,9 +3301,7 @@
                   <${ArrowRight} class="h-4 w-4" aria-hidden="true" />
                 </a>
               </div>
-              <div class="flex flex-col items-start gap-3 text-left lg:items-end lg:text-right">
-                <p class="text-xs text-slate-300">Dernière mise à jour : ${lastUpdateLabel}</p>
-              </div>
+              <${BeerCanDisplay} />
             </div>
           </section>
 
@@ -5230,7 +5474,6 @@
           return values;
         }, [participantsMap]);
 
-        const lastUpdateLabel = lastUpdate ? formatRelative(lastUpdate, now) : 'Synchronisation…';
         const audioKey = `${streamInfo.path}|${streamInfo.mimeType}`;
 
         const handleNavigate = (event, targetRoute) => {
@@ -5396,7 +5639,6 @@
                         />`
                       : html`<${HomePage}
                           status=${status}
-                          lastUpdateLabel=${lastUpdateLabel}
                           streamInfo=${streamInfo}
                           audioKey=${audioKey}
                           speakers=${speakers}
