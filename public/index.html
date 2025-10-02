@@ -3602,12 +3602,12 @@
                     ? html`<img
                         src=${safeProfile.avatarUrl}
                         alt=${`Avatar de ${displayName}`}
-                        class="h-[32rem] w-[32rem] max-w-full rounded-[2.25rem] border border-white/20 object-cover shadow-xl shadow-fuchsia-900/30 transition-transform duration-200 group-hover:scale-[1.02]"
-                        style=${{ height: 'min(32rem, 80vw)', width: 'min(32rem, 80vw)' }}
+                        class="h-[16rem] w-[16rem] max-w-full rounded-[2.25rem] border border-white/20 object-cover shadow-xl shadow-fuchsia-900/30 transition-transform duration-200 group-hover:scale-[1.02]"
+                        style=${{ height: '16rem', width: '16rem' }}
                       />`
                     : html`<div
-                        class="flex h-[32rem] w-[32rem] max-w-full items-center justify-center rounded-[2.25rem] border border-dashed border-white/20 bg-black/40 text-6xl font-semibold uppercase text-fuchsia-200 transition-transform duration-200 group-hover:scale-[1.02]"
-                        style=${{ height: 'min(32rem, 80vw)', width: 'min(32rem, 80vw)' }}
+                        class="flex h-[16rem] w-[16rem] max-w-full items-center justify-center rounded-[2.25rem] border border-dashed border-white/20 bg-black/40 text-6xl font-semibold uppercase text-fuchsia-200 transition-transform duration-200 group-hover:scale-[1.02]"
+                        style=${{ height: '16rem', width: '16rem' }}
                       >
                         ${initials || '??'}
                       </div>`}
@@ -3674,10 +3674,12 @@
                     ? html`<img
                         src=${safeProfile.avatarUrl}
                         alt=${`Avatar de ${displayName}`}
-                        class="max-h-[80vh] max-w-[90vw] rounded-[3rem] border border-white/30 object-contain shadow-[0_40px_120px_rgba(236,72,153,0.45)]"
+                        class="h-[64rem] w-[64rem] max-h-[90vh] max-w-[90vw] rounded-[3rem] border border-white/30 object-contain shadow-[0_40px_120px_rgba(236,72,153,0.45)]"
+                        style=${{ height: '64rem', width: '64rem', maxHeight: '90vh', maxWidth: '90vw' }}
                       />`
                     : html`<div
-                        class="flex h-64 w-64 items-center justify-center rounded-[3rem] border border-dashed border-white/30 bg-black/60 text-6xl font-semibold uppercase text-fuchsia-100"
+                        class="flex h-[64rem] w-[64rem] items-center justify-center rounded-[3rem] border border-dashed border-white/30 bg-black/60 text-6xl font-semibold uppercase text-fuchsia-100"
+                        style=${{ height: '64rem', width: '64rem', maxHeight: '90vh', maxWidth: '90vw' }}
                       >
                         ${initials || '??'}
                       </div>`}
