@@ -3044,34 +3044,7 @@
           context.restore();
         };
 
-        const paintTypography = () => {
-          context.save();
-          context.textBaseline = 'middle';
-          context.textAlign = 'left';
-
-          context.shadowColor = 'rgba(15, 23, 42, 0.55)';
-          context.shadowBlur = 32;
-          context.fillStyle = '#f8fafc';
-          context.font = '700 360px "Inter"';
-          context.fillText('8.6', canvas.width * 0.32, canvas.height / 2 - 24);
-
-          context.shadowBlur = 0;
-          context.fillStyle = 'rgba(226, 232, 240, 0.92)';
-          context.font = '700 76px "Inter"';
-          context.fillText('ORIGINAL', canvas.width * 0.32, canvas.height / 2 + 156);
-
-          context.fillStyle = 'rgba(148, 163, 184, 0.9)';
-          context.font = '600 56px "Inter"';
-          context.fillText('INTENSE BLOND BEER', canvas.width * 0.32, canvas.height / 2 + 216);
-
-          context.font = '600 48px "Inter"';
-          context.fillText('ALC. 8,6% VOL.', canvas.width * 0.32, canvas.height / 2 + 268);
-
-          context.restore();
-        };
-
         paintNightGradient();
-        paintTypography();
         texture.needsUpdate = true;
 
         const referenceImage = new Image();
@@ -3089,13 +3062,11 @@
           context.fillStyle = blueOverlay;
           context.fillRect(0, 0, canvas.width, canvas.height);
 
-          paintTypography();
           texture.needsUpdate = true;
         };
 
         referenceImage.onerror = () => {
           paintNightGradient();
-          paintTypography();
           texture.needsUpdate = true;
         };
 
@@ -3255,14 +3226,14 @@
         }, []);
 
         return html`
-          <div class="flex flex-col items-start gap-2 lg:items-end">
+          <div class="flex flex-col items-start gap-2 lg:-translate-x-8">
             <div class="relative">
               <div
                 ref=${containerRef}
                 class="pointer-events-auto h-32 w-32 sm:h-36 sm:w-36"
                 role="presentation"
               ></div>
-              <span class="sr-only">Canette de bière 8.6 interactive qui réagit aux mouvements de la souris.</span>
+              <span class="sr-only">Canette de bière interactive qui réagit aux mouvements de la souris.</span>
             </div>
           </div>
         `;
