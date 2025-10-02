@@ -1332,7 +1332,6 @@ export default class VoiceActivityRepository {
             AVG(EXTRACT(EPOCH FROM (s.left_at - s.joined_at))) FILTER (WHERE o.overlap_time > interval '0') -
             AVG(EXTRACT(EPOCH FROM (s.left_at - s.joined_at))) FILTER (WHERE o.overlap_time IS NULL) AS retention_uplift
         FROM voice_presence s
-        ${presenceWhereClause('s')}
         JOIN voice_presence i
           ON s.channel_id = i.channel_id
          AND s.guild_id = i.guild_id
@@ -1343,6 +1342,7 @@ export default class VoiceActivityRepository {
         LEFT JOIN LATERAL (
             SELECT LEAST(s.left_at, i.left_at) - GREATEST(s.joined_at, i.joined_at) AS overlap_time
         ) o ON true
+        ${presenceWhereClause('s')}
         GROUP BY i.user_id, i.guild_id
     ),
 
