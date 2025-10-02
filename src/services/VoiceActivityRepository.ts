@@ -20,6 +20,7 @@ export interface MessageActivityRecord {
   userId: string;
   guildId: string | null;
   channelId: string | null;
+  content: string | null;
   timestamp: Date;
 }
 
@@ -83,6 +84,7 @@ export interface UserMessageActivityEntry {
   messageId: string;
   channelId: string | null;
   guildId: string | null;
+  content: string | null;
   timestamp: Date;
 }
 
@@ -154,7 +156,7 @@ export default class VoiceActivityRepository {
 
   private voiceCamColumns: Set<string> | null;
 
-  private messageActivityColumns: Set<string> | null;
+  private textMessagesColumns: Set<string> | null;
 
   private readonly missingColumnWarnings: Set<string>;
 
@@ -168,7 +170,7 @@ export default class VoiceActivityRepository {
     this.voiceInterruptsColumns = null;
     this.voiceMuteEventsColumns = null;
     this.voiceCamColumns = null;
-    this.messageActivityColumns = null;
+    this.textMessagesColumns = null;
     this.missingColumnWarnings = new Set();
   }
 
@@ -202,7 +204,7 @@ export default class VoiceActivityRepository {
       this.voiceInterruptsColumns &&
       this.voiceMuteEventsColumns &&
       this.voiceCamColumns &&
-      this.messageActivityColumns
+      this.textMessagesColumns
     ) {
       return;
     }
@@ -218,7 +220,7 @@ export default class VoiceActivityRepository {
 
   private async loadSchemaIntrospection(pool: Pool): Promise<void> {
     try {
-      const tables = ['voice_interrupts', 'voice_mute_events', 'voice_cam', 'message_activity'];
+      const tables = ['voice_interrupts', 'voice_mute_events', 'voice_cam', 'text_messages'];
       const result = await pool.query<{ table_name: string; column_name: string }>(
         `SELECT table_name, column_name
            FROM information_schema.columns
@@ -239,14 +241,14 @@ export default class VoiceActivityRepository {
       this.voiceInterruptsColumns = map.get('voice_interrupts') ?? new Set<string>();
       this.voiceMuteEventsColumns = map.get('voice_mute_events') ?? new Set<string>();
       this.voiceCamColumns = map.get('voice_cam') ?? new Set<string>();
-      this.messageActivityColumns = map.get('message_activity') ?? new Set<string>();
+      this.textMessagesColumns = map.get('text_messages') ?? new Set<string>();
     } catch (error) {
       console.error('Failed to introspect voice activity database schema', error);
 
       this.voiceInterruptsColumns ??= new Set<string>();
       this.voiceMuteEventsColumns ??= new Set<string>();
       this.voiceCamColumns ??= new Set<string>();
-      this.messageActivityColumns ??= new Set<string>();
+      this.textMessagesColumns ??= new Set<string>();
     }
   }
 
@@ -499,43 +501,50 @@ export default class VoiceActivityRepository {
     try {
       await this.ensureSchemaIntrospection(pool);
 
-      if (!this.messageActivityColumns || this.messageActivityColumns.size === 0) {
-        this.warnAboutMissingColumn('message_activity', 'timestamp');
+      if (!this.textMessagesColumns || this.textMessagesColumns.size === 0) {
+        this.warnAboutMissingColumn('text_messages', 'timestamp');
         return;
       }
 
-      const columns = ['message_id', 'user_id', 'timestamp'];
+      const columns = ['id', 'user_id', 'timestamp'];
       const values: Array<string | Date | null> = [
         record.messageId,
         record.userId,
         record.timestamp,
       ];
 
-      if (this.messageActivityColumns.has('guild_id')) {
+      if (this.textMessagesColumns.has('guild_id')) {
         columns.push('guild_id');
         values.push(record.guildId ?? null);
       } else {
-        this.warnAboutMissingColumn('message_activity', 'guild_id');
+        this.warnAboutMissingColumn('text_messages', 'guild_id');
       }
 
-      if (this.messageActivityColumns.has('channel_id')) {
+      if (this.textMessagesColumns.has('channel_id')) {
         columns.push('channel_id');
         values.push(record.channelId ?? null);
       } else {
-        this.warnAboutMissingColumn('message_activity', 'channel_id');
+        this.warnAboutMissingColumn('text_messages', 'channel_id');
+      }
+
+      if (this.textMessagesColumns.has('content')) {
+        columns.push('content');
+        values.push(record.content ?? null);
       }
 
       const placeholders = columns.map((_, index) => `$${index + 1}`);
 
       await pool.query(
-        `INSERT INTO message_activity (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`,
+        `INSERT INTO text_messages (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`
+          + ' ON CONFLICT (id) DO UPDATE SET'
+          + ' user_id = EXCLUDED.user_id,'
+          + ' timestamp = EXCLUDED.timestamp'
+          + (this.textMessagesColumns.has('guild_id') ? ', guild_id = EXCLUDED.guild_id' : '')
+          + (this.textMessagesColumns.has('channel_id') ? ', channel_id = EXCLUDED.channel_id' : '')
+          + (this.textMessagesColumns.has('content') ? ', content = EXCLUDED.content' : ''),
         values,
       );
     } catch (error) {
-      const errorCode = (error as { code?: string })?.code;
-      if (errorCode === '23505') {
-        return;
-      }
       console.error('Failed to persist message activity', error);
     }
   }
@@ -663,13 +672,13 @@ export default class VoiceActivityRepository {
 
     try {
       await this.ensureSchemaIntrospection(pool);
-      if (!this.messageActivityColumns || this.messageActivityColumns.size === 0) {
+      if (!this.textMessagesColumns || this.textMessagesColumns.size === 0) {
         return [];
       }
 
       const result = await pool.query(
-        `SELECT message_id, channel_id, guild_id, timestamp
-           FROM message_activity
+        `SELECT id, channel_id, guild_id, content, timestamp
+           FROM text_messages
           WHERE user_id = $1
             AND ($2::timestamptz IS NULL OR timestamp >= $2::timestamptz)
             AND ($3::timestamptz IS NULL OR timestamp <= $3::timestamptz)
@@ -678,18 +687,114 @@ export default class VoiceActivityRepository {
       );
 
       return (result.rows ?? []).map((row) => ({
-        messageId: row.message_id ?? '',
+        messageId: row.id ?? '',
         channelId: row.channel_id ?? null,
         guildId: row.guild_id ?? null,
+        content: typeof row.content === 'string' ? row.content : row.content == null ? null : String(row.content),
         timestamp: row.timestamp instanceof Date ? row.timestamp : new Date(row.timestamp),
       }));
     } catch (error) {
       if ((error as { code?: string })?.code === '42P01') {
-        console.warn('message_activity table not found; skipping text analytics');
+        console.warn('text_messages table not found; skipping text analytics');
         return [];
       }
       console.error('Failed to load message activity', error);
       return [];
+    }
+  }
+
+  public async listRecentUserMessages({
+    userIds,
+    limitPerUser = 3,
+  }: {
+    userIds: string[];
+    limitPerUser?: number;
+  }): Promise<Record<string, UserMessageActivityEntry[]>> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return {};
+    }
+
+    const normalizedIds = Array.isArray(userIds)
+      ? Array.from(
+          new Set(
+            userIds
+              .map((id) => (typeof id === 'string' ? id.trim() : ''))
+              .filter((id): id is string => id.length > 0),
+          ),
+        )
+      : [];
+
+    if (normalizedIds.length === 0) {
+      return {};
+    }
+
+    const numericLimit = Number(limitPerUser);
+    const boundedLimit = Number.isFinite(numericLimit)
+      ? Math.min(Math.max(Math.floor(numericLimit), 1), 20)
+      : 3;
+
+    try {
+      await this.ensureSchemaIntrospection(pool);
+      if (!this.textMessagesColumns || this.textMessagesColumns.size === 0) {
+        return {};
+      }
+
+      const result = await pool.query(
+        `SELECT id, user_id, guild_id, channel_id, content, timestamp
+           FROM (
+                 SELECT id,
+                        user_id,
+                        guild_id,
+                        channel_id,
+                        content,
+                        timestamp,
+                        ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY timestamp DESC) AS rn
+                   FROM text_messages
+                  WHERE user_id = ANY($1::text[])
+                ) ranked
+          WHERE rn <= $2
+          ORDER BY user_id, timestamp DESC`,
+        [normalizedIds, boundedLimit],
+      );
+
+      const grouped = new Map<string, UserMessageActivityEntry[]>();
+
+      for (const row of result.rows ?? []) {
+        const userId = typeof row.user_id === 'string' ? row.user_id : String(row.user_id ?? '');
+        if (!userId) {
+          continue;
+        }
+
+        const entry: UserMessageActivityEntry = {
+          messageId: row.id ?? '',
+          channelId: row.channel_id ?? null,
+          guildId: row.guild_id ?? null,
+          content: typeof row.content === 'string' ? row.content : row.content == null ? null : String(row.content),
+          timestamp: row.timestamp instanceof Date ? row.timestamp : new Date(row.timestamp),
+        };
+
+        const bucket = grouped.get(userId);
+        if (bucket) {
+          bucket.push(entry);
+        } else {
+          grouped.set(userId, [entry]);
+        }
+      }
+
+      const resultMap: Record<string, UserMessageActivityEntry[]> = {};
+      for (const id of normalizedIds) {
+        resultMap[id] = grouped.get(id)?.slice(0, boundedLimit) ?? [];
+      }
+
+      return resultMap;
+    } catch (error) {
+      if ((error as { code?: string })?.code === '42P01') {
+        console.warn('text_messages table not found; skipping recent message lookup');
+        return {};
+      }
+      console.error('Failed to load recent text messages', error);
+      return {};
     }
   }
 

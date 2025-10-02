@@ -547,6 +547,7 @@ export default class AppServer {
             messageId: entry.messageId,
             channelId: entry.channelId,
             guildId: entry.guildId,
+            content: entry.content,
             timestamp: entry.timestamp.toISOString(),
             timestampMs: entry.timestamp.getTime(),
           })),
@@ -578,8 +579,38 @@ export default class AppServer {
           search: search.length > 0 ? search : null,
         });
 
+        let recentMessagesByUser: Record<string, UserMessageActivityEntry[]> = {};
+        if (this.voiceActivityRepository) {
+          const userIds = result.members
+            .map((member) => (typeof member?.id === 'string' ? member.id : ''))
+            .filter((id): id is string => id.length > 0);
+
+          if (userIds.length > 0) {
+            try {
+              recentMessagesByUser = await this.voiceActivityRepository.listRecentUserMessages({
+                userIds,
+                limitPerUser: 3,
+              });
+            } catch (recentMessageError) {
+              console.warn('Failed to load recent member messages', recentMessageError);
+            }
+          }
+        }
+
+        const membersWithMessages = result.members.map((member) => ({
+          ...member,
+          recentMessages: (recentMessagesByUser[member.id] ?? []).map((entry) => ({
+            messageId: entry.messageId,
+            channelId: entry.channelId,
+            guildId: entry.guildId,
+            content: entry.content,
+            timestamp: entry.timestamp.toISOString(),
+            timestampMs: entry.timestamp.getTime(),
+          })),
+        }));
+
         res.json({
-          members: result.members,
+          members: membersWithMessages,
           nextCursor: result.nextCursor,
           hasMore: result.hasMore,
         });
