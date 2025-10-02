@@ -2163,43 +2163,6 @@
         </div>`;
       };
 
-      const MemberRecentMessages = ({ messages }) => {
-        const list = Array.isArray(messages) ? messages.slice(0, 3) : [];
-
-        if (list.length === 0) {
-          return html`<div class="rounded-2xl border border-white/5 bg-white/5 px-3 py-2 text-[11px] text-slate-400">
-            Aucun message récent
-          </div>`;
-        }
-
-        return html`<div class="space-y-2 rounded-2xl border border-white/10 bg-slate-950/40 px-3 py-2">
-          <p class="text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-300">Messages récents</p>
-          <ul class="space-y-2">
-            ${list.map((message) => {
-              const timestamp =
-                message?.timestamp instanceof Date
-                  ? message.timestamp.getTime()
-                  : typeof message?.timestamp === 'string'
-                  ? Date.parse(message.timestamp)
-                  : Number.isFinite(message?.timestampMs)
-                  ? message.timestampMs
-                  : NaN;
-              const formattedTime = Number.isFinite(timestamp)
-                ? formatDateTimeLabel(timestamp, { includeSeconds: false })
-                : 'Date inconnue';
-              const content = typeof message?.content === 'string' && message.content.trim().length > 0
-                ? message.content.trim()
-                : '—';
-
-              return html`<li key=${message?.messageId || formattedTime} class="space-y-1 text-[11px] text-slate-200">
-                <p class="break-words text-slate-100">${content}</p>
-                <p class="text-[10px] uppercase tracking-[0.25em] text-slate-400">${formattedTime}</p>
-              </li>`;
-            })}
-          </ul>
-        </div>`;
-      };
-
       const MEMBERS_PAGE_SIZE = 24;
 
       const MembersPage = ({ onViewProfile }) => {
@@ -2468,7 +2431,6 @@
                         : [];
                       const remainingRoles = Array.isArray(member?.roles) ? Math.max(member.roles.length - roleList.length, 0) : 0;
                       const isBot = Boolean(member?.isBot);
-                      const recentMessages = Array.isArray(member?.recentMessages) ? member.recentMessages : [];
 
                       return html`<article
                         key=${id || displayName}
@@ -2515,7 +2477,6 @@
                                 </span>`
                               : null}
                           </div>
-                          <${MemberRecentMessages} messages=${recentMessages} />
                         </div>
                         <div class="mt-auto"></div>
                       </article>`;
