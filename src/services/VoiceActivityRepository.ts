@@ -137,6 +137,11 @@ export interface HypeLeaderEntry {
   schScoreNorm: number;
 }
 
+interface SchemaColumnInfo {
+  dataType: string;
+  udtName: string;
+}
+
 export default class VoiceActivityRepository {
   private readonly connectionString?: string;
 
@@ -157,8 +162,12 @@ export default class VoiceActivityRepository {
   private voiceCamColumns: Set<string> | null;
 
   private textMessagesColumns: Set<string> | null;
+  private textMessagesColumnTypes: Map<string, SchemaColumnInfo> | null;
 
   private readonly missingColumnWarnings: Set<string>;
+  private readonly schemaPatchWarnings: Set<string>;
+
+  private schemaPatchesPromise: Promise<void> | null;
 
   constructor({ url, ssl, poolConfig }: VoiceActivityRepositoryOptions) {
     this.connectionString = url;
@@ -171,7 +180,10 @@ export default class VoiceActivityRepository {
     this.voiceMuteEventsColumns = null;
     this.voiceCamColumns = null;
     this.textMessagesColumns = null;
+    this.textMessagesColumnTypes = null;
     this.missingColumnWarnings = new Set();
+    this.schemaPatchWarnings = new Set();
+    this.schemaPatchesPromise = null;
   }
 
   private ensurePool(): Pool | null {
@@ -221,8 +233,13 @@ export default class VoiceActivityRepository {
   private async loadSchemaIntrospection(pool: Pool): Promise<void> {
     try {
       const tables = ['voice_interrupts', 'voice_mute_events', 'voice_cam', 'text_messages'];
-      const result = await pool.query<{ table_name: string; column_name: string }>(
-        `SELECT table_name, column_name
+      const result = await pool.query<{
+        table_name: string;
+        column_name: string;
+        data_type: string;
+        udt_name: string;
+      }>(
+        `SELECT table_name, column_name, data_type, udt_name
            FROM information_schema.columns
           WHERE table_schema = 'public'
             AND table_name = ANY($1::text[])`,
@@ -230,18 +247,24 @@ export default class VoiceActivityRepository {
       );
 
       const map = new Map<string, Set<string>>();
+      const typeMap = new Map<string, Map<string, SchemaColumnInfo>>();
       for (const table of tables) {
         map.set(table, new Set<string>());
+        typeMap.set(table, new Map<string, SchemaColumnInfo>());
       }
 
       for (const row of result.rows) {
         map.get(row.table_name)?.add(row.column_name);
+        typeMap
+          .get(row.table_name)
+          ?.set(row.column_name, { dataType: row.data_type, udtName: row.udt_name });
       }
 
       this.voiceInterruptsColumns = map.get('voice_interrupts') ?? new Set<string>();
       this.voiceMuteEventsColumns = map.get('voice_mute_events') ?? new Set<string>();
       this.voiceCamColumns = map.get('voice_cam') ?? new Set<string>();
       this.textMessagesColumns = map.get('text_messages') ?? new Set<string>();
+      this.textMessagesColumnTypes = typeMap.get('text_messages') ?? new Map<string, SchemaColumnInfo>();
     } catch (error) {
       console.error('Failed to introspect voice activity database schema', error);
 
@@ -249,7 +272,80 @@ export default class VoiceActivityRepository {
       this.voiceMuteEventsColumns ??= new Set<string>();
       this.voiceCamColumns ??= new Set<string>();
       this.textMessagesColumns ??= new Set<string>();
+      this.textMessagesColumnTypes ??= new Map<string, SchemaColumnInfo>();
     }
+  }
+
+  private async ensureSchemaPatches(pool: Pool): Promise<void> {
+    if (this.schemaPatchesPromise) {
+      await this.schemaPatchesPromise;
+      return;
+    }
+
+    this.schemaPatchesPromise = this.applySchemaPatches(pool).finally(() => {
+      this.schemaPatchesPromise = null;
+    });
+
+    await this.schemaPatchesPromise;
+  }
+
+  private isSnowflakeCompatibleType(info: SchemaColumnInfo | undefined): boolean {
+    if (!info) {
+      return false;
+    }
+
+    const normalizedDataType = info.dataType?.toLowerCase() ?? '';
+    const normalizedUdtName = info.udtName?.toLowerCase() ?? '';
+
+    return [
+      'bigint',
+      'numeric',
+      'decimal',
+      'text',
+      'varchar',
+      'character varying',
+    ].includes(normalizedDataType)
+      || ['int8'].includes(normalizedUdtName);
+  }
+
+  private async upgradeSnowflakeColumn(
+    pool: Pool,
+    table: string,
+    column: string,
+    columnTypes: Map<string, SchemaColumnInfo>,
+  ): Promise<void> {
+    const info = columnTypes.get(column);
+    if (this.isSnowflakeCompatibleType(info)) {
+      return;
+    }
+
+    try {
+      await pool.query(
+        `ALTER TABLE ${table} ALTER COLUMN ${column} TYPE bigint USING ${column}::bigint`,
+      );
+      columnTypes.set(column, { dataType: 'bigint', udtName: 'int8' });
+    } catch (error) {
+      const key = `${table}.${column}`;
+      if (!this.schemaPatchWarnings.has(key)) {
+        this.schemaPatchWarnings.add(key);
+        console.error(
+          `Failed to upgrade column "${column}" on "${table}" to bigint. Discord snowflake identifiers may overflow the current schema until the database is migrated manually.`,
+          error,
+        );
+      }
+    }
+  }
+
+  private async applySchemaPatches(pool: Pool): Promise<void> {
+    const textMessageTypes = this.textMessagesColumnTypes;
+    if (!textMessageTypes || textMessageTypes.size === 0) {
+      return;
+    }
+
+    await this.upgradeSnowflakeColumn(pool, 'text_messages', 'id', textMessageTypes);
+    await this.upgradeSnowflakeColumn(pool, 'text_messages', 'user_id', textMessageTypes);
+    await this.upgradeSnowflakeColumn(pool, 'text_messages', 'guild_id', textMessageTypes);
+    await this.upgradeSnowflakeColumn(pool, 'text_messages', 'channel_id', textMessageTypes);
   }
 
   private warnAboutMissingColumn(table: string, column: string): void {
@@ -500,6 +596,7 @@ export default class VoiceActivityRepository {
 
     try {
       await this.ensureSchemaIntrospection(pool);
+      await this.ensureSchemaPatches(pool);
 
       if (!this.textMessagesColumns || this.textMessagesColumns.size === 0) {
         this.warnAboutMissingColumn('text_messages', 'timestamp');
