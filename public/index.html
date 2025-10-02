@@ -3325,11 +3325,11 @@
         }, []);
 
         return html`
-          <div class="flex flex-col items-start gap-2 lg:-translate-x-8">
+          <div class="relative flex flex-col items-start gap-3 sm:-mx-4 lg:-mx-8 lg:-translate-x-16 xl:-mx-10 xl:-translate-x-20">
             <div class="relative">
               <div
                 ref=${containerRef}
-                class="pointer-events-auto h-32 w-32 sm:h-36 sm:w-36"
+                class="pointer-events-auto h-48 w-48 -translate-x-2 sm:h-60 sm:w-60 sm:-translate-x-3 lg:h-72 lg:w-72 lg:-translate-x-4 xl:h-80 xl:w-80 xl:-translate-x-6"
                 role="presentation"
               ></div>
               <span class="sr-only">Canette de bière interactive qui réagit aux mouvements de la souris.</span>
@@ -3360,7 +3360,7 @@
         return html`
           <${Fragment}>
           <section
-            class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/50 backdrop-blur-xl"
+            class="relative overflow-visible rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/50 backdrop-blur-xl"
           >
             <div class="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-fuchsia-500/25 blur-3xl"></div>
             <${StatusBadge}
