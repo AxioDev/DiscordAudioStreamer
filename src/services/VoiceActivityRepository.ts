@@ -15,6 +15,14 @@ export interface VoiceActivityRecord {
   endedAt: Date;
 }
 
+export interface MessageActivityRecord {
+  messageId: string;
+  userId: string;
+  guildId: string | null;
+  channelId: string | null;
+  timestamp: Date;
+}
+
 export interface VoicePresenceStartRecord {
   userId: string;
   guildId: string;
@@ -55,6 +63,27 @@ export interface VoiceActivityQueryOptions {
   since?: Date | null;
   until?: Date | null;
   limit?: number | null;
+}
+
+export interface UserVoicePresenceSegment {
+  channelId: string | null;
+  guildId: string | null;
+  joinedAt: Date;
+  leftAt: Date | null;
+}
+
+export interface UserVoiceActivitySegment {
+  channelId: string | null;
+  guildId: string | null;
+  startedAt: Date;
+  durationMs: number;
+}
+
+export interface UserMessageActivityEntry {
+  messageId: string;
+  channelId: string | null;
+  guildId: string | null;
+  timestamp: Date;
 }
 
 export interface VoiceActivityHistoryEntry {
@@ -125,6 +154,8 @@ export default class VoiceActivityRepository {
 
   private voiceCamColumns: Set<string> | null;
 
+  private messageActivityColumns: Set<string> | null;
+
   private readonly missingColumnWarnings: Set<string>;
 
   constructor({ url, ssl, poolConfig }: VoiceActivityRepositoryOptions) {
@@ -137,6 +168,7 @@ export default class VoiceActivityRepository {
     this.voiceInterruptsColumns = null;
     this.voiceMuteEventsColumns = null;
     this.voiceCamColumns = null;
+    this.messageActivityColumns = null;
     this.missingColumnWarnings = new Set();
   }
 
@@ -169,7 +201,8 @@ export default class VoiceActivityRepository {
     if (
       this.voiceInterruptsColumns &&
       this.voiceMuteEventsColumns &&
-      this.voiceCamColumns
+      this.voiceCamColumns &&
+      this.messageActivityColumns
     ) {
       return;
     }
@@ -185,7 +218,7 @@ export default class VoiceActivityRepository {
 
   private async loadSchemaIntrospection(pool: Pool): Promise<void> {
     try {
-      const tables = ['voice_interrupts', 'voice_mute_events', 'voice_cam'];
+      const tables = ['voice_interrupts', 'voice_mute_events', 'voice_cam', 'message_activity'];
       const result = await pool.query<{ table_name: string; column_name: string }>(
         `SELECT table_name, column_name
            FROM information_schema.columns
@@ -206,12 +239,14 @@ export default class VoiceActivityRepository {
       this.voiceInterruptsColumns = map.get('voice_interrupts') ?? new Set<string>();
       this.voiceMuteEventsColumns = map.get('voice_mute_events') ?? new Set<string>();
       this.voiceCamColumns = map.get('voice_cam') ?? new Set<string>();
+      this.messageActivityColumns = map.get('message_activity') ?? new Set<string>();
     } catch (error) {
       console.error('Failed to introspect voice activity database schema', error);
 
       this.voiceInterruptsColumns ??= new Set<string>();
       this.voiceMuteEventsColumns ??= new Set<string>();
       this.voiceCamColumns ??= new Set<string>();
+      this.messageActivityColumns ??= new Set<string>();
     }
   }
 
@@ -452,6 +487,209 @@ export default class VoiceActivityRepository {
       );
     } catch (error) {
       console.error('Failed to persist voice camera event', error);
+    }
+  }
+
+  public async recordMessageActivity(record: MessageActivityRecord): Promise<void> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return;
+    }
+
+    try {
+      await this.ensureSchemaIntrospection(pool);
+
+      if (!this.messageActivityColumns || this.messageActivityColumns.size === 0) {
+        this.warnAboutMissingColumn('message_activity', 'timestamp');
+        return;
+      }
+
+      const columns = ['message_id', 'user_id', 'timestamp'];
+      const values: Array<string | Date | null> = [
+        record.messageId,
+        record.userId,
+        record.timestamp,
+      ];
+
+      if (this.messageActivityColumns.has('guild_id')) {
+        columns.push('guild_id');
+        values.push(record.guildId ?? null);
+      } else {
+        this.warnAboutMissingColumn('message_activity', 'guild_id');
+      }
+
+      if (this.messageActivityColumns.has('channel_id')) {
+        columns.push('channel_id');
+        values.push(record.channelId ?? null);
+      } else {
+        this.warnAboutMissingColumn('message_activity', 'channel_id');
+      }
+
+      const placeholders = columns.map((_, index) => `$${index + 1}`);
+
+      await pool.query(
+        `INSERT INTO message_activity (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`,
+        values,
+      );
+    } catch (error) {
+      const errorCode = (error as { code?: string })?.code;
+      if (errorCode === '23505') {
+        return;
+      }
+      console.error('Failed to persist message activity', error);
+    }
+  }
+
+  private normalizeRangeDate(value: Date | null | undefined): Date | null {
+    if (!(value instanceof Date)) {
+      return null;
+    }
+    const time = value.getTime();
+    if (Number.isNaN(time)) {
+      return null;
+    }
+    return value;
+  }
+
+  public async listUserVoicePresence({
+    userId,
+    since = null,
+    until = null,
+  }: { userId: string; since?: Date | null; until?: Date | null }): Promise<UserVoicePresenceSegment[]> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return [];
+    }
+
+    const sinceDate = this.normalizeRangeDate(since);
+    const untilDate = this.normalizeRangeDate(until);
+    const sinceIso = sinceDate ? sinceDate.toISOString() : null;
+    const untilIso = untilDate ? untilDate.toISOString() : null;
+
+    try {
+      const result = await pool.query(
+        `SELECT channel_id, guild_id, joined_at, left_at
+           FROM voice_presence
+          WHERE user_id = $1
+            AND ($2::timestamptz IS NULL OR joined_at <= $2::timestamptz)
+            AND ($3::timestamptz IS NULL OR COALESCE(left_at, CURRENT_TIMESTAMP) >= $3::timestamptz)
+          ORDER BY joined_at ASC`,
+        [userId, untilIso, sinceIso],
+      );
+
+      return (result.rows ?? []).map((row) => {
+        const rawJoined = row.joined_at instanceof Date ? row.joined_at : new Date(row.joined_at);
+        const joinedAt = Number.isFinite(rawJoined?.getTime()) ? rawJoined : new Date();
+
+        const rawLeft = row.left_at;
+        let leftAt: Date | null = null;
+        if (rawLeft instanceof Date) {
+          leftAt = rawLeft;
+        } else if (rawLeft) {
+          const parsed = new Date(rawLeft);
+          leftAt = Number.isNaN(parsed.getTime()) ? null : parsed;
+        }
+
+        return {
+          channelId: row.channel_id ?? null,
+          guildId: row.guild_id ?? null,
+          joinedAt,
+          leftAt,
+        };
+      });
+    } catch (error) {
+      console.error('Failed to load voice presence history', error);
+      return [];
+    }
+  }
+
+  public async listUserVoiceActivity({
+    userId,
+    since = null,
+    until = null,
+  }: { userId: string; since?: Date | null; until?: Date | null }): Promise<UserVoiceActivitySegment[]> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return [];
+    }
+
+    const sinceDate = this.normalizeRangeDate(since);
+    const untilDate = this.normalizeRangeDate(until);
+    const sinceIso = sinceDate ? sinceDate.toISOString() : null;
+    const untilIso = untilDate ? untilDate.toISOString() : null;
+
+    try {
+      const result = await pool.query(
+        `SELECT channel_id, guild_id, duration_ms, timestamp
+           FROM voice_activity
+          WHERE user_id = $1
+            AND ($2::timestamptz IS NULL OR timestamp >= $2::timestamptz)
+            AND ($3::timestamptz IS NULL OR timestamp <= $3::timestamptz)
+          ORDER BY timestamp ASC`,
+        [userId, sinceIso, untilIso],
+      );
+
+      return (result.rows ?? []).map((row) => {
+        const start = row.timestamp instanceof Date ? row.timestamp : new Date(row.timestamp);
+        const durationMsValue = Number(row.duration_ms);
+        const durationMs = Number.isFinite(durationMsValue) ? Math.max(Math.floor(durationMsValue), 0) : 0;
+        return {
+          channelId: row.channel_id ?? null,
+          guildId: row.guild_id ?? null,
+          startedAt: Number.isFinite(start?.getTime()) ? start : new Date(),
+          durationMs,
+        };
+      });
+    } catch (error) {
+      console.error('Failed to load voice activity segments', error);
+      return [];
+    }
+  }
+
+  public async listUserMessageActivity({
+    userId,
+    since = null,
+    until = null,
+  }: { userId: string; since?: Date | null; until?: Date | null }): Promise<UserMessageActivityEntry[]> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return [];
+    }
+
+    const sinceDate = this.normalizeRangeDate(since);
+    const untilDate = this.normalizeRangeDate(until);
+    const sinceIso = sinceDate ? sinceDate.toISOString() : null;
+    const untilIso = untilDate ? untilDate.toISOString() : null;
+
+    try {
+      await this.ensureSchemaIntrospection(pool);
+      if (!this.messageActivityColumns || this.messageActivityColumns.size === 0) {
+        return [];
+      }
+
+      const result = await pool.query(
+        `SELECT message_id, channel_id, guild_id, timestamp
+           FROM message_activity
+          WHERE user_id = $1
+            AND ($2::timestamptz IS NULL OR timestamp >= $2::timestamptz)
+            AND ($3::timestamptz IS NULL OR timestamp <= $3::timestamptz)
+          ORDER BY timestamp ASC`,
+        [userId, sinceIso, untilIso],
+      );
+
+      return (result.rows ?? []).map((row) => ({
+        messageId: row.message_id ?? '',
+        channelId: row.channel_id ?? null,
+        guildId: row.guild_id ?? null,
+        timestamp: row.timestamp instanceof Date ? row.timestamp : new Date(row.timestamp),
+      }));
+    } catch (error) {
+      if ((error as { code?: string })?.code === '42P01') {
+        console.warn('message_activity table not found; skipping text analytics');
+        return [];
+      }
+      console.error('Failed to load message activity', error);
+      return [];
     }
   }
 
