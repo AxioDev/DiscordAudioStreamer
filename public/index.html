@@ -3503,10 +3503,12 @@
                     ? html`<img
                         src=${safeProfile.avatarUrl}
                         alt=${`Avatar de ${displayName}`}
-                        class="h-32 w-32 rounded-[2.25rem] border border-white/20 object-cover shadow-xl shadow-fuchsia-900/30 transition-transform duration-200 group-hover:scale-[1.02]"
+                        class="h-[32rem] w-[32rem] max-w-full rounded-[2.25rem] border border-white/20 object-cover shadow-xl shadow-fuchsia-900/30 transition-transform duration-200 group-hover:scale-[1.02]"
+                        style=${{ height: 'min(32rem, 80vw)', width: 'min(32rem, 80vw)' }}
                       />`
                     : html`<div
-                        class="flex h-32 w-32 items-center justify-center rounded-[2.25rem] border border-dashed border-white/20 bg-black/40 text-3xl font-semibold uppercase text-fuchsia-200 transition-transform duration-200 group-hover:scale-[1.02]"
+                        class="flex h-[32rem] w-[32rem] max-w-full items-center justify-center rounded-[2.25rem] border border-dashed border-white/20 bg-black/40 text-6xl font-semibold uppercase text-fuchsia-200 transition-transform duration-200 group-hover:scale-[1.02]"
+                        style=${{ height: 'min(32rem, 80vw)', width: 'min(32rem, 80vw)' }}
                       >
                         ${initials || '??'}
                       </div>`}
