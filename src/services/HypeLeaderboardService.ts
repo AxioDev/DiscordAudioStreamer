@@ -54,7 +54,7 @@ export default class HypeLeaderboardService {
     search: null,
     sortBy: 'schScoreNorm',
     sortOrder: 'desc',
-    periodDays: null,
+    periodDays: 30,
   };
 
   constructor({ repository, snapshotIntervalMs = 60 * 60 * 1000 }: HypeLeaderboardServiceOptions) {
@@ -107,7 +107,13 @@ export default class HypeLeaderboardService {
     const sortOrder: HypeLeaderboardSortOrder = options?.sortOrder === 'asc' ? 'asc' : 'desc';
 
     const periodDays = (() => {
-      if (!options || !Number.isFinite(options.periodDays)) {
+      if (!options) {
+        return this.defaultOptions.periodDays;
+      }
+      if (options.periodDays === null) {
+        return null;
+      }
+      if (!Number.isFinite(options.periodDays)) {
         return this.defaultOptions.periodDays;
       }
       const normalized = Math.max(1, Math.floor(Number(options.periodDays)));

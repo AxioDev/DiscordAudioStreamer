@@ -757,19 +757,23 @@ export default class AppServer {
     return parsed;
   }
 
-  private parsePeriodParam(value: string | null): number | null {
-    if (!value) {
-      return null;
+  private parsePeriodParam(value: string | null): number | null | undefined {
+    if (value === null) {
+      return undefined;
     }
 
     const normalized = value.trim().toLowerCase();
-    if (normalized.length === 0 || normalized === 'all' || normalized === 'tout') {
+    if (normalized.length === 0) {
+      return undefined;
+    }
+
+    if (normalized === 'all' || normalized === 'tout') {
       return null;
     }
 
     const parsed = Number.parseInt(normalized, 10);
     if (!Number.isFinite(parsed) || parsed <= 0) {
-      return null;
+      return undefined;
     }
 
     return parsed;
@@ -789,7 +793,8 @@ export default class AppServer {
         ? (normalized as HypeLeaderboardSortOrder)
         : null;
     })();
-    const periodParam = this.parsePeriodParam(this.extractQueryParam(req.query.period));
+    const rawPeriodParam = this.extractQueryParam(req.query.period);
+    const periodParam = this.parsePeriodParam(rawPeriodParam);
 
     const options: HypeLeaderboardQueryOptions = {
       limit,
@@ -827,8 +832,11 @@ export default class AppServer {
     const fallbackSortOrder: HypeLeaderboardSortOrder = options.sortOrder === 'asc' ? 'asc' : 'desc';
 
     const fallbackPeriodDays = (() => {
-      if (!Number.isFinite(options.periodDays)) {
+      if (options.periodDays === null) {
         return null;
+      }
+      if (!Number.isFinite(options.periodDays)) {
+        return 30;
       }
       const normalized = Math.max(1, Math.floor(Number(options.periodDays)));
       return Math.min(normalized, 365);
