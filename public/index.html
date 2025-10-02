@@ -203,6 +203,7 @@
       import {
         Activity,
         AlertCircle,
+        AudioLines,
         BadgeCheck,
         ArrowLeft,
         ArrowRight,
@@ -3455,6 +3456,7 @@
         { label: '30 j', description: '30 derniers jours', durationMs: 30 * DAY_MS },
       ];
 
+      const VOICE_TRANSCRIPTION_PAGE_SIZE_OPTIONS = [5, 10, 20];
       const MESSAGE_PAGE_SIZE_OPTIONS = [10, 25, 50];
 
       const toInputValue = (ms) => {
@@ -4356,6 +4358,396 @@
       };
 
 
+      const ProfileVoiceTranscriptionsCard = ({ userId }) => {
+        const normalizedUserId = typeof userId === 'string' ? userId.trim() : '';
+        const [pageSize, setPageSize] = useState(VOICE_TRANSCRIPTION_PAGE_SIZE_OPTIONS[0]);
+        const [pages, setPages] = useState([]);
+        const [currentPageIndex, setCurrentPageIndex] = useState(0);
+        const [hasMore, setHasMore] = useState(false);
+        const [nextCursor, setNextCursor] = useState(null);
+        const [isLoading, setIsLoading] = useState(false);
+        const [error, setError] = useState('');
+
+        const fetchPage = useCallback(
+          async ({ cursor = null, replace = false, signal = null } = {}) => {
+            if (!normalizedUserId) {
+              setPages([]);
+              setCurrentPageIndex(0);
+              setHasMore(false);
+              setNextCursor(null);
+              setIsLoading(false);
+              setError('');
+              return;
+            }
+
+            if (replace) {
+              setPages([]);
+              setCurrentPageIndex(0);
+              setHasMore(false);
+              setNextCursor(null);
+            }
+
+            setIsLoading(true);
+            setError('');
+
+            const query = new URLSearchParams();
+            query.set('limit', String(pageSize));
+            if (cursor) {
+              query.set('cursor', cursor);
+            }
+
+            const baseUrl = `/api/users/${encodeURIComponent(normalizedUserId)}/voice-transcriptions`;
+            const url = query.size > 0 ? `${baseUrl}?${query.toString()}` : baseUrl;
+
+            try {
+              const response = await fetch(url, signal ? { signal } : undefined);
+              if (!response.ok) {
+                let message = 'Impossible de récupérer les retranscriptions vocales.';
+                try {
+                  const payload = await response.json();
+                  if (typeof payload?.message === 'string') {
+                    message = payload.message;
+                  }
+                } catch (parseError) {
+                  console.warn('Impossible de décoder la réponse voix', parseError);
+                }
+
+                if (signal?.aborted) {
+                  return;
+                }
+
+                setError(message);
+                if (replace) {
+                  setPages([]);
+                  setCurrentPageIndex(0);
+                  setHasMore(false);
+                  setNextCursor(null);
+                }
+                return;
+              }
+
+              const payload = await response.json();
+              if (signal?.aborted) {
+                return;
+              }
+
+              const normalizedEntries = Array.isArray(payload?.entries)
+                ? payload.entries.map((entry, index) => {
+                    const timestampMsValue = Number(entry?.timestampMs);
+                    const parsedTimestamp =
+                      typeof entry?.timestamp === 'string' || entry?.timestamp instanceof Date
+                        ? Date.parse(String(entry.timestamp))
+                        : NaN;
+                    const timestampMs = Number.isFinite(timestampMsValue)
+                      ? timestampMsValue
+                      : Number.isFinite(parsedTimestamp)
+                      ? parsedTimestamp
+                      : null;
+                    const rawContent = entry?.content;
+                    const content =
+                      typeof rawContent === 'string'
+                        ? rawContent
+                        : rawContent == null
+                        ? ''
+                        : String(rawContent);
+                    const channelId =
+                      typeof entry?.channelId === 'string'
+                        ? entry.channelId
+                        : entry?.channelId == null
+                        ? null
+                        : String(entry.channelId);
+                    const guildId =
+                      typeof entry?.guildId === 'string'
+                        ? entry.guildId
+                        : entry?.guildId == null
+                        ? null
+                        : String(entry.guildId);
+                    const transcriptionId =
+                      entry?.transcriptionId == null ? null : String(entry.transcriptionId);
+                    return {
+                      transcriptionId,
+                      channelId,
+                      guildId,
+                      content,
+                      timestampMs,
+                    };
+                  })
+                : [];
+
+              const normalizedCursor =
+                typeof payload?.nextCursor === 'string' && payload.nextCursor.trim().length > 0
+                  ? payload.nextCursor
+                  : null;
+              const safeHasMore = Boolean(payload?.hasMore && normalizedCursor);
+              setHasMore(safeHasMore);
+              setNextCursor(normalizedCursor);
+
+              let nextIndex = 0;
+              setPages((prev) => {
+                if (replace) {
+                  nextIndex = 0;
+                  return normalizedEntries.length > 0 ? [normalizedEntries] : [];
+                }
+
+                if (normalizedEntries.length === 0) {
+                  nextIndex = Math.max(prev.length - 1, 0);
+                  return prev;
+                }
+
+                nextIndex = prev.length;
+                return [...prev, normalizedEntries];
+              });
+              setCurrentPageIndex(() => nextIndex);
+              setError('');
+            } catch (fetchError) {
+              if (signal?.aborted) {
+                return;
+              }
+              console.error('Failed to fetch voice transcriptions', fetchError);
+              setError('Impossible de récupérer les retranscriptions vocales.');
+              if (replace) {
+                setPages([]);
+                setCurrentPageIndex(0);
+                setHasMore(false);
+                setNextCursor(null);
+              }
+            } finally {
+              if (!signal?.aborted) {
+                setIsLoading(false);
+              }
+            }
+          },
+          [normalizedUserId, pageSize],
+        );
+
+        useEffect(() => {
+          const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+          fetchPage({ cursor: null, replace: true, signal: controller ? controller.signal : null });
+          return () => controller?.abort();
+        }, [fetchPage]);
+
+        useEffect(() => {
+          setCurrentPageIndex((current) => {
+            const maxIndex = Math.max(pages.length - 1, 0);
+            return Math.min(Math.max(current, 0), maxIndex);
+          });
+        }, [pages.length]);
+
+        const handlePageSizeChange = useCallback((event) => {
+          const nextValue = Number(event?.currentTarget?.value);
+          if (Number.isFinite(nextValue) && nextValue > 0) {
+            setPageSize(nextValue);
+          } else {
+            setPageSize(VOICE_TRANSCRIPTION_PAGE_SIZE_OPTIONS[0]);
+          }
+        }, []);
+
+        const handlePrevious = useCallback(() => {
+          setCurrentPageIndex((current) => Math.max(current - 1, 0));
+        }, []);
+
+        const handleNext = useCallback(() => {
+          if (currentPageIndex < pages.length - 1) {
+            setCurrentPageIndex((current) => Math.min(current + 1, pages.length - 1));
+            return;
+          }
+
+          if (!hasMore || isLoading || !nextCursor) {
+            return;
+          }
+
+          fetchPage({ cursor: nextCursor, replace: false });
+        }, [currentPageIndex, pages.length, hasMore, isLoading, nextCursor, fetchPage]);
+
+        const handleRetry = useCallback(() => {
+          fetchPage({ cursor: null, replace: true });
+        }, [fetchPage]);
+
+        const totalEntries = useMemo(
+          () =>
+            pages.reduce((acc, page) => (Array.isArray(page) ? acc + page.length : acc), 0),
+          [pages],
+        );
+
+        const currentEntries = useMemo(() => {
+          if (currentPageIndex < 0 || currentPageIndex >= pages.length) {
+            return [];
+          }
+          return Array.isArray(pages[currentPageIndex]) ? pages[currentPageIndex] : [];
+        }, [pages, currentPageIndex]);
+
+        const hasEntries = currentEntries.length > 0;
+        const isInitialLoading = isLoading && pages.length === 0 && !error;
+        const canFetchMore = Boolean(hasMore && nextCursor);
+        const disablePrevious = pages.length === 0 || currentPageIndex <= 0;
+        const disableNext =
+          pages.length === 0
+            ? !canFetchMore || isLoading
+            : currentPageIndex < pages.length - 1
+            ? false
+            : !canFetchMore || isLoading;
+        const totalPagesLoaded = pages.length;
+        const totalPages = hasMore ? totalPagesLoaded + 1 : totalPagesLoaded;
+        const displayTotalPages = Math.max(totalPages, 1);
+        const displayCurrentPage = Math.min(currentPageIndex + 1, displayTotalPages);
+
+        return html`
+          <section class="rounded-3xl border border-white/10 bg-slate-950/60 p-6 shadow-xl shadow-slate-950/40 backdrop-blur-xl">
+            <div class="flex flex-col gap-6">
+              <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                <div>
+                  <p class="text-xs uppercase tracking-[0.35em] text-indigo-200/80">Vocal</p>
+                  <h2 class="text-2xl font-semibold text-white">Retranscriptions vocales</h2>
+                  <p class="text-sm text-slate-300">
+                    Retrouve les derniers extraits transcrits automatiquement pour ce membre.
+                  </p>
+                </div>
+                ${pages.length > 0 || hasEntries
+                  ? html`<span class="inline-flex items-center gap-2 self-start rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-indigo-200">
+                      Page ${displayCurrentPage} / ${displayTotalPages}
+                    </span>`
+                  : null}
+              </div>
+
+              ${error
+                ? html`<div class="flex flex-col gap-3 rounded-2xl border border-rose-400/40 bg-rose-500/10 p-4 text-sm text-rose-100">
+                    <span>${error}</span>
+                    <div>
+                      <button
+                        type="button"
+                        onClick=${handleRetry}
+                        class=${[
+                          'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition',
+                          'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white',
+                          isLoading ? 'cursor-not-allowed opacity-60' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        disabled=${isLoading}
+                      >
+                        <${RefreshCcw} class=${`h-4 w-4 ${isLoading ? 'animate-spin text-indigo-200' : ''}`} aria-hidden="true" />
+                        Réessayer
+                      </button>
+                    </div>
+                  </div>`
+                : null}
+
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div class="text-xs text-slate-300">
+                  ${hasEntries
+                    ? `Affichage ${currentEntries.length} retranscription${
+                        currentEntries.length > 1 ? 's' : ''
+                      } sur ${totalEntries} chargée${totalEntries > 1 ? 's' : ''}`
+                    : isInitialLoading
+                    ? 'Chargement des retranscriptions…'
+                    : 'Aucune retranscription disponible.'}
+                </div>
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+                  <label class="flex items-center gap-2 text-xs text-slate-300">
+                    <span>Par page</span>
+                    <select
+                      class="rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-1.5 text-xs text-white shadow-inner shadow-black/20 focus:border-fuchsia-300 focus:outline-none focus:ring-1 focus:ring-fuchsia-300"
+                      value=${pageSize}
+                      onChange=${handlePageSizeChange}
+                    >
+                      ${VOICE_TRANSCRIPTION_PAGE_SIZE_OPTIONS.map((option) =>
+                        html`<option key=${option} value=${option}>${option}</option>`,
+                      )}
+                    </select>
+                  </label>
+                  <div class="flex items-center gap-2">
+                    <button
+                      type="button"
+                      class=${[
+                        'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition',
+                        'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white',
+                        disablePrevious ? 'cursor-not-allowed opacity-50 hover:bg-white/5 hover:text-slate-200' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      onClick=${handlePrevious}
+                      disabled=${disablePrevious}
+                    >
+                      <${ArrowLeft} class="h-4 w-4" aria-hidden="true" />
+                      Précédent
+                    </button>
+                    <button
+                      type="button"
+                      class=${[
+                        'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition',
+                        'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white',
+                        disableNext ? 'cursor-not-allowed opacity-50 hover:bg-white/5 hover:text-slate-200' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      onClick=${handleNext}
+                      disabled=${disableNext}
+                    >
+                      Suivant
+                      <${ArrowRight} class="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              ${isInitialLoading
+                ? html`<div class="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/40 px-6 py-10 text-sm text-slate-300">
+                    <${RefreshCcw} class="h-4 w-4 animate-spin text-indigo-200" aria-hidden="true" />
+                    Chargement des retranscriptions…
+                  </div>`
+                : html`<div class="grid gap-3">
+                    ${hasEntries
+                      ? currentEntries.map((entry, index) => {
+                          const contentTrimmed = entry.content?.trim?.() ?? '';
+                          const key =
+                            entry.transcriptionId ??
+                            (entry.timestampMs != null
+                              ? `${entry.timestampMs}-${currentPageIndex}-${index}`
+                              : `transcription-${currentPageIndex}-${index}`);
+                          return html`<article
+                            key=${key}
+                            class="flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/40 p-4"
+                          >
+                            <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300">
+                              <span class="inline-flex items-center gap-2 font-semibold text-white">
+                                <${AudioLines} class="h-4 w-4 text-emerald-200" aria-hidden="true" />
+                                ${entry.timestampMs != null
+                                  ? formatDateTimeLabel(entry.timestampMs, { includeSeconds: true })
+                                  : 'Date inconnue'}
+                              </span>
+                              ${entry.channelId
+                                ? html`<span class="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[0.6rem] uppercase tracking-[0.35em] text-slate-300">
+                                    ${entry.channelId}
+                                  </span>`
+                                : null}
+                            </div>
+                            <p
+                              class=${[
+                                'whitespace-pre-wrap break-words text-sm leading-relaxed',
+                                contentTrimmed.length > 0 ? 'text-slate-200' : 'italic text-slate-400',
+                              ].join(' ')}
+                            >
+                              ${contentTrimmed.length > 0
+                                ? entry.content
+                                : 'Retranscription vide.'}
+                            </p>
+                            ${(entry.transcriptionId || entry.guildId)
+                              ? html`<div class="flex flex-wrap items-center gap-2 text-[0.6rem] uppercase tracking-[0.35em] text-slate-400">
+                                  ${entry.transcriptionId ? html`<span>ID ${entry.transcriptionId}</span>` : null}
+                                  ${entry.guildId ? html`<span>Serveur ${entry.guildId}</span>` : null}
+                                </div>`
+                              : null}
+                          </article>`;
+                        })
+                      : html`<div class="rounded-2xl border border-white/10 bg-black/40 px-6 py-10 text-center text-sm text-slate-300">
+                          Aucune retranscription n’a encore été enregistrée.
+                        </div>`}
+                  </div>`}
+            </div>
+          </section>
+        `;
+      };
+
       const ProfileMessagesCard = ({ messageEvents = [] }) => {
         const [pageSize, setPageSize] = useState(MESSAGE_PAGE_SIZE_OPTIONS[0]);
         const [pageIndex, setPageIndex] = useState(0);
@@ -4871,6 +5263,7 @@
                             speakingSegments=${data.speakingSegments}
                             messageEvents=${data.messageEvents}
                           />
+                          <${ProfileVoiceTranscriptionsCard} userId=${userId} />
                           <${ProfileMessagesCard} messageEvents=${data.messageEvents} />
                         `
                       : null}

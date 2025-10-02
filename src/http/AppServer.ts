@@ -18,6 +18,7 @@ import type {
   UserMessageActivityEntry,
   UserVoiceActivitySegment,
   UserVoicePresenceSegment,
+  VoiceTranscriptionCursor,
 } from '../services/VoiceActivityRepository';
 import HypeLeaderboardService, {
   type HypeLeaderboardResult,
@@ -128,6 +129,53 @@ export default class AppServer {
     }
 
     return null;
+  }
+
+  private parseVoiceTranscriptionCursor(value: unknown): VoiceTranscriptionCursor | null {
+    if (typeof value !== 'string') {
+      return null;
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    const parts = trimmed.split(':');
+    if (parts.length !== 2) {
+      return null;
+    }
+
+    const [timestampPart, idPart] = parts;
+    const timestampMs = Number(timestampPart);
+    const idValue = Number(idPart);
+
+    if (!Number.isFinite(timestampMs) || !Number.isFinite(idValue)) {
+      return null;
+    }
+
+    const timestamp = new Date(Math.floor(timestampMs));
+    if (Number.isNaN(timestamp.getTime())) {
+      return null;
+    }
+
+    return { timestamp, id: Math.floor(idValue) };
+  }
+
+  private serializeVoiceTranscriptionCursor(cursor: VoiceTranscriptionCursor | null): string | null {
+    if (!cursor) {
+      return null;
+    }
+
+    const timestamp = cursor.timestamp instanceof Date ? cursor.timestamp : new Date(cursor.timestamp);
+    const timestampMs = timestamp.getTime();
+    const idValue = Number(cursor.id);
+
+    if (!Number.isFinite(timestampMs) || Number.isNaN(timestampMs) || !Number.isFinite(idValue)) {
+      return null;
+    }
+
+    return `${Math.floor(timestampMs)}:${Math.floor(idValue)}`;
   }
 
   private buildProfileSummary(
@@ -557,6 +605,70 @@ export default class AppServer {
         res.status(500).json({
           error: 'PROFILE_ANALYTICS_FAILED',
           message: "Impossible de récupérer le profil demandé.",
+        });
+      }
+    });
+
+    this.app.get('/api/users/:userId/voice-transcriptions', async (req, res) => {
+      const rawUserId = typeof req.params.userId === 'string' ? req.params.userId.trim() : '';
+      if (!rawUserId) {
+        res
+          .status(400)
+          .json({ error: 'USER_ID_REQUIRED', message: "L'identifiant utilisateur est requis." });
+        return;
+      }
+
+      if (!this.voiceActivityRepository) {
+        res.status(503).json({
+          error: 'VOICE_TRANSCRIPTIONS_UNAVAILABLE',
+          message: 'Les retranscriptions vocales ne sont pas disponibles pour le moment.',
+        });
+        return;
+      }
+
+      const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+      const cursorParam = Array.isArray(req.query.cursor) ? req.query.cursor[0] : req.query.cursor;
+
+      const parsedLimit = typeof limitParam === 'string' ? Number.parseInt(limitParam, 10) : NaN;
+      const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 50) : 10;
+
+      let cursor: VoiceTranscriptionCursor | null = null;
+      if (typeof cursorParam === 'string' && cursorParam.trim().length > 0) {
+        cursor = this.parseVoiceTranscriptionCursor(cursorParam);
+        if (!cursor) {
+          res
+            .status(400)
+            .json({ error: 'INVALID_CURSOR', message: 'Le curseur de pagination est invalide.' });
+          return;
+        }
+      }
+
+      try {
+        const result = await this.voiceActivityRepository.listUserVoiceTranscriptions({
+          userId: rawUserId,
+          limit,
+          before: cursor,
+        });
+
+        const serializedCursor = this.serializeVoiceTranscriptionCursor(result.nextCursor);
+
+        res.json({
+          entries: result.entries.map((entry) => ({
+            transcriptionId: entry.transcriptionId,
+            channelId: entry.channelId,
+            guildId: entry.guildId,
+            content: entry.content,
+            timestamp: entry.timestamp.toISOString(),
+            timestampMs: entry.timestamp.getTime(),
+          })),
+          hasMore: Boolean(result.hasMore && serializedCursor),
+          nextCursor: serializedCursor,
+        });
+      } catch (error) {
+        console.error('Failed to load voice transcriptions', error);
+        res.status(500).json({
+          error: 'VOICE_TRANSCRIPTIONS_FAILED',
+          message: 'Impossible de récupérer les retranscriptions vocales.',
         });
       }
     });

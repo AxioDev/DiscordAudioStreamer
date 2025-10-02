@@ -88,6 +88,19 @@ export interface UserMessageActivityEntry {
   timestamp: Date;
 }
 
+export interface UserVoiceTranscriptionEntry {
+  transcriptionId: string;
+  channelId: string | null;
+  guildId: string | null;
+  content: string | null;
+  timestamp: Date;
+}
+
+export interface VoiceTranscriptionCursor {
+  timestamp: Date;
+  id: number;
+}
+
 export interface VoiceActivityHistoryEntry {
   userId: string;
   channelId: string | null;
@@ -189,6 +202,8 @@ export default class VoiceActivityRepository {
   private textMessagesColumns: Set<string> | null;
   private textMessagesColumnTypes: Map<string, SchemaColumnInfo> | null;
 
+  private voiceTranscriptionsColumns: Set<string> | null;
+
   private readonly missingColumnWarnings: Set<string>;
   private readonly schemaPatchWarnings: Set<string>;
 
@@ -208,6 +223,7 @@ export default class VoiceActivityRepository {
     this.voiceCamColumns = null;
     this.textMessagesColumns = null;
     this.textMessagesColumnTypes = null;
+    this.voiceTranscriptionsColumns = null;
     this.missingColumnWarnings = new Set();
     this.schemaPatchWarnings = new Set();
     this.schemaPatchesPromise = null;
@@ -244,7 +260,8 @@ export default class VoiceActivityRepository {
       this.voiceInterruptsColumns &&
       this.voiceMuteEventsColumns &&
       this.voiceCamColumns &&
-      this.textMessagesColumns
+      this.textMessagesColumns &&
+      this.voiceTranscriptionsColumns
     ) {
       return;
     }
@@ -260,7 +277,13 @@ export default class VoiceActivityRepository {
 
   private async loadSchemaIntrospection(pool: Pool): Promise<void> {
     try {
-      const tables = ['voice_interrupts', 'voice_mute_events', 'voice_cam', 'text_messages'];
+      const tables = [
+        'voice_interrupts',
+        'voice_mute_events',
+        'voice_cam',
+        'text_messages',
+        'voice_transcriptions',
+      ];
       const result = await pool.query<{
         table_name: string;
         column_name: string;
@@ -293,6 +316,7 @@ export default class VoiceActivityRepository {
       this.voiceCamColumns = map.get('voice_cam') ?? new Set<string>();
       this.textMessagesColumns = map.get('text_messages') ?? new Set<string>();
       this.textMessagesColumnTypes = typeMap.get('text_messages') ?? new Map<string, SchemaColumnInfo>();
+      this.voiceTranscriptionsColumns = map.get('voice_transcriptions') ?? new Set<string>();
     } catch (error) {
       console.error('Failed to introspect voice activity database schema', error);
 
@@ -301,6 +325,7 @@ export default class VoiceActivityRepository {
       this.voiceCamColumns ??= new Set<string>();
       this.textMessagesColumns ??= new Set<string>();
       this.textMessagesColumnTypes ??= new Map<string, SchemaColumnInfo>();
+      this.voiceTranscriptionsColumns ??= new Set<string>();
     }
   }
 
@@ -948,6 +973,128 @@ export default class VoiceActivityRepository {
       }
       console.error('Failed to load recent text messages', error);
       return {};
+    }
+  }
+
+  public async listUserVoiceTranscriptions({
+    userId,
+    limit = null,
+    before = null,
+  }: {
+    userId: string;
+    limit?: number | null;
+    before?: VoiceTranscriptionCursor | null;
+  }): Promise<{
+    entries: UserVoiceTranscriptionEntry[];
+    hasMore: boolean;
+    nextCursor: VoiceTranscriptionCursor | null;
+  }> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return { entries: [], hasMore: false, nextCursor: null };
+    }
+
+    const numericLimit = Number(limit);
+    const boundedLimit = Number.isFinite(numericLimit)
+      ? Math.min(Math.max(Math.floor(numericLimit), 1), 50)
+      : 10;
+
+    const cursorTimestamp = before?.timestamp instanceof Date && !Number.isNaN(before.timestamp.getTime())
+      ? before.timestamp
+      : null;
+    const cursorIdValue = Number(before?.id);
+    const cursorId = Number.isFinite(cursorIdValue) ? Math.floor(cursorIdValue) : null;
+
+    try {
+      await this.ensureSchemaIntrospection(pool);
+      if (!this.voiceTranscriptionsColumns || this.voiceTranscriptionsColumns.size === 0) {
+        return { entries: [], hasMore: false, nextCursor: null };
+      }
+
+      const params: Array<string | number> = [userId];
+      let cursorClause = '';
+
+      if (cursorTimestamp) {
+        const timestampParamIndex = params.length + 1;
+        params.push(cursorTimestamp.toISOString());
+        if (cursorId != null) {
+          const idParamIndex = params.length + 1;
+          params.push(cursorId);
+          cursorClause = ` AND (timestamp < $${timestampParamIndex}::timestamptz OR (timestamp = $${timestampParamIndex}::timestamptz AND id < $${idParamIndex}))`;
+        } else {
+          cursorClause = ` AND timestamp < $${timestampParamIndex}::timestamptz`;
+        }
+      }
+
+      const limitParamIndex = params.length + 1;
+      params.push(boundedLimit + 1);
+
+      const query = `SELECT id, channel_id, guild_id, content, timestamp
+           FROM voice_transcriptions
+          WHERE user_id = $1${cursorClause}
+          ORDER BY timestamp DESC, id DESC
+          LIMIT $${limitParamIndex}`;
+
+      const result = await pool.query(query, params);
+
+      const normalizedRows = (result.rows ?? []).map((row) => {
+        const timestampValue = row.timestamp instanceof Date ? row.timestamp : new Date(row.timestamp);
+        const timestamp = Number.isNaN(timestampValue?.getTime()) ? new Date(0) : timestampValue;
+        const rawId = row.id;
+        const numericIdCandidate = typeof rawId === 'number' ? rawId : Number(rawId);
+        const numericId = Number.isFinite(numericIdCandidate) ? Math.floor(numericIdCandidate) : null;
+
+        const entry: UserVoiceTranscriptionEntry = {
+          transcriptionId: rawId != null ? String(rawId) : '',
+          channelId:
+            typeof row.channel_id === 'string'
+              ? row.channel_id
+              : row.channel_id == null
+              ? null
+              : String(row.channel_id),
+          guildId:
+            typeof row.guild_id === 'string'
+              ? row.guild_id
+              : row.guild_id == null
+              ? null
+              : String(row.guild_id),
+          content:
+            typeof row.content === 'string'
+              ? row.content
+              : row.content == null
+              ? null
+              : String(row.content),
+          timestamp,
+        };
+
+        return { entry, timestamp, numericId };
+      });
+
+      const limitedRows = normalizedRows.slice(0, boundedLimit);
+      const lastRow = limitedRows.length > 0 ? limitedRows[limitedRows.length - 1] : null;
+      const rawHasMore = normalizedRows.length > boundedLimit;
+      let nextCursor: VoiceTranscriptionCursor | null = null;
+
+      if (rawHasMore && lastRow?.numericId != null) {
+        nextCursor = { timestamp: lastRow.timestamp, id: lastRow.numericId };
+      } else if (rawHasMore) {
+        console.warn('Unable to build pagination cursor for voice transcriptions; falling back to single page result.');
+      }
+
+      const hasMore = rawHasMore && nextCursor != null;
+
+      return {
+        entries: limitedRows.map((row) => row.entry),
+        hasMore,
+        nextCursor,
+      };
+    } catch (error) {
+      if ((error as { code?: string })?.code === '42P01') {
+        console.warn('voice_transcriptions table not found; skipping transcription lookup');
+        return { entries: [], hasMore: false, nextCursor: null };
+      }
+      console.error('Failed to load voice transcriptions', error);
+      return { entries: [], hasMore: false, nextCursor: null };
     }
   }
 
