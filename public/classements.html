@@ -527,11 +527,61 @@
           ? `<p class="mt-1 text-xs font-medium text-slate-400/80">${normalizedUsername}</p>`
           : '';
 
+        const positionTrend = leader?.positionTrend ?? null;
+        const movement = positionTrend?.movement ?? 'same';
+        const delta = Number.isFinite(positionTrend?.delta) ? Number(positionTrend.delta) : null;
+
+        const { movementIcon, movementLabel, movementClass, movementDelta } = (() => {
+          switch (movement) {
+            case 'up':
+              return {
+                movementIcon: '↑',
+                movementLabel: 'Monte',
+                movementClass: 'text-emerald-300',
+                movementDelta: delta !== null && delta !== 0 ? `+${delta}` : '+0',
+              };
+            case 'down':
+              return {
+                movementIcon: '↓',
+                movementLabel: 'Descend',
+                movementClass: 'text-rose-300',
+                movementDelta: delta !== null && delta !== 0 ? `${delta}` : '0',
+              };
+            case 'new':
+              return {
+                movementIcon: '★',
+                movementLabel: 'Nouveau',
+                movementClass: 'text-amber-300',
+                movementDelta: '—',
+              };
+            default:
+              return {
+                movementIcon: '→',
+                movementLabel: 'Stable',
+                movementClass: 'text-slate-300',
+                movementDelta: '0',
+              };
+          }
+        })();
+
+        const trendBadge = `
+          <span class="flex flex-col text-[0.65rem] font-semibold leading-tight ${movementClass}">
+            <span class="flex items-center gap-1">
+              <span aria-hidden="true">${movementIcon}</span>
+              <span>${movementDelta}</span>
+            </span>
+            <span class="uppercase tracking-[0.2em] text-[0.55rem] text-slate-400/70">${movementLabel}</span>
+          </span>
+        `;
+
         container.innerHTML = `
           <div class="absolute inset-0 bg-gradient-to-r ${rank <= 3 ? accent : 'from-transparent to-transparent'} opacity-[0.22]"></div>
           <div class="relative flex flex-col gap-6 p-6 sm:flex-row sm:items-center sm:justify-between">
             <div class="flex flex-1 items-center gap-5">
-              <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-lg font-extrabold text-white">${pad(rank)}</span>
+              <div class="flex items-center gap-3">
+                <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-lg font-extrabold text-white">${pad(rank)}</span>
+                ${trendBadge}
+              </div>
               <div>
                 <h3 class="text-lg font-semibold text-white">${leader.displayName}</h3>
                 ${usernameMarkup}
@@ -589,15 +639,39 @@
         });
       };
 
-      const displayMeta = (count) => {
-        const now = new Date();
+      const parseDate = (value) => {
+        if (!value) {
+          return null;
+        }
+        const candidate = new Date(value);
+        return Number.isNaN(candidate.getTime()) ? null : candidate;
+      };
+
+      const displayMeta = (count, snapshot) => {
+        const bucketDate = parseDate(snapshot?.bucketStart) ?? new Date();
         const formatted = new Intl.DateTimeFormat('fr-FR', {
           hour: '2-digit',
           minute: '2-digit',
           day: '2-digit',
           month: 'long',
-        }).format(now);
-        metaElement.textContent = `${count} profils · Mise à jour ${formatted}`;
+        }).format(bucketDate);
+
+        let comparisonSegment = '';
+        const comparedDate = parseDate(snapshot?.comparedTo);
+        if (comparedDate) {
+          const diffMs = bucketDate.getTime() - comparedDate.getTime();
+          const diffHours = diffMs / 3_600_000;
+          if (Number.isFinite(diffHours)) {
+            const formatter = new Intl.RelativeTimeFormat('fr-FR', { numeric: 'auto' });
+            const rounded = Math.round(diffHours);
+            comparisonSegment =
+              rounded === 0
+                ? ' · Variations sur l’heure en cours'
+                : ` · Variations ${formatter.format(-rounded, 'hour')}`;
+          }
+        }
+
+        metaElement.textContent = `${count} profils · Mise à jour ${formatted}${comparisonSegment}`;
       };
 
       let currentRequestController = null;
@@ -634,8 +708,9 @@
             return;
           }
           const leaders = Array.isArray(payload?.leaders) ? payload.leaders : [];
+          const snapshot = payload?.snapshot ?? null;
           renderLeaderboard(leaders);
-          displayMeta(leaders.length);
+          displayMeta(leaders.length, snapshot);
           hasLoadedOnce = true;
         } catch (error) {
           if (controller.signal.aborted) {
@@ -643,7 +718,7 @@
           }
           console.error(error);
           renderErrorState();
-          displayMeta(0);
+          displayMeta(0, null);
         }
         finally {
           if (currentRequestController === controller) {

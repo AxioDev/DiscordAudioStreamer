@@ -137,6 +137,31 @@ export interface HypeLeaderEntry {
   schScoreNorm: number;
 }
 
+export interface HypeLeaderboardSnapshotOptions {
+  limit: number;
+  search: string | null;
+  sortBy: HypeLeaderboardSortBy;
+  sortOrder: HypeLeaderboardSortOrder;
+  periodDays: number | null;
+}
+
+export interface HypeLeaderboardSnapshotEntry {
+  userId: string;
+  rank: number;
+  sessions: number;
+  activityScore: number;
+  schScoreNorm: number;
+}
+
+export interface HypeLeaderboardSnapshotRecord {
+  bucketStart: Date;
+  optionsHash: string;
+  options: HypeLeaderboardSnapshotOptions;
+  leaders: HypeLeaderboardSnapshotEntry[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 interface SchemaColumnInfo {
   dataType: string;
   udtName: string;
@@ -169,6 +194,8 @@ export default class VoiceActivityRepository {
 
   private schemaPatchesPromise: Promise<void> | null;
 
+  private leaderboardSnapshotsEnsured: boolean;
+
   constructor({ url, ssl, poolConfig }: VoiceActivityRepositoryOptions) {
     this.connectionString = url;
     this.ssl = Boolean(ssl);
@@ -184,6 +211,7 @@ export default class VoiceActivityRepository {
     this.missingColumnWarnings = new Set();
     this.schemaPatchWarnings = new Set();
     this.schemaPatchesPromise = null;
+    this.leaderboardSnapshotsEnsured = false;
   }
 
   private ensurePool(): Pool | null {
@@ -346,6 +374,34 @@ export default class VoiceActivityRepository {
     await this.upgradeSnowflakeColumn(pool, 'text_messages', 'user_id', textMessageTypes);
     await this.upgradeSnowflakeColumn(pool, 'text_messages', 'guild_id', textMessageTypes);
     await this.upgradeSnowflakeColumn(pool, 'text_messages', 'channel_id', textMessageTypes);
+  }
+
+  private async ensureLeaderboardSnapshotTable(pool: Pool): Promise<void> {
+    if (this.leaderboardSnapshotsEnsured) {
+      return;
+    }
+
+    try {
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS hype_leaderboard_snapshots (
+           id bigserial PRIMARY KEY,
+           bucket_start timestamptz NOT NULL,
+           options_hash text NOT NULL,
+           options jsonb NOT NULL,
+           leaders jsonb NOT NULL,
+           created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           UNIQUE (bucket_start, options_hash)
+         )`,
+      );
+      await pool.query(
+        `CREATE INDEX IF NOT EXISTS hype_leaderboard_snapshots_lookup_idx
+           ON hype_leaderboard_snapshots (options_hash, bucket_start DESC)`,
+      );
+      this.leaderboardSnapshotsEnsured = true;
+    } catch (error) {
+      console.error('Failed to ensure hype leaderboard snapshots table', error);
+    }
   }
 
   private warnAboutMissingColumn(table: string, column: string): void {
@@ -1222,6 +1278,168 @@ LIMIT ${limitParameter}`;
     } catch (error) {
       console.error('Failed to compute hype leaderboard', error);
       throw error;
+    }
+  }
+
+  private parseSnapshotRow(row: Record<string, unknown>): HypeLeaderboardSnapshotRecord | null {
+    if (!row) {
+      return null;
+    }
+
+    const bucketStart = row.bucket_start instanceof Date ? row.bucket_start : new Date(String(row.bucket_start ?? ''));
+    if (Number.isNaN(bucketStart.getTime())) {
+      return null;
+    }
+
+    const createdAt = row.created_at instanceof Date ? row.created_at : new Date(String(row.created_at ?? ''));
+    const updatedAt = row.updated_at instanceof Date ? row.updated_at : new Date(String(row.updated_at ?? ''));
+
+    const options = (() => {
+      try {
+        const raw = row.options as string | Record<string, unknown> | null | undefined;
+        if (!raw) {
+          return null;
+        }
+        if (typeof raw === 'string') {
+          return JSON.parse(raw) as HypeLeaderboardSnapshotOptions;
+        }
+        return raw as unknown as HypeLeaderboardSnapshotOptions;
+      } catch (error) {
+        console.error('Failed to parse hype leaderboard snapshot options', error);
+        return null;
+      }
+    })();
+
+    if (!options) {
+      return null;
+    }
+
+    const leaders = (() => {
+      try {
+        const raw = row.leaders as string | Array<Record<string, unknown>> | null | undefined;
+        if (!raw) {
+          return [];
+        }
+        if (typeof raw === 'string') {
+          const parsed = JSON.parse(raw) as HypeLeaderboardSnapshotEntry[];
+          return Array.isArray(parsed) ? parsed : [];
+        }
+        return Array.isArray(raw) ? (raw as unknown as HypeLeaderboardSnapshotEntry[]) : [];
+      } catch (error) {
+        console.error('Failed to parse hype leaderboard snapshot leaders', error);
+        return [];
+      }
+    })();
+
+    return {
+      bucketStart,
+      optionsHash: String(row.options_hash ?? ''),
+      options,
+      leaders,
+      createdAt: Number.isNaN(createdAt.getTime()) ? bucketStart : createdAt,
+      updatedAt: Number.isNaN(updatedAt.getTime()) ? bucketStart : updatedAt,
+    };
+  }
+
+  public async saveHypeLeaderboardSnapshot({
+    bucketStart,
+    optionsHash,
+    options,
+    leaders,
+  }: {
+    bucketStart: Date;
+    optionsHash: string;
+    options: HypeLeaderboardSnapshotOptions;
+    leaders: HypeLeaderboardSnapshotEntry[];
+  }): Promise<void> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return;
+    }
+
+    await this.ensureLeaderboardSnapshotTable(pool);
+
+    try {
+      await pool.query(
+        `INSERT INTO hype_leaderboard_snapshots (bucket_start, options_hash, options, leaders)
+         VALUES ($1, $2, $3::jsonb, $4::jsonb)
+         ON CONFLICT (bucket_start, options_hash)
+         DO UPDATE SET options = EXCLUDED.options, leaders = EXCLUDED.leaders, updated_at = CURRENT_TIMESTAMP`,
+        [bucketStart, optionsHash, JSON.stringify(options), JSON.stringify(leaders)],
+      );
+    } catch (error) {
+      console.error('Failed to persist hype leaderboard snapshot', error);
+    }
+  }
+
+  public async loadHypeLeaderboardSnapshot({
+    bucketStart,
+    optionsHash,
+  }: {
+    bucketStart: Date;
+    optionsHash: string;
+  }): Promise<HypeLeaderboardSnapshotRecord | null> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return null;
+    }
+
+    await this.ensureLeaderboardSnapshotTable(pool);
+
+    try {
+      const result = await pool.query(
+        `SELECT bucket_start, options_hash, options, leaders, created_at, updated_at
+           FROM hype_leaderboard_snapshots
+          WHERE options_hash = $1 AND bucket_start = $2
+          LIMIT 1`,
+        [optionsHash, bucketStart],
+      );
+
+      const row = result.rows?.[0];
+      return row ? this.parseSnapshotRow(row) : null;
+    } catch (error) {
+      console.error('Failed to load hype leaderboard snapshot', error);
+      return null;
+    }
+  }
+
+  public async loadLatestHypeLeaderboardSnapshot({
+    optionsHash,
+    before = null,
+  }: {
+    optionsHash: string;
+    before?: Date | null;
+  }): Promise<HypeLeaderboardSnapshotRecord | null> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return null;
+    }
+
+    await this.ensureLeaderboardSnapshotTable(pool);
+
+    const params: Array<string | Date> = [optionsHash];
+    let whereClause = 'options_hash = $1';
+
+    if (before instanceof Date && !Number.isNaN(before.getTime())) {
+      params.push(before);
+      whereClause += ' AND bucket_start < $2';
+    }
+
+    try {
+      const result = await pool.query(
+        `SELECT bucket_start, options_hash, options, leaders, created_at, updated_at
+           FROM hype_leaderboard_snapshots
+          WHERE ${whereClause}
+          ORDER BY bucket_start DESC
+          LIMIT 1`,
+        params,
+      );
+
+      const row = result.rows?.[0];
+      return row ? this.parseSnapshotRow(row) : null;
+    } catch (error) {
+      console.error('Failed to load latest hype leaderboard snapshot', error);
+      return null;
     }
   }
 
