@@ -3019,43 +3019,87 @@
           return null;
         }
 
-        const gradient = context.createLinearGradient(0, 0, 0, canvas.height);
-        gradient.addColorStop(0, '#111827');
-        gradient.addColorStop(0.35, '#1f3a8a');
-        gradient.addColorStop(0.7, '#1e293b');
-        gradient.addColorStop(1, '#0f172a');
-        context.fillStyle = gradient;
-        context.fillRect(0, 0, canvas.width, canvas.height);
+        const texture = new THREE.CanvasTexture(canvas);
 
-        context.save();
-        context.globalAlpha = 0.18;
-        for (let index = 0; index < 24; index += 1) {
-          const x = (index / 24) * canvas.width;
-          const brightness = 0.5 + 0.5 * Math.sin(index * 0.7);
-          const color = Math.floor(180 + brightness * 50);
-          context.fillStyle = `rgba(${color}, ${color}, ${color}, 0.6)`;
-          context.fillRect(x, 0, canvas.width / 48, canvas.height);
-        }
-        context.restore();
+        const paintNightGradient = () => {
+          context.clearRect(0, 0, canvas.width, canvas.height);
 
-        context.fillStyle = '#facc15';
-        context.font = 'bold 400px "Inter"';
-        context.textAlign = 'center';
-        context.textBaseline = 'middle';
-        context.shadowColor = 'rgba(234, 179, 8, 0.35)';
-        context.shadowBlur = 18;
-        context.fillText('8.6', canvas.width / 2 - 30, canvas.height / 2 - 18);
+          const baseGradient = context.createLinearGradient(0, 0, 0, canvas.height);
+          baseGradient.addColorStop(0, '#020617');
+          baseGradient.addColorStop(0.35, '#0b1120');
+          baseGradient.addColorStop(0.7, '#0f172a');
+          baseGradient.addColorStop(1, '#0a1022');
+          context.fillStyle = baseGradient;
+          context.fillRect(0, 0, canvas.width, canvas.height);
 
-        context.shadowColor = 'transparent';
-        context.fillStyle = '#f8fafc';
-        context.font = '600 54px "Inter"';
-        context.fillText('BIÈRE FORTEMENT HOUBLONNÉE', canvas.width / 2, canvas.height - 110);
+          context.save();
+          context.globalAlpha = 0.2;
+          for (let index = 0; index < 32; index += 1) {
+            const x = (index / 32) * canvas.width;
+            const brightness = 0.45 + 0.55 * Math.sin(index * 0.55);
+            const channel = Math.floor(120 + brightness * 70);
+            context.fillStyle = `rgba(${channel}, ${channel + 10}, ${channel + 25}, 0.55)`;
+            context.fillRect(x, 0, canvas.width / 64, canvas.height);
+          }
+          context.restore();
+        };
 
-        context.fillStyle = 'rgba(148, 163, 184, 0.35)';
-        context.font = '600 44px "Inter"';
-        context.fillText('DIEU DES NUITS BLANCHES', canvas.width / 2, 110);
+        const paintTypography = () => {
+          context.save();
+          context.textBaseline = 'middle';
+          context.textAlign = 'left';
 
-        return new THREE.CanvasTexture(canvas);
+          context.shadowColor = 'rgba(15, 23, 42, 0.55)';
+          context.shadowBlur = 32;
+          context.fillStyle = '#f8fafc';
+          context.font = '700 360px "Inter"';
+          context.fillText('8.6', canvas.width * 0.32, canvas.height / 2 - 24);
+
+          context.shadowBlur = 0;
+          context.fillStyle = 'rgba(226, 232, 240, 0.92)';
+          context.font = '700 76px "Inter"';
+          context.fillText('ORIGINAL', canvas.width * 0.32, canvas.height / 2 + 156);
+
+          context.fillStyle = 'rgba(148, 163, 184, 0.9)';
+          context.font = '600 56px "Inter"';
+          context.fillText('INTENSE BLOND BEER', canvas.width * 0.32, canvas.height / 2 + 216);
+
+          context.font = '600 48px "Inter"';
+          context.fillText('ALC. 8,6% VOL.', canvas.width * 0.32, canvas.height / 2 + 268);
+
+          context.restore();
+        };
+
+        paintNightGradient();
+        paintTypography();
+        texture.needsUpdate = true;
+
+        const referenceImage = new Image();
+        referenceImage.crossOrigin = 'anonymous';
+        referenceImage.decoding = 'async';
+        referenceImage.src = 'https://i.ibb.co/Z1LyfZmh/image.png';
+        referenceImage.onload = () => {
+          paintNightGradient();
+          context.drawImage(referenceImage, 0, 0, canvas.width, canvas.height);
+
+          const blueOverlay = context.createLinearGradient(0, 0, 0, canvas.height);
+          blueOverlay.addColorStop(0, 'rgba(15, 23, 42, 0.55)');
+          blueOverlay.addColorStop(0.5, 'rgba(11, 17, 32, 0.45)');
+          blueOverlay.addColorStop(1, 'rgba(15, 23, 42, 0.65)');
+          context.fillStyle = blueOverlay;
+          context.fillRect(0, 0, canvas.width, canvas.height);
+
+          paintTypography();
+          texture.needsUpdate = true;
+        };
+
+        referenceImage.onerror = () => {
+          paintNightGradient();
+          paintTypography();
+          texture.needsUpdate = true;
+        };
+
+        return texture;
       };
 
       const BeerCanDisplay = () => {
