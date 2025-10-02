@@ -16,6 +16,9 @@ import type {
   HypeLeaderboardQueryOptions,
   HypeLeaderboardSortBy,
   HypeLeaderboardSortOrder,
+  UserMessageActivityEntry,
+  UserVoiceActivitySegment,
+  UserVoicePresenceSegment,
 } from '../services/VoiceActivityRepository';
 
 export interface AppServerOptions {
@@ -92,6 +95,173 @@ export default class AppServer {
 
     this.configureMiddleware();
     this.registerRoutes();
+  }
+
+  private parseTimestamp(value: unknown): Date | null {
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime()) ? null : value;
+    }
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const candidate = new Date(value);
+      return Number.isNaN(candidate.getTime()) ? null : candidate;
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return null;
+      }
+
+      const numeric = Number(trimmed);
+      if (Number.isFinite(numeric)) {
+        const fromNumber = new Date(numeric);
+        if (!Number.isNaN(fromNumber.getTime())) {
+          return fromNumber;
+        }
+      }
+
+      const fromString = new Date(trimmed);
+      if (!Number.isNaN(fromString.getTime())) {
+        return fromString;
+      }
+    }
+
+    return null;
+  }
+
+  private buildProfileSummary(
+    range: { since: Date; until: Date },
+    presenceSegments: UserVoicePresenceSegment[],
+    speakingSegments: UserVoiceActivitySegment[],
+    messageEvents: UserMessageActivityEntry[],
+  ): Record<string, unknown> {
+    const rangeStart = Number(range.since?.getTime()) || 0;
+    const rangeEnd = Number(range.until?.getTime()) || rangeStart;
+    const safeRangeEnd = Math.max(rangeEnd, rangeStart);
+
+    const clamp = (start: number, end: number): [number, number] | null => {
+      const safeStart = Math.max(rangeStart, start);
+      const safeEnd = Math.min(safeRangeEnd, end);
+      if (!Number.isFinite(safeStart) || !Number.isFinite(safeEnd) || safeEnd <= safeStart) {
+        return null;
+      }
+      return [safeStart, safeEnd];
+    };
+
+    const activeDays = new Set<string>();
+    const formatDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+    let totalPresenceMs = 0;
+    let totalSpeakingMs = 0;
+    let firstPresence: number | null = null;
+    let lastPresence: number | null = null;
+    let firstSpeaking: number | null = null;
+    let lastSpeaking: number | null = null;
+    let firstMessage: number | null = null;
+    let lastMessage: number | null = null;
+    let messageCount = 0;
+
+    for (const segment of presenceSegments) {
+      if (!segment) {
+        continue;
+      }
+      const joinedMs = segment.joinedAt instanceof Date ? segment.joinedAt.getTime() : NaN;
+      const leftMs = segment.leftAt instanceof Date ? segment.leftAt.getTime() : safeRangeEnd;
+      if (!Number.isFinite(joinedMs)) {
+        continue;
+      }
+      const effectiveLeft = Number.isFinite(leftMs) ? leftMs : safeRangeEnd;
+      const window = clamp(joinedMs, effectiveLeft);
+      if (!window) {
+        continue;
+      }
+      const [start, end] = window;
+      totalPresenceMs += end - start;
+      firstPresence = firstPresence === null ? start : Math.min(firstPresence, start);
+      lastPresence = lastPresence === null ? end : Math.max(lastPresence, end);
+      activeDays.add(formatDay(start));
+      activeDays.add(formatDay(end - 1));
+    }
+
+    for (const segment of speakingSegments) {
+      if (!segment) {
+        continue;
+      }
+      const startMs = segment.startedAt instanceof Date ? segment.startedAt.getTime() : NaN;
+      if (!Number.isFinite(startMs)) {
+        continue;
+      }
+      const endMs = startMs + (Number.isFinite(segment.durationMs) ? Math.max(segment.durationMs, 0) : 0);
+      const window = clamp(startMs, endMs);
+      if (!window) {
+        continue;
+      }
+      const [start, end] = window;
+      totalSpeakingMs += end - start;
+      firstSpeaking = firstSpeaking === null ? start : Math.min(firstSpeaking, start);
+      lastSpeaking = lastSpeaking === null ? end : Math.max(lastSpeaking, end);
+      activeDays.add(formatDay(start));
+      activeDays.add(formatDay(end - 1));
+    }
+
+    for (const entry of messageEvents) {
+      if (!entry) {
+        continue;
+      }
+      const timestamp = entry.timestamp instanceof Date ? entry.timestamp.getTime() : NaN;
+      if (!Number.isFinite(timestamp)) {
+        continue;
+      }
+      if (timestamp < rangeStart || timestamp > safeRangeEnd) {
+        continue;
+      }
+      messageCount += 1;
+      firstMessage = firstMessage === null ? timestamp : Math.min(firstMessage, timestamp);
+      lastMessage = lastMessage === null ? timestamp : Math.max(lastMessage, timestamp);
+      activeDays.add(formatDay(timestamp));
+    }
+
+    const firstActivityCandidates = [firstPresence, firstSpeaking, firstMessage].filter(
+      (value): value is number => value !== null,
+    );
+    const lastActivityCandidates = [lastPresence, lastSpeaking, lastMessage].filter(
+      (value): value is number => value !== null,
+    );
+
+    const firstActivity = firstActivityCandidates.length
+      ? Math.min(...firstActivityCandidates)
+      : null;
+    const lastActivity = lastActivityCandidates.length
+      ? Math.max(...lastActivityCandidates)
+      : null;
+
+    const toTimestamp = (ms: number | null) =>
+      ms === null
+        ? null
+        : {
+            ms,
+            iso: new Date(ms).toISOString(),
+          };
+
+    return {
+      rangeDurationMs: Math.max(0, safeRangeEnd - rangeStart),
+      totalPresenceMs,
+      totalSpeakingMs,
+      messageCount,
+      presenceSessions: presenceSegments.length,
+      speakingSessions: speakingSegments.length,
+      uniqueActiveDays: Array.from(activeDays.values()),
+      activeDayCount: activeDays.size,
+      firstPresenceAt: toTimestamp(firstPresence),
+      lastPresenceAt: toTimestamp(lastPresence),
+      firstSpeakingAt: toTimestamp(firstSpeaking),
+      lastSpeakingAt: toTimestamp(lastSpeaking),
+      firstMessageAt: toTimestamp(firstMessage),
+      lastMessageAt: toTimestamp(lastMessage),
+      firstActivityAt: toTimestamp(firstActivity),
+      lastActivityAt: toTimestamp(lastActivity),
+    };
   }
 
   private configureMiddleware(): void {
@@ -265,6 +435,128 @@ export default class AppServer {
             error: 'VOICE_ACTIVITY_FETCH_FAILED',
             message: "Impossible de récupérer l'historique vocal.",
           });
+      }
+    });
+
+    this.app.get('/api/users/:userId/profile', async (req, res) => {
+      const rawUserId = typeof req.params.userId === 'string' ? req.params.userId.trim() : '';
+      if (!rawUserId) {
+        res
+          .status(400)
+          .json({ error: 'USER_ID_REQUIRED', message: "L'identifiant utilisateur est requis." });
+        return;
+      }
+
+      const sinceParam = Array.isArray(req.query.since) ? req.query.since[0] : req.query.since;
+      const untilParam = Array.isArray(req.query.until) ? req.query.until[0] : req.query.until;
+
+      const now = new Date();
+      const untilCandidate = this.parseTimestamp(untilParam) ?? now;
+      const sinceCandidate = this.parseTimestamp(sinceParam)
+        ?? new Date(untilCandidate.getTime() - 24 * 60 * 60 * 1000);
+
+      if (Number.isNaN(sinceCandidate.getTime()) || Number.isNaN(untilCandidate.getTime())) {
+        res
+          .status(400)
+          .json({ error: 'INVALID_RANGE', message: 'La période demandée est invalide.' });
+        return;
+      }
+
+      if (sinceCandidate.getTime() >= untilCandidate.getTime()) {
+        res
+          .status(400)
+          .json({ error: 'EMPTY_RANGE', message: 'La date de début doit précéder la date de fin.' });
+        return;
+      }
+
+      try {
+        const [profile, presenceSegments, speakingSegments, messageEvents] = await Promise.all([
+          this.discordBridge.fetchUserIdentity(rawUserId),
+          this.voiceActivityRepository
+            ? this.voiceActivityRepository.listUserVoicePresence({
+                userId: rawUserId,
+                since: sinceCandidate,
+                until: untilCandidate,
+              })
+            : Promise.resolve([] as UserVoicePresenceSegment[]),
+          this.voiceActivityRepository
+            ? this.voiceActivityRepository.listUserVoiceActivity({
+                userId: rawUserId,
+                since: sinceCandidate,
+                until: untilCandidate,
+              })
+            : Promise.resolve([] as UserVoiceActivitySegment[]),
+          this.voiceActivityRepository
+            ? this.voiceActivityRepository.listUserMessageActivity({
+                userId: rawUserId,
+                since: sinceCandidate,
+                until: untilCandidate,
+              })
+            : Promise.resolve([] as UserMessageActivityEntry[]),
+        ]);
+
+        if (!profile && presenceSegments.length === 0 && speakingSegments.length === 0 && messageEvents.length === 0) {
+          res
+            .status(404)
+            .json({ error: 'PROFILE_NOT_FOUND', message: "Impossible de trouver le profil demandé." });
+          return;
+        }
+
+        const summary = this.buildProfileSummary(
+          { since: sinceCandidate, until: untilCandidate },
+          presenceSegments,
+          speakingSegments,
+          messageEvents,
+        );
+
+        const toMillis = (date: Date | null) => (date instanceof Date ? date.getTime() : null);
+
+        res.json({
+          profile,
+          range: {
+            since: sinceCandidate.toISOString(),
+            until: untilCandidate.toISOString(),
+            sinceMs: sinceCandidate.getTime(),
+            untilMs: untilCandidate.getTime(),
+          },
+          stats: summary,
+          presenceSegments: presenceSegments.map((segment) => ({
+            channelId: segment.channelId,
+            guildId: segment.guildId,
+            joinedAt: segment.joinedAt.toISOString(),
+            joinedAtMs: segment.joinedAt.getTime(),
+            leftAt: segment.leftAt ? segment.leftAt.toISOString() : null,
+            leftAtMs: toMillis(segment.leftAt),
+          })),
+          speakingSegments: speakingSegments.map((segment) => {
+            const startedAt = segment.startedAt;
+            const startMs = startedAt.getTime();
+            const durationMs = Number.isFinite(segment.durationMs) ? Math.max(segment.durationMs, 0) : 0;
+            const endedAt = new Date(startMs + durationMs);
+            return {
+              channelId: segment.channelId,
+              guildId: segment.guildId,
+              startedAt: startedAt.toISOString(),
+              startedAtMs: startMs,
+              durationMs,
+              endedAt: endedAt.toISOString(),
+              endedAtMs: endedAt.getTime(),
+            };
+          }),
+          messageEvents: messageEvents.map((entry) => ({
+            messageId: entry.messageId,
+            channelId: entry.channelId,
+            guildId: entry.guildId,
+            timestamp: entry.timestamp.toISOString(),
+            timestampMs: entry.timestamp.getTime(),
+          })),
+        });
+      } catch (error) {
+        console.error('Failed to build user profile analytics', error);
+        res.status(500).json({
+          error: 'PROFILE_ANALYTICS_FAILED',
+          message: "Impossible de récupérer le profil demandé.",
+        });
       }
     });
 

@@ -65,6 +65,7 @@ const discordBridge = new DiscordAudioBridge({
   config,
   mixer,
   speakerTracker,
+  voiceActivityRepository,
 });
 
 discordBridge.login().catch((error) => {

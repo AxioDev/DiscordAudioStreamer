@@ -26,6 +26,7 @@ import { EventEmitter } from 'node:events';
 import type AudioMixer from '../audio/AudioMixer';
 import type SpeakerTracker from '../services/SpeakerTracker';
 import type { VoiceStateSnapshot } from '../services/SpeakerTracker';
+import type VoiceActivityRepository from '../services/VoiceActivityRepository';
 import type { Config } from '../config';
 
 type DecoderStream = prism.opus.Decoder;
@@ -40,6 +41,26 @@ export interface DiscordAudioBridgeOptions {
   config: Config;
   mixer: AudioMixer;
   speakerTracker: SpeakerTracker;
+  voiceActivityRepository?: VoiceActivityRepository | null;
+}
+
+export interface DiscordUserIdentity {
+  id: string;
+  username: string | null;
+  globalName: string | null;
+  discriminator: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+  bannerUrl: string | null;
+  accentColor: string | null;
+  createdAt: string | null;
+  guild: {
+    id: string;
+    nickname: string | null;
+    displayName: string | null;
+    joinedAt: string | null;
+    roles: Array<{ id: string; name: string }>;
+  } | null;
 }
 
 export default class DiscordAudioBridge {
@@ -83,14 +104,18 @@ export default class DiscordAudioBridge {
 
   private readonly events = new EventEmitter();
 
-  constructor({ config, mixer, speakerTracker }: DiscordAudioBridgeOptions) {
+  private readonly voiceActivityRepository: VoiceActivityRepository | null;
+
+  constructor({ config, mixer, speakerTracker, voiceActivityRepository = null }: DiscordAudioBridgeOptions) {
     this.config = config;
     this.mixer = mixer;
     this.speakerTracker = speakerTracker;
+    this.voiceActivityRepository = voiceActivityRepository;
 
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildVoiceStates,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
@@ -136,6 +161,24 @@ export default class DiscordAudioBridge {
       return;
     }
 
+    const createdAt = message.createdAt instanceof Date && !Number.isNaN(message.createdAt.getTime())
+      ? message.createdAt
+      : new Date();
+
+    if (this.voiceActivityRepository) {
+      this.voiceActivityRepository
+        .recordMessageActivity({
+          messageId: message.id,
+          userId: message.author.id,
+          guildId: message.guildId ?? null,
+          channelId: message.channelId,
+          timestamp: createdAt,
+        })
+        .catch((error) => {
+          console.warn('Failed to persist message activity event', error);
+        });
+    }
+
     const content = (message.content || '').trim();
     if (!content.startsWith('!')) {
       return;
@@ -167,6 +210,76 @@ export default class DiscordAudioBridge {
       } else {
         await message.reply('Je ne suis pas connecté à un salon vocal.');
       }
+    }
+  }
+
+  public async fetchUserIdentity(userId: string): Promise<DiscordUserIdentity | null> {
+    try {
+      const user = await this.client.users.fetch(userId);
+      if (!user) {
+        return null;
+      }
+
+      const discriminator = typeof user.discriminator === 'string' ? user.discriminator : null;
+      const username = typeof user.username === 'string' ? user.username : null;
+      const globalName = typeof user.globalName === 'string' ? user.globalName : null;
+      const createdAt = user.createdAt instanceof Date && !Number.isNaN(user.createdAt.getTime())
+        ? user.createdAt.toISOString()
+        : null;
+
+      const avatarUrl = typeof user.displayAvatarURL === 'function'
+        ? user.displayAvatarURL({ extension: 'png', size: 256 })
+        : null;
+      const bannerUrl = typeof user.bannerURL === 'function' ? user.bannerURL({ size: 1024 }) : null;
+      const accentColor = typeof user.hexAccentColor === 'string' ? user.hexAccentColor : null;
+
+      const guildId = this.config.guildId ?? this.currentGuildId;
+      let guildInfo: DiscordUserIdentity['guild'] = null;
+
+      if (guildId) {
+        try {
+          const cachedGuild = this.client.guilds.cache.get(guildId);
+          const guild = cachedGuild ?? (await this.client.guilds.fetch(guildId));
+          if (guild) {
+            const member = await guild.members.fetch(userId);
+            if (member) {
+              const joinedAt = member.joinedAt instanceof Date && !Number.isNaN(member.joinedAt.getTime())
+                ? member.joinedAt.toISOString()
+                : null;
+              const nickname = typeof member.nickname === 'string' ? member.nickname : null;
+              const memberDisplayName = typeof member.displayName === 'string' ? member.displayName : nickname;
+              const roles = Array.from(member.roles.cache.values())
+                .filter((role) => role.id !== guildId)
+                .map((role) => ({ id: role.id, name: role.name }));
+              guildInfo = {
+                id: guildId,
+                nickname,
+                displayName: memberDisplayName ?? nickname ?? null,
+                joinedAt,
+                roles,
+              };
+            }
+          }
+        } catch (error) {
+          console.warn('Unable to fetch guild member details for user', userId, (error as Error)?.message ?? error);
+        }
+      }
+
+      return {
+        id: user.id,
+        username,
+        globalName,
+        discriminator,
+        displayName: guildInfo?.displayName || guildInfo?.nickname || globalName || username,
+        avatarUrl,
+        bannerUrl: bannerUrl ?? null,
+        accentColor,
+        createdAt,
+        guild: guildInfo,
+      };
+    } catch (error) {
+      console.warn('Failed to fetch Discord user identity', userId, (error as Error)?.message ?? error);
+      return null;
     }
   }
 
