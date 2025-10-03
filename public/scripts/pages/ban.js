@@ -6,7 +6,12 @@ import {
   MicOff,
   ShieldCheck,
   Sparkles,
+  Users,
+  Headphones,
+  X,
+  ArrowRight,
 } from '../core/deps.js';
+import { MODERATION_SERVICES } from '../components/index.js';
 
 const BanPage = () => html`
   <${Fragment}>
