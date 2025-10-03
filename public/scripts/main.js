@@ -30,6 +30,7 @@ import { ShopPage } from './pages/shop.js';
 import { ProfilePage } from './pages/profile.js';
 import { BanPage } from './pages/ban.js';
 import { AboutPage } from './pages/about.js';
+import { ClassementsPage } from './pages/classements.js';
 
 const getInitialSoulDecision = () => {
   if (typeof window === 'undefined') {
@@ -51,8 +52,6 @@ const NAV_LINKS = [
     label: 'Classements',
     route: 'classements',
     hash: '#/classements',
-    href: '/classements',
-    external: true,
   },
   { label: 'Modération', route: 'ban', hash: '#/bannir' },
   { label: 'À propos', route: 'about', hash: '#/about' },
@@ -85,6 +84,15 @@ const getRouteFromHash = () => {
   }
   if (head === 'boutique') {
     return { name: 'shop', params: {} };
+  }
+  if (head === 'classements') {
+    const params = {
+      search: search.get('search') ?? '',
+      sortBy: search.get('sortBy') ?? null,
+      sortOrder: search.get('sortOrder') ?? null,
+      period: search.get('period') ?? null,
+    };
+    return { name: 'classements', params };
   }
   if (head === 'bannir' || head === 'ban') {
     return { name: 'ban', params: {} };
@@ -159,8 +167,16 @@ const App = () => {
 
   useEffect(() => {
     if (!window.location.hash) {
-      window.location.hash = '#/';
-      setRoute({ name: 'home', params: {} });
+      if (window.location.pathname === '/classements') {
+        const query = window.location.search?.replace(/^\?/, '');
+        const hashSuffix = query ? `?${query}` : '';
+        const targetHash = `#/classements${hashSuffix}`;
+        window.location.hash = targetHash;
+        setRoute({ name: 'classements', params: getRouteFromHash().params });
+      } else {
+        window.location.hash = '#/';
+        setRoute({ name: 'home', params: {} });
+      }
     }
   }, []);
 
@@ -576,11 +592,6 @@ const App = () => {
     if (!link) {
       return;
     }
-    if (link.external && link.href) {
-      window.location.href = link.href;
-      setMenuOpen(false);
-      return;
-    }
     if (window.location.hash !== link.hash) {
       window.location.hash = link.hash;
     } else {
@@ -717,6 +728,8 @@ const App = () => {
                   }}
                   onUpdateRange=${updateProfileRoute}
                 />`
+              : route.name === 'classements'
+              ? html`<${ClassementsPage} params=${route.params} />`
               : html`<${HomePage}
                   status=${status}
                   streamInfo=${streamInfo}
