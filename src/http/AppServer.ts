@@ -777,7 +777,7 @@ export default class AppServer {
     });
 
     this.app.get('/classements', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, '..', '..', 'public', 'classements.html'));
+      res.sendFile(path.resolve(__dirname, '..', '..', 'public', 'index.html'));
     });
 
     this.app.get('/membres', (_req, res) => {

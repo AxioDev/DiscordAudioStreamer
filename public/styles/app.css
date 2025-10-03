@@ -89,3 +89,52 @@ body {
   box-shadow: 0 0 30px rgba(236, 72, 153, 0.4);
   transition: width 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
+
+.classements-page .leader-card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 1.5rem;
+  background: linear-gradient(120deg, rgba(96, 165, 250, 0.65), rgba(236, 72, 153, 0.65));
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  z-index: 0;
+  filter: blur(8px);
+}
+
+.classements-page .leader-card:hover::before {
+  opacity: 1;
+}
+
+.classements-page .leader-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.classements-page .hype-pulse {
+  position: relative;
+}
+
+.classements-page .hype-pulse::after {
+  content: '';
+  position: absolute;
+  inset: -12px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(96, 165, 250, 0.35), transparent 70%);
+  opacity: 0;
+  animation: classements-pulse 2.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes classements-pulse {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+
+  40% {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+}
