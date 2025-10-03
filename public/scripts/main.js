@@ -590,51 +590,45 @@ const App = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const renderSoulModal = () => {
-    if (!showSoulModal) {
-      return null;
-    }
-    return html`
-      <div class="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4">
-        <div class="w-full max-w-md space-y-4 rounded-xl bg-slate-900 p-6 text-center shadow-2xl">
-          <h2 class="text-2xl font-semibold">Pacte sacré</h2>
-          <p class="text-sm text-slate-300 sm:text-base">
-            (Promis, c'est surtout pour l'ambiance. Les démons adorent les vibes chill.)
-          </p>
-          <div class="flex flex-col gap-3 sm:flex-row sm:justify-center">
-            <button
-              class="inline-flex items-center justify-center rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-amber-950 shadow-lg transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
-              onClick=${() => handleSoulDecision(true)}
-            >
-              J'offre mon âme (et une tournée)
-            </button>
-            <button
-              class="inline-flex items-center justify-center rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
-              onClick=${() => handleSoulDecision(false)}
-            >
-              Nope, je suis team libre arbitre
-            </button>
+  const soulModalTemplate = showSoulModal
+    ? html`
+        <div class="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4">
+          <div class="w-full max-w-md space-y-4 rounded-xl bg-slate-900 p-6 text-center shadow-2xl">
+            <h2 class="text-2xl font-semibold">Pacte sacré</h2>
+            <p class="text-sm text-slate-300 sm:text-base">
+              (Promis, c'est surtout pour l'ambiance. Les démons adorent les vibes chill.)
+            </p>
+            <div class="flex flex-col gap-3 sm:flex-row sm:justify-center">
+              <button
+                class="inline-flex items-center justify-center rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-amber-950 shadow-lg transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+                onClick=${() => handleSoulDecision(true)}
+              >
+                J'offre mon âme (et une tournée)
+              </button>
+              <button
+                class="inline-flex items-center justify-center rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
+                onClick=${() => handleSoulDecision(false)}
+              >
+                Nope, je suis team libre arbitre
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-    `;
-  };
+      `
+    : null;
 
-  const renderSoulMessage = () => {
-    if (!soulMessage) {
-      return null;
-    }
-    return html`
-      <div class="pointer-events-none fixed bottom-4 right-4 z-30 max-w-xs rounded-lg bg-slate-900/90 px-4 py-3 text-sm shadow-xl">
-        ${soulMessage}
-      </div>
-    `;
-  };
+  const soulMessageTemplate = soulMessage
+    ? html`
+        <div class="pointer-events-none fixed bottom-4 right-4 z-30 max-w-xs rounded-lg bg-slate-900/90 px-4 py-3 text-sm shadow-xl">
+          ${soulMessage}
+        </div>
+      `
+    : null;
 
   return html`
     <div class="flex min-h-screen flex-col bg-slate-950 text-slate-100">
-      ${renderSoulModal()}
-      ${renderSoulMessage()}
+      ${soulModalTemplate}
+      ${soulMessageTemplate}
 
       <header class="sticky top-0 z-20 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
         <div class="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
