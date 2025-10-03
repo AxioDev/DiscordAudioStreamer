@@ -9,6 +9,7 @@ import {
   useState,
   Chart,
   THREE,
+  Activity,
   AlertCircle,
   AudioLines,
   BadgeCheck,
