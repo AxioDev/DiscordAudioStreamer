@@ -644,12 +644,12 @@ const App = () => {
             ${NAV_LINKS.map((link) => {
               const isActive = route.name === link.route;
               const href = link.external && link.href ? link.href : link.hash;
+              const baseClasses = 'text-sm font-medium transition hover:text-white';
+              const stateClass = isActive ? 'text-white' : 'text-slate-300';
               return html`
                 <a
                   key=${link.route}
-                  class=${`text-sm font-medium transition hover:text-white ${
-                    isActive ? 'text-white' : 'text-slate-300'
-                  }`}
+                  class=${[baseClasses, stateClass].join(' ')}
                   href=${href}
                   onClick=${(event) => handleNavigate(event, link.route)}
                   aria-current=${isActive ? 'page' : undefined}
@@ -676,12 +676,12 @@ const App = () => {
                     ${NAV_LINKS.map((link) => {
                       const isActive = route.name === link.route;
                       const href = link.external && link.href ? link.href : link.hash;
+                      const baseClasses = 'rounded-lg px-3 py-2 text-sm font-medium transition hover:bg-slate-800';
+                      const stateClass = isActive ? 'bg-slate-800 text-white' : 'text-slate-200';
                       return html`
                         <a
                           key=${`mobile-${link.route}`}
-                          class=${`rounded-lg px-3 py-2 text-sm font-medium transition hover:bg-slate-800 ${
-                            isActive ? 'bg-slate-800 text-white' : 'text-slate-200'
-                          }`}
+                          class=${[baseClasses, stateClass].join(' ')}
                           href=${href}
                           onClick=${(event) => handleNavigate(event, link.route)}
                           aria-current=${isActive ? 'page' : undefined}
