@@ -1386,43 +1386,6 @@ const MODERATION_SERVICES = [
   },
 ];
 
-  try {
-    const hash = window.location.hash || '';
-    const [path = '', query = ''] = hash.split('?');
-    if (!path.toLowerCase().includes('boutique')) {
-      return null;
-    }
-
-    const params = new URLSearchParams(query);
-    const status = (params.get('checkout') || '').toLowerCase();
-    if (!status) {
-      return null;
-    }
-
-    let type = 'info';
-    let message = '';
-    if (status === 'success') {
-      type = 'success';
-      message = 'Merci pour ton soutien ! La commande est bien prise en compte.';
-    } else if (status === 'cancelled') {
-      type = 'info';
-      message = 'Paiement annulé. Tu peux réessayer quand tu veux.';
-    } else {
-      type = 'error';
-      message = 'Une erreur est survenue lors du paiement. Aucun débit n’a été effectué.';
-    }
-
-    if (typeof window.history?.replaceState === 'function') {
-      window.history.replaceState(null, '', '#/boutique');
-    }
-
-    return { type, message };
-  } catch (error) {
-    console.warn('Impossible de lire le statut de paiement', error);
-    return null;
-  }
-};
-
 const ShopProductCard = ({ product, checkoutState, onCheckout }) => {
   const providerSections = (product.providers || [])
     .map((provider) => {
