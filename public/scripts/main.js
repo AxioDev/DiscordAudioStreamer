@@ -698,7 +698,7 @@ const App = () => {
       </header>
 
       <main class="flex-1">
-        <div class="mx-auto flex w-full max-w-5xl flex-col gap-10 px-4 py-10 sm:px-6 lg:px-8">
+        <div class="mx-auto flex w-full max-w-5xl flex-col gap-10 py-10">
           ${
             route.name === 'ban'
               ? html`<${BanPage} />`
