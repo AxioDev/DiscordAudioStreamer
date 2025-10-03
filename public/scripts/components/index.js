@@ -1386,6 +1386,7 @@ const MODERATION_SERVICES = [
   },
 ];
 
+const readCheckoutFeedbackFromHash = () => {
   try {
     const hash = window.location.hash || '';
     const [path = '', query = ''] = hash.split('?');
@@ -2076,6 +2077,643 @@ const createBeerCanTexture = () => {
   };
 
   return texture;
+};
+
+const formatDurationLabel = (ms) => {
+  if (!Number.isFinite(ms) || ms <= 0) {
+    return '—';
+  }
+  const formatted = formatDuration(ms);
+  return formatted || '—';
+};
+
+const ProfileIdentityCard = ({ profile, userId }) => {
+  const mergedProfile = mergeProfiles({}, profile ?? {});
+  const displayName = mergedProfile.displayName ?? 'Utilisateur inconnu';
+  const username = mergedProfile.username ? `@${mergedProfile.username}` : null;
+  const avatarUrl = mergedProfile.avatar ?? null;
+
+  const identifier = userId ? `ID ${userId}` : null;
+
+  const initialsSource = displayName || username || identifier || 'Utilisateur';
+  const initials = initialsSource
+    .split(/\s+/)
+    .filter((part) => part.length > 0)
+    .map((part) => part[0]?.toUpperCase?.() ?? '')
+    .join('')
+    .slice(0, 2)
+    || 'UA';
+
+  return html`
+    <section class="rounded-3xl border border-white/10 bg-gradient-to-br from-slate-950 via-slate-950/90 to-indigo-950/40 p-6 shadow-xl shadow-indigo-900/30 backdrop-blur">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex items-center gap-4">
+          ${avatarUrl
+            ? html`<img
+                src=${avatarUrl}
+                alt=${displayName}
+                class="h-16 w-16 rounded-2xl border border-white/10 object-cover shadow-lg shadow-slate-950/40"
+                loading="lazy"
+                decoding="async"
+              />`
+            : html`<div
+                class="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-lg font-semibold text-white shadow-inner shadow-slate-950/60"
+                aria-hidden="true"
+              >
+                ${initials}
+              </div>`}
+          <div>
+            <p class="text-xs uppercase tracking-[0.3em] text-indigo-200/80">Profil Discord</p>
+            <h1 class="text-2xl font-semibold text-white">${displayName}</h1>
+            ${username ? html`<p class="text-sm text-slate-300">${username}</p>` : null}
+            ${identifier ? html`<p class="text-xs text-slate-500">${identifier}</p>` : null}
+          </div>
+        </div>
+        <div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+          <p>Ces données sont calculées à partir de l’activité vocale et textuelle enregistrée.</p>
+        </div>
+      </div>
+    </section>
+  `;
+};
+
+const ProfileSummaryCards = ({ stats = {} }) => {
+  const presenceDuration = formatDurationLabel(stats?.totalPresenceMs);
+  const speakingDuration = formatDurationLabel(stats?.totalSpeakingMs);
+  const messageCount = Number.isFinite(stats?.messageCount) ? stats.messageCount : 0;
+  const presenceSessions = Number.isFinite(stats?.presenceSessions) ? stats.presenceSessions : 0;
+  const speakingSessions = Number.isFinite(stats?.speakingSessions) ? stats.speakingSessions : 0;
+  const activeDayCount = Number.isFinite(stats?.activeDayCount)
+    ? stats.activeDayCount
+    : Array.isArray(stats?.uniqueActiveDays)
+    ? stats.uniqueActiveDays.length
+    : 0;
+  const firstActivity = formatDateTimeLabel(stats?.firstActivityAt?.ms, { includeDate: true, includeSeconds: false });
+  const lastActivity = formatDateTimeLabel(stats?.lastActivityAt?.ms, { includeDate: true, includeSeconds: false });
+
+  const cards = [
+    {
+      key: 'presence',
+      label: 'Temps en vocal',
+      value: presenceDuration,
+      helper: `${presenceSessions} session${presenceSessions === 1 ? '' : 's'}`,
+      icon: Headphones,
+      accent: 'from-indigo-500/20 via-slate-900 to-indigo-500/10',
+    },
+    {
+      key: 'speaking',
+      label: 'Temps de parole',
+      value: speakingDuration,
+      helper: `${speakingSessions} prise${speakingSessions === 1 ? '' : 's'} de parole`,
+      icon: Mic,
+      accent: 'from-fuchsia-500/20 via-slate-900 to-fuchsia-500/10',
+    },
+    {
+      key: 'messages',
+      label: 'Messages envoyés',
+      value: messageCount,
+      helper: messageCount === 1 ? '1 message' : `${messageCount} messages`,
+      icon: MessageSquare,
+      accent: 'from-emerald-500/20 via-slate-900 to-emerald-500/10',
+    },
+    {
+      key: 'days',
+      label: 'Jours actifs',
+      value: activeDayCount,
+      helper: [firstActivity, lastActivity].filter(Boolean).join(' · '),
+      icon: CalendarDays,
+      accent: 'from-sky-500/20 via-slate-900 to-sky-500/10',
+    },
+  ];
+
+  return html`
+    <section class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-xl shadow-slate-950/40 backdrop-blur">
+      <h2 class="text-lg font-semibold text-white">Résumé de l’activité</h2>
+      <div class="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        ${cards.map((card) => {
+          const IconComponent = card.icon;
+          return html`
+            <article
+              key=${card.key}
+              class=${`flex flex-col gap-2 rounded-2xl border border-white/10 bg-gradient-to-br ${card.accent} p-4 text-sm text-slate-200`}
+            >
+              <div class="flex items-center justify-between gap-3">
+                <p class="text-xs uppercase tracking-[0.3em] text-slate-300">${card.label}</p>
+                <span class="rounded-full border border-white/10 bg-white/10 p-2 text-indigo-200">
+                  <${IconComponent} class="h-4 w-4" aria-hidden="true" />
+                </span>
+              </div>
+              <p class="text-2xl font-semibold text-white">${card.value}</p>
+              <p class="text-xs text-slate-400">${card.helper || 'Aucune donnée disponible'}</p>
+            </article>
+          `;
+        })}
+      </div>
+    </section>
+  `;
+};
+
+const ProfileActivityTimeline = ({
+  range = {},
+  presenceSegments = [],
+  speakingSegments = [],
+  messageEvents = [],
+}) => {
+  const events = useMemo(() => {
+    const entries = [];
+
+    const pushEvent = (event) => {
+      if (!event || !Number.isFinite(event.timestamp)) {
+        return;
+      }
+      entries.push(event);
+    };
+
+    presenceSegments.forEach((segment, index) => {
+      const joinedAt = Number.isFinite(segment?.joinedAtMs) ? segment.joinedAtMs : null;
+      if (Number.isFinite(joinedAt)) {
+        pushEvent({
+          key: `presence-join-${index}-${joinedAt}`,
+          timestamp: joinedAt,
+          label: 'Connexion au salon vocal',
+          icon: Headphones,
+          tone: 'text-emerald-300',
+          accent: 'border-emerald-400/40 bg-emerald-500/10',
+        });
+      }
+      const leftAt = Number.isFinite(segment?.leftAtMs) ? segment.leftAtMs : null;
+      if (Number.isFinite(leftAt)) {
+        pushEvent({
+          key: `presence-leave-${index}-${leftAt}`,
+          timestamp: leftAt,
+          label: 'Déconnexion du salon vocal',
+          icon: Headphones,
+          tone: 'text-slate-300',
+          accent: 'border-slate-400/30 bg-slate-500/10',
+        });
+      }
+    });
+
+    speakingSegments.forEach((segment, index) => {
+      const startedAt = Number.isFinite(segment?.startedAtMs) ? segment.startedAtMs : null;
+      if (!Number.isFinite(startedAt)) {
+        return;
+      }
+      const duration = Number.isFinite(segment?.durationMs) ? Math.max(0, segment.durationMs) : 0;
+      const endedAt = Number.isFinite(segment?.endedAtMs)
+        ? segment.endedAtMs
+        : startedAt + duration;
+      pushEvent({
+        key: `speak-${index}-${startedAt}`,
+        timestamp: startedAt,
+        label: 'Prise de parole',
+        details: duration > 0 ? `Durée ${formatDurationLabel(duration)}` : null,
+        icon: Mic,
+        tone: 'text-fuchsia-300',
+        accent: 'border-fuchsia-400/40 bg-fuchsia-500/10',
+      });
+      if (Number.isFinite(endedAt) && endedAt > startedAt) {
+        pushEvent({
+          key: `speak-end-${index}-${endedAt}`,
+          timestamp: endedAt,
+          label: 'Fin de la prise de parole',
+          icon: MicOff,
+          tone: 'text-slate-300',
+          accent: 'border-slate-400/30 bg-slate-500/10',
+        });
+      }
+    });
+
+    messageEvents.forEach((event, index) => {
+      const timestamp = Number.isFinite(event?.timestampMs) ? event.timestampMs : null;
+      if (!Number.isFinite(timestamp)) {
+        return;
+      }
+      const content = typeof event?.content === 'string' ? event.content.trim() : '';
+      pushEvent({
+        key: `message-${index}-${timestamp}`,
+        timestamp,
+        label: 'Message envoyé',
+        details: content ? `“${content.slice(0, 140)}${content.length > 140 ? '…' : ''}”` : null,
+        icon: MessageSquare,
+        tone: 'text-sky-300',
+        accent: 'border-sky-400/40 bg-sky-500/10',
+      });
+    });
+
+    entries.sort((a, b) => b.timestamp - a.timestamp);
+    return entries.slice(0, 80);
+  }, [presenceSegments, speakingSegments, messageEvents]);
+
+  const sinceLabel = Number.isFinite(range?.sinceMs)
+    ? formatDateTimeLabel(range.sinceMs, { includeDate: true, includeSeconds: false })
+    : null;
+  const untilLabel = Number.isFinite(range?.untilMs)
+    ? formatDateTimeLabel(range.untilMs, { includeDate: true, includeSeconds: false })
+    : null;
+
+  return html`
+    <section class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-xl shadow-slate-950/40 backdrop-blur">
+      <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h2 class="text-lg font-semibold text-white">Chronologie des activités</h2>
+          <p class="text-xs text-slate-400">
+            ${[sinceLabel, untilLabel].filter(Boolean).join(' → ') || 'Période inconnue'}
+          </p>
+        </div>
+        <p class="text-xs text-slate-400">
+          ${events.length > 0
+            ? `${events.length} évènement${events.length === 1 ? '' : 's'} recensé${events.length === 1 ? '' : 's'}`
+            : 'Aucune activité sur cette période'}
+        </p>
+      </div>
+
+      ${events.length === 0
+        ? html`<p class="mt-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+            Aucun évènement détecté pour cette période.
+          </p>`
+        : html`<ol class="mt-4 space-y-3">
+            ${events.map((event) => {
+              const IconComponent = event.icon;
+              return html`<li
+                key=${event.key}
+                class=${`flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm text-slate-200 ${event.accent}`}
+              >
+                <span class=${`mt-1 flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/10 ${event.tone}`}>
+                  <${IconComponent} class="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div class="flex-1">
+                  <p class="font-semibold text-white">${event.label}</p>
+                  ${event.details ? html`<p class="text-xs text-slate-300">${event.details}</p>` : null}
+                  <p class="text-xs text-slate-400">${formatDateTimeLabel(event.timestamp, {
+                    includeDate: true,
+                    includeSeconds: true,
+                  })}</p>
+                </div>
+              </li>`;
+            })}
+          </ol>`}
+    </section>
+  `;
+};
+
+const ProfileVoiceTranscriptionsCard = ({ userId }) => {
+  const [state, setState] = useState({ status: 'idle', entries: [], error: null });
+  const [refreshNonce, setRefreshNonce] = useState(0);
+
+  useEffect(() => {
+    if (!userId) {
+      setState({ status: 'idle', entries: [], error: null });
+      return () => {};
+    }
+
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    let isActive = true;
+
+    const loadTranscriptions = async () => {
+      setState((prev) => ({ status: 'loading', entries: prev.entries || [], error: null }));
+      try {
+        const query = new URLSearchParams({ limit: '10' });
+        const response = await fetch(`/api/users/${encodeURIComponent(userId)}/voice-transcriptions?${query.toString()}`, {
+          signal: controller?.signal,
+        });
+        if (!response.ok) {
+          let message = 'Impossible de récupérer les retranscriptions vocales.';
+          try {
+            const body = await response.json();
+            if (body?.message) {
+              message = body.message;
+            }
+          } catch (error) {
+            // ignore JSON errors
+          }
+          throw new Error(message);
+        }
+        const payload = await response.json();
+        if (!isActive) {
+          return;
+        }
+        const entries = Array.isArray(payload?.entries) ? payload.entries : [];
+        setState({ status: 'success', entries, error: null });
+      } catch (error) {
+        if (!isActive) {
+          return;
+        }
+        const message = error instanceof Error && error.message
+          ? error.message
+          : 'Impossible de récupérer les retranscriptions vocales.';
+        setState({ status: 'error', entries: [], error: message });
+      }
+    };
+
+    loadTranscriptions();
+    return () => {
+      isActive = false;
+      controller?.abort();
+    };
+  }, [userId, refreshNonce]);
+
+  const handleRefresh = () => {
+    setRefreshNonce((value) => value + 1);
+  };
+
+  const isLoading = state.status === 'loading';
+  const entries = Array.isArray(state.entries) ? state.entries : [];
+
+  return html`
+    <section class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-xl shadow-slate-950/40 backdrop-blur">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 class="text-lg font-semibold text-white">Retranscriptions vocales</h2>
+          <p class="text-xs text-slate-400">Dernières prises de parole transcrites automatiquement.</p>
+        </div>
+        <button
+          type="button"
+          onClick=${handleRefresh}
+          class=${`inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold transition ${
+            isLoading ? 'bg-white/5 text-slate-300' : 'bg-white/10 text-slate-200 hover:bg-white/20'
+          }`}
+          disabled=${isLoading}
+        >
+          <${RefreshCcw} class=${`h-4 w-4 ${isLoading ? 'animate-spin text-indigo-200' : ''}`} aria-hidden="true" />
+          Rafraîchir
+        </button>
+      </div>
+
+      ${state.error
+        ? html`<p class="mt-4 rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+            ${state.error}
+          </p>`
+        : null}
+
+      ${!state.error && entries.length === 0 && !isLoading
+        ? html`<p class="mt-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+            Aucune retranscription disponible pour le moment.
+          </p>`
+        : null}
+
+      ${entries.length > 0
+        ? html`<ul class="mt-4 space-y-3">
+            ${entries.map((entry) => {
+              const timestamp = Number.isFinite(entry?.timestampMs) ? entry.timestampMs : null;
+              const content = typeof entry?.content === 'string' ? entry.content.trim() : '';
+              return html`<li
+                key=${entry.transcriptionId || `${entry.channelId}-${entry.timestamp}`}
+                class="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-slate-200"
+              >
+                <p class="font-medium text-white">${content || 'Transcription vide'}</p>
+                ${timestamp
+                  ? html`<p class="text-xs text-slate-400">
+                      ${formatDateTimeLabel(timestamp, { includeDate: true, includeSeconds: true })}
+                    </p>`
+                  : null}
+              </li>`;
+            })}
+          </ul>`
+        : null}
+    </section>
+  `;
+};
+
+const ProfileMessagesCard = ({ messageEvents = [] }) => {
+  const messages = useMemo(() => {
+    if (!Array.isArray(messageEvents)) {
+      return [];
+    }
+    return messageEvents
+      .filter((event) => Number.isFinite(event?.timestampMs))
+      .sort((a, b) => b.timestampMs - a.timestampMs)
+      .slice(0, 20);
+  }, [messageEvents]);
+
+  return html`
+    <section class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-xl shadow-slate-950/40 backdrop-blur">
+      <h2 class="text-lg font-semibold text-white">Derniers messages</h2>
+      ${messages.length === 0
+        ? html`<p class="mt-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+            Aucun message n’a été enregistré pendant cette période.
+          </p>`
+        : html`<ul class="mt-4 space-y-3">
+            ${messages.map((event, index) => {
+              const content = typeof event?.content === 'string' ? event.content.trim() : '';
+              const timestamp = Number.isFinite(event?.timestampMs) ? event.timestampMs : null;
+              return html`<li
+                key=${event.messageId || `${index}-${event.timestampMs}`}
+                class="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-slate-200"
+              >
+                <p class="font-medium text-white">${content || 'Message sans contenu'}</p>
+                ${timestamp
+                  ? html`<p class="text-xs text-slate-400">
+                      ${formatDateTimeLabel(timestamp, { includeDate: true, includeSeconds: true })}
+                    </p>`
+                  : null}
+              </li>`;
+            })}
+          </ul>`}
+    </section>
+  `;
+};
+
+const DailyBreakdown = ({
+  range = {},
+  presenceSegments = [],
+  speakingSegments = [],
+  messageEvents = [],
+}) => {
+  const dayMs = HOUR_MS * HOURS_IN_DAY;
+
+  const breakdown = useMemo(() => {
+    const sinceMs = Number.isFinite(range?.sinceMs) ? range.sinceMs : null;
+    const untilMs = Number.isFinite(range?.untilMs) ? range.untilMs : null;
+    if (!Number.isFinite(sinceMs) || !Number.isFinite(untilMs) || untilMs <= sinceMs) {
+      return [];
+    }
+
+    const clampEnd = (end) => {
+      if (Number.isFinite(end)) {
+        return Math.min(end, untilMs);
+      }
+      return untilMs;
+    };
+
+    const buckets = new Map();
+
+    const getDayStart = (ms) => {
+      const date = new Date(ms);
+      date.setHours(0, 0, 0, 0);
+      return date.getTime();
+    };
+
+    const ensureBucket = (dayStart) => {
+      let bucket = buckets.get(dayStart);
+      if (!bucket) {
+        const startBound = Math.max(sinceMs, dayStart);
+        const endBound = Math.min(untilMs, dayStart + dayMs);
+        bucket = {
+          key: dayStart,
+          dateMs: dayStart,
+          startMs: startBound,
+          endMs: endBound,
+          presenceMs: 0,
+          speakingMs: 0,
+          messageCount: 0,
+        };
+        buckets.set(dayStart, bucket);
+      }
+      return bucket;
+    };
+
+    const accumulateDuration = (startMs, endMs, field) => {
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+        return;
+      }
+      const safeStart = Math.max(startMs, sinceMs);
+      const safeEnd = Math.min(endMs, untilMs);
+      if (safeEnd <= safeStart) {
+        return;
+      }
+
+      let cursor = safeStart;
+      while (cursor < safeEnd) {
+        const dayStart = getDayStart(cursor);
+        const bucket = ensureBucket(dayStart);
+        const dayEnd = Math.min(safeEnd, bucket.dateMs + dayMs, untilMs);
+        const slice = Math.max(0, dayEnd - cursor);
+        bucket[field] += slice;
+        cursor = dayEnd;
+      }
+    };
+
+    presenceSegments.forEach((segment) => {
+      const start = Number.isFinite(segment?.joinedAtMs) ? segment.joinedAtMs : segment?.startMs;
+      const end = clampEnd(segment?.leftAtMs ?? segment?.endMs);
+      accumulateDuration(start, end, 'presenceMs');
+    });
+
+    speakingSegments.forEach((segment) => {
+      const start = Number.isFinite(segment?.startedAtMs) ? segment.startedAtMs : segment?.startMs;
+      const endCandidate = Number.isFinite(segment?.durationMs)
+        ? start + Math.max(0, segment.durationMs)
+        : segment?.endedAtMs ?? segment?.endMs;
+      const end = clampEnd(endCandidate);
+      accumulateDuration(start, end, 'speakingMs');
+    });
+
+    messageEvents.forEach((event) => {
+      const timestamp = Number.isFinite(event?.timestampMs) ? event.timestampMs : null;
+      if (!Number.isFinite(timestamp)) {
+        return;
+      }
+      if (timestamp < sinceMs || timestamp > untilMs) {
+        return;
+      }
+      const bucket = ensureBucket(getDayStart(timestamp));
+      bucket.messageCount += 1;
+    });
+
+    const entries = Array.from(buckets.values());
+    entries.sort((a, b) => b.dateMs - a.dateMs);
+    return entries;
+  }, [range?.sinceMs, range?.untilMs, dayMs, presenceSegments, speakingSegments, messageEvents]);
+
+  const totals = useMemo(() => {
+    return breakdown.reduce(
+      (acc, day) => {
+        acc.presenceMs += day.presenceMs;
+        acc.speakingMs += day.speakingMs;
+        acc.messageCount += day.messageCount;
+        return acc;
+      },
+      { presenceMs: 0, speakingMs: 0, messageCount: 0 },
+    );
+  }, [breakdown]);
+
+  if (breakdown.length === 0) {
+    return html`
+      <section class="mt-8 rounded-3xl border border-white/10 bg-slate-950/70 p-6 text-sm text-slate-200 shadow-xl shadow-slate-950/40">
+        <h2 class="text-lg font-semibold text-white">Activité quotidienne</h2>
+        <p class="mt-3 text-sm text-slate-300">
+          Aucune activité enregistrée sur la période sélectionnée.
+        </p>
+      </section>
+    `;
+  }
+
+  return html`
+    <section class="mt-8 space-y-5">
+      <div class="rounded-3xl border border-white/10 bg-gradient-to-br from-slate-950 via-slate-950/90 to-indigo-950/40 p-6 shadow-xl shadow-indigo-900/30">
+        <div class="flex flex-wrap items-center gap-6">
+          <div class="flex-1 min-w-[10rem]">
+            <p class="text-xs uppercase tracking-[0.3em] text-slate-400">Total présence</p>
+            <p class="mt-2 text-2xl font-semibold text-white">${formatDurationLabel(totals.presenceMs)}</p>
+          </div>
+          <div class="flex-1 min-w-[10rem]">
+            <p class="text-xs uppercase tracking-[0.3em] text-slate-400">Total parole</p>
+            <p class="mt-2 text-2xl font-semibold text-white">${formatDurationLabel(totals.speakingMs)}</p>
+          </div>
+          <div class="flex-1 min-w-[10rem]">
+            <p class="text-xs uppercase tracking-[0.3em] text-slate-400">Messages</p>
+            <p class="mt-2 text-2xl font-semibold text-white">${Number.isFinite(totals.messageCount) ? totals.messageCount : '—'}</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-2">
+        ${breakdown.map((day) => {
+          const rangeDuration = Math.max(0, (day.endMs ?? day.startMs) - day.startMs);
+          const presencePercent = rangeDuration > 0 ? Math.min(100, Math.round((day.presenceMs / rangeDuration) * 100)) : 0;
+          const speakingPercent = rangeDuration > 0 ? Math.min(100, Math.round((day.speakingMs / rangeDuration) * 100)) : 0;
+          return html`
+            <article class="rounded-3xl border border-white/10 bg-slate-950/70 p-5 shadow-lg shadow-slate-950/40">
+              <header class="flex items-start justify-between gap-3">
+                <div>
+                  <p class="text-sm font-semibold text-white">${formatDayLabel(day.dateMs)}</p>
+                  <p class="text-xs text-slate-400">
+                    ${rangeDuration > 0 ? `${(rangeDuration / dayMs).toFixed(2)} j de suivi` : 'Période partielle'}
+                  </p>
+                </div>
+                <div class="rounded-full border border-fuchsia-400/40 bg-fuchsia-500/10 px-3 py-1 text-xs font-semibold text-fuchsia-100">
+                  ${day.messageCount} message${day.messageCount > 1 ? 's' : ''}
+                </div>
+              </header>
+
+              <div class="mt-4 space-y-3">
+                <div>
+                  <div class="flex items-center justify-between text-xs text-slate-300">
+                    <span>Présence vocale</span>
+                    <span class="font-semibold text-slate-100">${formatDurationLabel(day.presenceMs)}</span>
+                  </div>
+                  <div class="mt-1 h-2 overflow-hidden rounded-full bg-white/10">
+                    <div
+                      class="h-full rounded-full bg-indigo-400/70"
+                      style=${{ width: `${presencePercent}%` }}
+                      aria-hidden="true"
+                    ></div>
+                  </div>
+                  <span class="sr-only">Présence vocale ${presencePercent}% du temps suivi</span>
+                </div>
+
+                <div>
+                  <div class="flex items-center justify-between text-xs text-slate-300">
+                    <span>Temps de parole</span>
+                    <span class="font-semibold text-slate-100">${formatDurationLabel(day.speakingMs)}</span>
+                  </div>
+                  <div class="mt-1 h-2 overflow-hidden rounded-full bg-white/10">
+                    <div
+                      class="h-full rounded-full bg-fuchsia-400/70"
+                      style=${{ width: `${speakingPercent}%` }}
+                      aria-hidden="true"
+                    ></div>
+                  </div>
+                  <span class="sr-only">Temps de parole ${speakingPercent}% du temps suivi</span>
+                </div>
+              </div>
+            </article>
+          `;
+        })}
+      </div>
+    </section>
+  `;
 };
 
 const BeerCanDisplay = () => {
