@@ -698,38 +698,40 @@ const App = () => {
       </header>
 
       <main class="flex-1">
-        ${
-          route.name === 'ban'
-            ? html`<${BanPage} />`
-            : route.name === 'about'
-            ? html`<${AboutPage} />`
-            : route.name === 'members'
-            ? html`<${MembersPage} onViewProfile=${handleProfileOpen} />`
-            : route.name === 'shop'
-            ? html`<${ShopPage} />`
-            : route.name === 'profile'
-            ? html`<${ProfilePage}
-                params=${route.params}
-                onNavigateHome=${() => {
-                  window.location.hash = '#/';
-                  setRoute({ name: 'home', params: {} });
-                }}
-                onUpdateRange=${updateProfileRoute}
-              />`
-            : html`<${HomePage}
-                status=${status}
-                streamInfo=${streamInfo}
-                audioKey=${audioKey}
-                speakers=${speakers}
-                now=${now}
-                anonymousSlot=${anonymousSlot}
-                speakingHistory=${speakingHistory}
-                isHistoryLoading=${isHistoryLoading}
-                selectedWindowMinutes=${selectedWindowMinutes}
-                onWindowChange=${handleWindowChange}
-                onViewProfile=${handleProfileOpen}
-              />`
-        }
+        <div class="mx-auto flex w-full max-w-5xl flex-col gap-10 px-4 py-10 sm:px-6 lg:px-8">
+          ${
+            route.name === 'ban'
+              ? html`<${BanPage} />`
+              : route.name === 'about'
+              ? html`<${AboutPage} />`
+              : route.name === 'members'
+              ? html`<${MembersPage} onViewProfile=${handleProfileOpen} />`
+              : route.name === 'shop'
+              ? html`<${ShopPage} />`
+              : route.name === 'profile'
+              ? html`<${ProfilePage}
+                  params=${route.params}
+                  onNavigateHome=${() => {
+                    window.location.hash = '#/';
+                    setRoute({ name: 'home', params: {} });
+                  }}
+                  onUpdateRange=${updateProfileRoute}
+                />`
+              : html`<${HomePage}
+                  status=${status}
+                  streamInfo=${streamInfo}
+                  audioKey=${audioKey}
+                  speakers=${speakers}
+                  now=${now}
+                  anonymousSlot=${anonymousSlot}
+                  speakingHistory=${speakingHistory}
+                  isHistoryLoading=${isHistoryLoading}
+                  selectedWindowMinutes=${selectedWindowMinutes}
+                  onWindowChange=${handleWindowChange}
+                  onViewProfile=${handleProfileOpen}
+                />`
+          }
+        </div>
       </main>
 
       <footer class="border-t border-slate-800 bg-slate-900/80 py-6 text-center text-sm text-slate-400">
