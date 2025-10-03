@@ -29,3 +29,20 @@ SHOP_PAYPAL_BRAND_NAME=Libre Antenne
 ```
 
 Omit the variables (or leave them empty) to disable PayPal. Stripe and CoinGate keep their existing configuration options.
+
+#### Virements SEPA via CoinGate
+
+CoinGate can expose SEPA bank transfers in addition to crypto payments. Provide the following environment variables to configure it:
+
+```env
+# Required: activates CoinGate and enables SEPA payouts
+SHOP_COINGATE_API_KEY=your-coingate-api-key
+
+# Optional: switch the environment (defaults to sandbox when omitted or different from "live")
+SHOP_COINGATE_ENVIRONMENT=live
+
+# Optional: override the callback URL used by CoinGate after payment completion
+SHOP_COINGATE_CALLBACK_URL=https://example.com/shop/callback
+```
+
+Leaving these variables undefined disables the CoinGate (and thus SEPA transfer) option entirely.
