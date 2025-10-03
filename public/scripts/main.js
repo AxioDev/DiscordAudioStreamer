@@ -591,102 +591,151 @@ const App = () => {
   };
 
   return html`
+    <div class="flex min-h-screen flex-col bg-slate-950 text-slate-100">
       ${
         showSoulModal
-                  Pacte sacré
-                  (Promis, c'est surtout pour l'ambiance. Les démons adorent les vibes chill.)
-                    onClick=${() => handleSoulDecision(true)}
-                  >
-                    J'offre mon âme (et une tournée)
-                    onClick=${() => handleSoulDecision(false)}
-                  >
-                    Nope, je suis team libre arbitre
+          ? html`
+              <div class="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4">
+                <div class="w-full max-w-md space-y-4 rounded-xl bg-slate-900 p-6 text-center shadow-2xl">
+                  <h2 class="text-2xl font-semibold">Pacte sacré</h2>
+                  <p class="text-sm text-slate-300 sm:text-base">
+                    (Promis, c'est surtout pour l'ambiance. Les démons adorent les vibes chill.)
+                  </p>
+                  <div class="flex flex-col gap-3 sm:flex-row sm:justify-center">
+                    <button
+                      class="inline-flex items-center justify-center rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-amber-950 shadow-lg transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+                      onClick=${() => handleSoulDecision(true)}
+                    >
+                      J'offre mon âme (et une tournée)
+                    </button>
+                    <button
+                      class="inline-flex items-center justify-center rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
+                      onClick=${() => handleSoulDecision(false)}
+                    >
+                      Nope, je suis team libre arbitre
+                    </button>
+                  </div>
+                </div>
+              </div>
+            `
           : null
       }
       ${
         soulMessage
-              ${soulMessage}
+          ? html`
+              <div class="pointer-events-none fixed bottom-4 right-4 z-30 max-w-xs rounded-lg bg-slate-900/90 px-4 py-3 text-sm shadow-xl">
+                ${soulMessage}
+              </div>
+            `
           : null
       }
-            <a
-              href="#/"
-              onClick=${(event) => handleNavigate(event, 'home')}
-            >
-              <span
-              >
-                LA
-              ${NAV_LINKS.map((link) =>
-                html`
-                  <a
-                    key=${link.route}
-                    href=${link.external && link.href ? link.href : link.hash}
-                    onClick=${(event) => handleNavigate(event, link.route)}
-                    aria-current=${route.name === link.route ? 'page' : undefined}
-                      route.name === link.route ? 'text-white' : 'text-slate-300'
-                    }`}
-                  >
-                    ${link.label}
-                `
-              )}
-              aria-expanded=${menuOpen}
-              onClick=${() => setMenuOpen((prev) => !prev)}
-            >
-              ${
-                menuOpen
-              }
-          ${
-            menuOpen
-              ? html`
-                      ${NAV_LINKS.map((link) =>
-                        html`
-                          <a
-                            key=${`mobile-${link.route}`}
-                            href=${link.external && link.href ? link.href : link.hash}
-                            onClick=${(event) => handleNavigate(event, link.route)}
-                              route.name === link.route ? 'text-white' : 'text-slate-200'
-                            }`}
-                          >
-                            ${link.label}
-                        `
-                      )}
-                `
-              : null
-          }
 
-            ${
-              route.name === 'ban'
-                ? html`<${BanPage} />`
-                : route.name === 'about'
-                ? html`<${AboutPage} />`
-                : route.name === 'members'
-                ? html`<${MembersPage} onViewProfile=${handleProfileOpen} />`
-                : route.name === 'shop'
-                ? html`<${ShopPage} />`
-                : route.name === 'profile'
-                ? html`<${ProfilePage}
-                    params=${route.params}
-                    onNavigateHome=${() => {
-                      window.location.hash = '#/';
-                      setRoute({ name: 'home', params: {} });
-                    }}
-                    onUpdateRange=${updateProfileRoute}
-                  />`
-                : html`<${HomePage}
-                    status=${status}
-                    streamInfo=${streamInfo}
-                    audioKey=${audioKey}
-                    speakers=${speakers}
-                    now=${now}
-                    anonymousSlot=${anonymousSlot}
-                    speakingHistory=${speakingHistory}
-                    isHistoryLoading=${isHistoryLoading}
-                    selectedWindowMinutes=${selectedWindowMinutes}
-                    onWindowChange=${handleWindowChange}
-                    onViewProfile=${handleProfileOpen}
-                  />`
-            }
+      <header class="sticky top-0 z-20 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
+        <div class="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
+          <a
+            class="flex items-center gap-2 text-lg font-semibold tracking-wide text-white transition hover:text-amber-300"
+            href="#/"
+            onClick=${(event) => handleNavigate(event, 'home')}
+          >
+            <span class="rounded bg-amber-400 px-2 py-1 text-sm font-bold text-amber-950">LA</span>
+            Libre Antenne
+          </a>
+          <nav class="hidden items-center gap-6 md:flex">
+            ${NAV_LINKS.map((link) => {
+              const isActive = route.name === link.route;
+              const href = link.external && link.href ? link.href : link.hash;
+              return html`
+                <a
+                  key=${link.route}
+                  class=${`text-sm font-medium transition hover:text-white ${
+                    isActive ? 'text-white' : 'text-slate-300'
+                  }`}
+                  href=${href}
+                  onClick=${(event) => handleNavigate(event, link.route)}
+                  aria-current=${isActive ? 'page' : undefined}
+                >
+                  ${link.label}
+                </a>
+              `;
+            })}
+          </nav>
+          <button
+            class="flex items-center gap-2 rounded-lg border border-slate-700 p-2 text-slate-200 transition hover:border-slate-500 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 md:hidden"
+            aria-expanded=${menuOpen}
+            aria-label="Ouvrir le menu de navigation"
+            onClick=${() => setMenuOpen((prev) => !prev)}
+          >
+            ${menuOpen ? html`<${X} class="h-5 w-5" />` : html`<${Menu} class="h-5 w-5" />`}
+          </button>
+        </div>
+        ${
+          menuOpen
+            ? html`
+                <nav class="border-t border-slate-800 bg-slate-900/95 md:hidden">
+                  <div class="mx-auto flex max-w-5xl flex-col gap-2 px-4 py-3">
+                    ${NAV_LINKS.map((link) => {
+                      const isActive = route.name === link.route;
+                      const href = link.external && link.href ? link.href : link.hash;
+                      return html`
+                        <a
+                          key=${`mobile-${link.route}`}
+                          class=${`rounded-lg px-3 py-2 text-sm font-medium transition hover:bg-slate-800 ${
+                            isActive ? 'bg-slate-800 text-white' : 'text-slate-200'
+                          }`}
+                          href=${href}
+                          onClick=${(event) => handleNavigate(event, link.route)}
+                          aria-current=${isActive ? 'page' : undefined}
+                        >
+                          ${link.label}
+                        </a>
+                      `;
+                    })}
+                  </div>
+                </nav>
+              `
+            : null
+        }
+      </header>
 
-          Libre Antenne · Tous droits réservés
+      <main class="flex-1">
+        ${
+          route.name === 'ban'
+            ? html`<${BanPage} />`
+            : route.name === 'about'
+            ? html`<${AboutPage} />`
+            : route.name === 'members'
+            ? html`<${MembersPage} onViewProfile=${handleProfileOpen} />`
+            : route.name === 'shop'
+            ? html`<${ShopPage} />`
+            : route.name === 'profile'
+            ? html`<${ProfilePage}
+                params=${route.params}
+                onNavigateHome=${() => {
+                  window.location.hash = '#/';
+                  setRoute({ name: 'home', params: {} });
+                }}
+                onUpdateRange=${updateProfileRoute}
+              />`
+            : html`<${HomePage}
+                status=${status}
+                streamInfo=${streamInfo}
+                audioKey=${audioKey}
+                speakers=${speakers}
+                now=${now}
+                anonymousSlot=${anonymousSlot}
+                speakingHistory=${speakingHistory}
+                isHistoryLoading=${isHistoryLoading}
+                selectedWindowMinutes=${selectedWindowMinutes}
+                onWindowChange=${handleWindowChange}
+                onViewProfile=${handleProfileOpen}
+              />`
+        }
+      </main>
+
+      <footer class="border-t border-slate-800 bg-slate-900/80 py-6 text-center text-sm text-slate-400">
+        Libre Antenne · Tous droits réservés
+      </footer>
+    </div>
   `;
 };
 render(html`<${App} />`, document.getElementById('app'));
