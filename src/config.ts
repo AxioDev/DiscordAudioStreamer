@@ -75,6 +75,13 @@ export interface OpenAIConfig {
   dailyArticleTags: string[];
 }
 
+export interface KaldiConfig {
+  host: string;
+  port: number;
+  sampleRate: number;
+  enabled: boolean;
+}
+
 export interface Config {
   botToken: string;
   guildId?: string;
@@ -94,6 +101,7 @@ export interface Config {
   shop: ShopConfig;
   database: DatabaseConfig;
   openAI: OpenAIConfig;
+  kaldi: KaldiConfig;
 }
 
 const config: Config = {
@@ -166,6 +174,12 @@ const config: Config = {
       59,
     ),
     dailyArticleTags: parseStringList(process.env.OPENAI_DAILY_ARTICLE_TAGS || 'journal,libre-antenne'),
+  },
+  kaldi: {
+    host: process.env.KALDI_HOST || 'kaldiws.internal',
+    port: parseInteger(process.env.KALDI_PORT, 2700),
+    sampleRate: parseInteger(process.env.KALDI_SAMPLE_RATE, 16000),
+    enabled: process.env.KALDI_ENABLED !== 'false',
   },
 };
 
