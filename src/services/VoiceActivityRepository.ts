@@ -192,6 +192,17 @@ export interface HypeLeaderboardSnapshotRecord {
   updatedAt: Date;
 }
 
+export interface UserSyncRecord {
+  userId: string;
+  guildId: string | null | undefined;
+  username?: string | null;
+  displayName?: string | null;
+  nickname?: string | null;
+  firstSeenAt?: Date | null;
+  lastSeenAt?: Date | null;
+  metadata?: Record<string, unknown> | null;
+}
+
 interface SchemaColumnInfo {
   dataType: string;
   udtName: string;
@@ -221,6 +232,9 @@ export default class VoiceActivityRepository {
 
   private voiceTranscriptionsColumns: Set<string> | null;
 
+  private usersColumns: Set<string> | null;
+  private usersColumnTypes: Map<string, SchemaColumnInfo> | null;
+
   private readonly missingColumnWarnings: Set<string>;
   private readonly schemaPatchWarnings: Set<string>;
 
@@ -241,6 +255,8 @@ export default class VoiceActivityRepository {
     this.textMessagesColumns = null;
     this.textMessagesColumnTypes = null;
     this.voiceTranscriptionsColumns = null;
+    this.usersColumns = null;
+    this.usersColumnTypes = null;
     this.missingColumnWarnings = new Set();
     this.schemaPatchWarnings = new Set();
     this.schemaPatchesPromise = null;
@@ -278,7 +294,9 @@ export default class VoiceActivityRepository {
       this.voiceMuteEventsColumns &&
       this.voiceCamColumns &&
       this.textMessagesColumns &&
-      this.voiceTranscriptionsColumns
+      this.voiceTranscriptionsColumns &&
+      this.usersColumns &&
+      this.usersColumnTypes
     ) {
       return;
     }
@@ -300,6 +318,7 @@ export default class VoiceActivityRepository {
         'voice_cam',
         'text_messages',
         'voice_transcriptions',
+        'users',
       ];
       const result = await pool.query<{
         table_name: string;
@@ -334,6 +353,8 @@ export default class VoiceActivityRepository {
       this.textMessagesColumns = map.get('text_messages') ?? new Set<string>();
       this.textMessagesColumnTypes = typeMap.get('text_messages') ?? new Map<string, SchemaColumnInfo>();
       this.voiceTranscriptionsColumns = map.get('voice_transcriptions') ?? new Set<string>();
+      this.usersColumns = map.get('users') ?? new Set<string>();
+      this.usersColumnTypes = typeMap.get('users') ?? new Map<string, SchemaColumnInfo>();
     } catch (error) {
       console.error('Failed to introspect voice activity database schema', error);
 
@@ -343,6 +364,8 @@ export default class VoiceActivityRepository {
       this.textMessagesColumns ??= new Set<string>();
       this.textMessagesColumnTypes ??= new Map<string, SchemaColumnInfo>();
       this.voiceTranscriptionsColumns ??= new Set<string>();
+      this.usersColumns ??= new Set<string>();
+      this.usersColumnTypes ??= new Map<string, SchemaColumnInfo>();
     }
   }
 
@@ -408,14 +431,18 @@ export default class VoiceActivityRepository {
 
   private async applySchemaPatches(pool: Pool): Promise<void> {
     const textMessageTypes = this.textMessagesColumnTypes;
-    if (!textMessageTypes || textMessageTypes.size === 0) {
-      return;
+    if (textMessageTypes && textMessageTypes.size > 0) {
+      await this.upgradeSnowflakeColumn(pool, 'text_messages', 'id', textMessageTypes);
+      await this.upgradeSnowflakeColumn(pool, 'text_messages', 'user_id', textMessageTypes);
+      await this.upgradeSnowflakeColumn(pool, 'text_messages', 'guild_id', textMessageTypes);
+      await this.upgradeSnowflakeColumn(pool, 'text_messages', 'channel_id', textMessageTypes);
     }
 
-    await this.upgradeSnowflakeColumn(pool, 'text_messages', 'id', textMessageTypes);
-    await this.upgradeSnowflakeColumn(pool, 'text_messages', 'user_id', textMessageTypes);
-    await this.upgradeSnowflakeColumn(pool, 'text_messages', 'guild_id', textMessageTypes);
-    await this.upgradeSnowflakeColumn(pool, 'text_messages', 'channel_id', textMessageTypes);
+    const usersColumnTypes = this.usersColumnTypes;
+    if (usersColumnTypes && usersColumnTypes.size > 0) {
+      await this.upgradeSnowflakeColumn(pool, 'users', 'user_id', usersColumnTypes);
+      await this.upgradeSnowflakeColumn(pool, 'users', 'guild_id', usersColumnTypes);
+    }
   }
 
   private async ensureLeaderboardSnapshotTable(pool: Pool): Promise<void> {
@@ -454,7 +481,7 @@ export default class VoiceActivityRepository {
 
     this.missingColumnWarnings.add(key);
     console.warn(
-      `Column "${column}" is not present on "${table}". Some voice activity metrics may be limited until the database is migrated.`,
+      `Column "${column}" is not present on "${table}". Some analytics may be limited until the database is migrated.`,
     );
   }
 
@@ -796,6 +823,250 @@ export default class VoiceActivityRepository {
       );
     } catch (error) {
       console.error('Failed to persist message activity', error);
+    }
+  }
+
+  public async syncUsers(records: UserSyncRecord[]): Promise<void> {
+    const pool = this.ensurePool();
+    if (!pool || !Array.isArray(records) || records.length === 0) {
+      return;
+    }
+
+    const normalizeDate = (value: Date | null | undefined): Date | null => {
+      if (!(value instanceof Date)) {
+        return null;
+      }
+      const time = value.getTime();
+      return Number.isNaN(time) ? null : value;
+    };
+
+    const sanitizeMetadata = (value: Record<string, unknown> | null | undefined): Record<string, unknown> | null => {
+      if (!value || typeof value !== 'object') {
+        return null;
+      }
+
+      try {
+        const serialized = JSON.stringify(value);
+        if (!serialized || serialized === 'null') {
+          return null;
+        }
+        return JSON.parse(serialized) as Record<string, unknown>;
+      } catch (error) {
+        console.warn('Failed to serialize user metadata for persistence', error);
+        return null;
+      }
+    };
+
+    type NormalizedUserRecord = {
+      guildId: string;
+      userId: string;
+      username: string | null;
+      nickname: string | null;
+      displayName: string | null;
+      firstSeenAt: Date | null;
+      lastSeenAt: Date | null;
+      metadata: Record<string, unknown> | null;
+    };
+
+    const deduped = new Map<string, NormalizedUserRecord>();
+
+    const mergeEarliest = (current: Date | null, incoming: Date | null): Date | null => {
+      if (current && incoming) {
+        return current.getTime() <= incoming.getTime() ? current : incoming;
+      }
+      return current ?? incoming ?? null;
+    };
+
+    const mergeLatest = (current: Date | null, incoming: Date | null): Date | null => {
+      if (current && incoming) {
+        return current.getTime() >= incoming.getTime() ? current : incoming;
+      }
+      return current ?? incoming ?? null;
+    };
+
+    const mergeMetadata = (
+      current: Record<string, unknown> | null,
+      incoming: Record<string, unknown> | null,
+    ): Record<string, unknown> | null => {
+      if (!current) {
+        return incoming ? { ...incoming } : null;
+      }
+      if (!incoming) {
+        return { ...current };
+      }
+      return { ...current, ...incoming };
+    };
+
+    for (const record of records) {
+      const userId = typeof record?.userId === 'string' ? record.userId.trim() : '';
+      const guildId = typeof record?.guildId === 'string' ? record.guildId.trim() : '';
+
+      if (!userId || !guildId) {
+        continue;
+      }
+
+      const normalized: NormalizedUserRecord = {
+        guildId,
+        userId,
+        username: this.normalizeString(record.username ?? null),
+        nickname: this.normalizeString(record.nickname ?? null),
+        displayName: this.normalizeString(record.displayName ?? null),
+        firstSeenAt: normalizeDate(record.firstSeenAt ?? null),
+        lastSeenAt: normalizeDate(record.lastSeenAt ?? null),
+        metadata: sanitizeMetadata(record.metadata ?? null),
+      };
+
+      const key = `${guildId}:${userId}`;
+      const existing = deduped.get(key);
+
+      if (existing) {
+        if (normalized.username !== null) {
+          existing.username = normalized.username;
+        }
+        if (normalized.nickname !== null) {
+          existing.nickname = normalized.nickname;
+        }
+        if (normalized.displayName !== null) {
+          existing.displayName = normalized.displayName;
+        }
+        existing.firstSeenAt = mergeEarliest(existing.firstSeenAt, normalized.firstSeenAt);
+        existing.lastSeenAt = mergeLatest(existing.lastSeenAt, normalized.lastSeenAt);
+        existing.metadata = mergeMetadata(existing.metadata, normalized.metadata);
+      } else {
+        deduped.set(key, normalized);
+      }
+    }
+
+    const normalizedRecords = Array.from(deduped.values());
+    if (normalizedRecords.length === 0) {
+      return;
+    }
+
+    try {
+      await this.ensureSchemaIntrospection(pool);
+      await this.ensureSchemaPatches(pool);
+
+      const usersColumns = this.usersColumns;
+      if (!usersColumns || !usersColumns.has('guild_id') || !usersColumns.has('user_id')) {
+        this.warnAboutMissingColumn('users', 'guild_id');
+        this.warnAboutMissingColumn('users', 'user_id');
+        return;
+      }
+
+      const includeColumn = (column: string): boolean => usersColumns.has(column);
+
+      const columns = ['guild_id', 'user_id'];
+      if (includeColumn('username')) {
+        columns.push('username');
+      }
+      if (includeColumn('nickname')) {
+        columns.push('nickname');
+      }
+      if (includeColumn('pseudo')) {
+        columns.push('pseudo');
+      }
+      if (includeColumn('first_seen')) {
+        columns.push('first_seen');
+      }
+      if (includeColumn('last_seen')) {
+        columns.push('last_seen');
+      }
+      if (includeColumn('metadata')) {
+        columns.push('metadata');
+      }
+
+      const values: unknown[] = [];
+      const rowPlaceholders: string[] = [];
+
+      normalizedRecords.forEach((record) => {
+        const placeholders: string[] = [];
+
+        for (let columnIndex = 0; columnIndex < columns.length; columnIndex += 1) {
+          placeholders.push(`$${values.length + columnIndex + 1}`);
+        }
+
+        rowPlaceholders.push(`(${placeholders.join(', ')})`);
+
+        for (const column of columns) {
+          switch (column) {
+            case 'guild_id':
+              values.push(record.guildId);
+              break;
+            case 'user_id':
+              values.push(record.userId);
+              break;
+            case 'username':
+              values.push(record.username);
+              break;
+            case 'nickname':
+              values.push(record.nickname);
+              break;
+            case 'pseudo':
+              values.push(record.displayName);
+              break;
+            case 'first_seen':
+              values.push(record.firstSeenAt);
+              break;
+            case 'last_seen':
+              values.push(record.lastSeenAt);
+              break;
+            case 'metadata':
+              values.push(record.metadata);
+              break;
+            default:
+              values.push(null);
+              break;
+          }
+        }
+      });
+
+      if (rowPlaceholders.length === 0) {
+        return;
+      }
+
+      const updateClauses: string[] = [];
+
+      if (includeColumn('username')) {
+        updateClauses.push('username = COALESCE(EXCLUDED.username, users.username)');
+      }
+      if (includeColumn('nickname')) {
+        updateClauses.push('nickname = COALESCE(EXCLUDED.nickname, users.nickname)');
+      }
+      if (includeColumn('pseudo')) {
+        updateClauses.push('pseudo = COALESCE(EXCLUDED.pseudo, users.pseudo)');
+      }
+      if (includeColumn('first_seen')) {
+        updateClauses.push('first_seen = COALESCE(users.first_seen, EXCLUDED.first_seen)');
+      }
+      if (includeColumn('last_seen')) {
+        updateClauses.push(
+          'last_seen = CASE'
+            + ' WHEN EXCLUDED.last_seen IS NULL THEN users.last_seen'
+            + ' WHEN users.last_seen IS NULL THEN EXCLUDED.last_seen'
+            + ' ELSE GREATEST(users.last_seen, EXCLUDED.last_seen)'
+            + ' END',
+        );
+      }
+      if (includeColumn('metadata')) {
+        updateClauses.push(
+          'metadata = CASE'
+            + ' WHEN EXCLUDED.metadata IS NULL THEN users.metadata'
+            + ' WHEN users.metadata IS NULL THEN EXCLUDED.metadata'
+            + ' ELSE users.metadata || EXCLUDED.metadata'
+            + ' END',
+        );
+      }
+
+      const conflictClause = updateClauses.length > 0
+        ? ` ON CONFLICT (guild_id, user_id) DO UPDATE SET ${updateClauses.join(', ')}`
+        : ' ON CONFLICT (guild_id, user_id) DO NOTHING';
+
+      await pool.query(
+        `INSERT INTO users (${columns.join(', ')}) VALUES ${rowPlaceholders.join(', ')}` + conflictClause,
+        values,
+      );
+    } catch (error) {
+      console.error('Failed to synchronize users table', error);
     }
   }
 

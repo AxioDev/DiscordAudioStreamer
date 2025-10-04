@@ -27,6 +27,7 @@ import type AudioMixer from '../audio/AudioMixer';
 import type SpeakerTracker from '../services/SpeakerTracker';
 import type { VoiceStateSnapshot } from '../services/SpeakerTracker';
 import type VoiceActivityRepository from '../services/VoiceActivityRepository';
+import { type UserSyncRecord } from '../services/VoiceActivityRepository';
 import type KaldiTranscriptionService from '../services/KaldiTranscriptionService';
 import type { Config } from '../config';
 
@@ -201,6 +202,18 @@ export default class DiscordAudioBridge {
     });
   }
 
+  private syncUsers(records: UserSyncRecord[]): void {
+    if (!this.voiceActivityRepository || !Array.isArray(records) || records.length === 0) {
+      return;
+    }
+
+    this.voiceActivityRepository
+      .syncUsers(records)
+      .catch((error) => {
+        console.warn('Failed to synchronize users metadata', error);
+      });
+  }
+
   private async handleMessage(message: Message): Promise<void> {
     if (message.author.bot) {
       return;
@@ -223,6 +236,36 @@ export default class DiscordAudioBridge {
         .catch((error) => {
           console.warn('Failed to persist message activity event', error);
         });
+    }
+
+    if (message.guildId) {
+      const joinedAt = message.member?.joinedAt instanceof Date && !Number.isNaN(message.member.joinedAt.getTime())
+        ? message.member.joinedAt
+        : null;
+      const displayName = typeof message.member?.displayName === 'string'
+        ? message.member.displayName
+        : message.author.globalName ?? message.author.username ?? null;
+      const nickname = typeof message.member?.nickname === 'string' ? message.member.nickname : null;
+      const avatarUrl = typeof message.author.displayAvatarURL === 'function'
+        ? message.author.displayAvatarURL({ extension: 'png', size: 128 })
+        : null;
+
+      this.syncUsers([
+        {
+          userId: message.author.id,
+          guildId: message.guildId,
+          username: message.author.username ?? null,
+          displayName,
+          nickname,
+          firstSeenAt: joinedAt,
+          lastSeenAt: createdAt,
+          metadata: {
+            globalName: message.author.globalName ?? null,
+            avatarUrl,
+            isBot: Boolean(message.author.bot),
+          },
+        },
+      ]);
     }
 
     const content = (message.content || '').trim();
@@ -311,18 +354,47 @@ export default class DiscordAudioBridge {
         }
       }
 
-      return {
+      const computedDisplayName = guildInfo?.displayName || guildInfo?.nickname || globalName || username;
+
+      const identity: DiscordUserIdentity = {
         id: user.id,
         username,
         globalName,
         discriminator,
-        displayName: guildInfo?.displayName || guildInfo?.nickname || globalName || username,
+        displayName: computedDisplayName,
         avatarUrl,
         bannerUrl: bannerUrl ?? null,
         accentColor,
         createdAt,
         guild: guildInfo,
       };
+
+      if (guildInfo?.id) {
+        const joinedAtDate = guildInfo.joinedAt ? new Date(guildInfo.joinedAt) : null;
+        const normalizedJoinedAt = joinedAtDate && !Number.isNaN(joinedAtDate.getTime()) ? joinedAtDate : null;
+
+        this.syncUsers([
+          {
+            userId: user.id,
+            guildId: guildInfo.id,
+            username,
+            displayName: computedDisplayName,
+            nickname: guildInfo.nickname,
+            firstSeenAt: normalizedJoinedAt,
+            lastSeenAt: new Date(),
+            metadata: {
+              globalName,
+              displayName: guildInfo.displayName ?? null,
+              avatarUrl,
+              bannerUrl: bannerUrl ?? null,
+              accentColor,
+              roles: guildInfo.roles ?? [],
+            },
+          },
+        ]);
+      }
+
+      return identity;
     } catch (error) {
       console.warn('Failed to fetch Discord user identity', userId, (error as Error)?.message ?? error);
       return null;
@@ -393,6 +465,29 @@ export default class DiscordAudioBridge {
           isBot: Boolean(member.user?.bot),
         };
       });
+
+      const syncTimestamp = new Date();
+      this.syncUsers(
+        members.map((member) => {
+          const joinedAtDate = member.joinedAt ? new Date(member.joinedAt) : null;
+          const firstSeenAt = joinedAtDate && !Number.isNaN(joinedAtDate.getTime()) ? joinedAtDate : null;
+
+          return {
+            userId: member.id,
+            guildId,
+            username: member.username,
+            displayName: member.displayName ?? member.nickname ?? member.username ?? null,
+            nickname: member.nickname,
+            firstSeenAt,
+            lastSeenAt: syncTimestamp,
+            metadata: {
+              avatarUrl: member.avatarUrl,
+              roles: member.roles,
+              isBot: member.isBot,
+            },
+          } satisfies UserSyncRecord;
+        }),
+      );
 
       const nextCursor = !normalizedSearch && members.length === normalizedLimit
         ? members[members.length - 1]?.id ?? null
@@ -751,6 +846,14 @@ export default class DiscordAudioBridge {
     if (!isRelevantOld && !isRelevantNew) {
       return;
     }
+
+    this.syncUsers([
+      {
+        userId,
+        guildId: relevantGuildId,
+        lastSeenAt: new Date(),
+      },
+    ]);
 
     const channelId = newState?.channelId;
     if (channelId === this.currentVoiceChannelId) {
