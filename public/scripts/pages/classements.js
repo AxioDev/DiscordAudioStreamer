@@ -66,16 +66,69 @@ const topThreeStyles = [
   {
     highlight: 'border-[#0085C7] bg-slate-900/70 shadow-lg shadow-[0_0_45px_rgba(0,133,199,0.35)]',
     accent: 'from-[#0085C7]/35 via-[#0085C7]/10 to-transparent',
+    ring: 'ring-4 ring-[#0085C7]/50',
+    badge: 'bg-gradient-to-br from-sky-400 via-[#0085C7] to-cyan-400 text-slate-950',
   },
   {
     highlight: 'border-[#F4C300] bg-slate-900/70 shadow-lg shadow-[0_0_45px_rgba(244,195,0,0.35)]',
     accent: 'from-[#F4C300]/35 via-[#F4C300]/10 to-transparent',
+    ring: 'ring-4 ring-[#F4C300]/40',
+    badge: 'bg-gradient-to-br from-amber-300 via-[#F4C300] to-yellow-200 text-slate-950',
   },
   {
     highlight: 'border-black bg-slate-900/70 shadow-lg shadow-[0_0_45px_rgba(0,0,0,0.45)]',
     accent: 'from-black/40 via-slate-900/60 to-transparent',
+    ring: 'ring-4 ring-white/20',
+    badge: 'bg-gradient-to-br from-slate-700 via-slate-500 to-slate-300 text-white/90',
   },
 ];
+
+const getLeaderAvatar = (leader) => {
+  const candidates = [leader?.avatar, leader?.avatarUrl, leader?.profile?.avatar];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string') {
+      const trimmed = candidate.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  }
+  return null;
+};
+
+const computeAvatarSeed = (leader, rank) => {
+  const userId = typeof leader?.userId === 'string' ? leader.userId : '';
+  if (userId) {
+    return Array.from(userId).reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  }
+  const safeRank = Number.isFinite(rank) ? Math.max(0, rank - 1) : 0;
+  return safeRank;
+};
+
+const fallbackAvatarBackgrounds = [
+  'from-sky-500/60 via-slate-900/60 to-indigo-500/60',
+  'from-fuchsia-500/60 via-slate-900/60 to-pink-500/60',
+  'from-emerald-400/60 via-slate-900/60 to-cyan-500/60',
+  'from-amber-400/60 via-slate-900/60 to-orange-500/60',
+  'from-purple-500/60 via-slate-900/60 to-violet-500/60',
+];
+
+const getLeaderInitials = (leader) => {
+  const displayName = typeof leader?.displayName === 'string' ? leader.displayName.trim() : '';
+  const username = typeof leader?.username === 'string' ? leader.username.trim().replace(/^@/, '') : '';
+  const source = displayName || username;
+  if (!source) {
+    return '∅';
+  }
+  const segments = source.split(/\s+/).filter(Boolean);
+  if (segments.length === 1) {
+    return segments[0].slice(0, 2).toUpperCase();
+  }
+  const first = segments[0]?.[0] ?? '';
+  const last = segments[segments.length - 1]?.[0] ?? '';
+  const initials = `${first}${last}`.trim();
+  return initials.length > 0 ? initials.toUpperCase() : source.slice(0, 2).toUpperCase();
+};
 
 const getTrendPresentation = (positionTrend) => {
   const movement = positionTrend?.movement ?? 'same';
@@ -352,33 +405,65 @@ const ClassementsPage = ({ params = {} }) => {
             : '';
           const activityScore = formatScore(leader?.activityScore);
           const key = leader?.userId ?? leader?.id ?? `${leader?.displayName ?? 'leader'}-${rank}`;
+          const avatarUrl = getLeaderAvatar(leader);
+          const hasAvatarImage = typeof avatarUrl === 'string' && avatarUrl.length > 0;
+          const avatarSeed = computeAvatarSeed(leader, rank);
+          const fallbackBackground = fallbackAvatarBackgrounds[Math.abs(avatarSeed) % fallbackAvatarBackgrounds.length];
+          const ring = style?.ring ?? 'ring-2 ring-white/10';
+          const badge = style?.badge ?? 'bg-slate-900/90 text-white border border-white/20';
+          const altName = (() => {
+            const name = typeof leader?.displayName === 'string' ? leader.displayName.trim() : '';
+            if (name) {
+              return name;
+            }
+            const username = normalizedUsername.replace(/^@/, '');
+            return username || `profil ${pad(rank)}`;
+          })();
 
           return html`
             <article key=${key} class=${`leader-card relative overflow-hidden rounded-3xl border ${highlight}`}>
               <div class=${`absolute inset-0 bg-gradient-to-r ${accent} opacity-[0.22]`}></div>
-              <div class="relative flex flex-col gap-6 p-6 sm:flex-row sm:items-center sm:justify-between">
-                <div class="flex flex-1 items-center gap-5">
-                  <div class="flex items-center gap-3">
-                    <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-lg font-extrabold text-white">
-                      ${pad(rank)}
-                    </span>
-                    <span class=${`flex flex-col text-[0.65rem] font-semibold leading-tight ${trend.className}`}>
-                      <span class="flex items-center gap-1">
-                        <span aria-hidden="true">${trend.icon}</span>
-                        <span>${trend.delta}</span>
+              <div class="relative flex flex-col gap-6 p-6">
+                <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div class="flex items-center gap-4">
+                    <div class="relative">
+                      <div class=${`relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-950/70 ${ring} ring-offset-2 ring-offset-slate-950`}>
+                        ${hasAvatarImage
+                          ? html`<img
+                              src=${avatarUrl}
+                              alt=${`Avatar de ${altName}`}
+                              class="h-full w-full object-cover"
+                              loading="lazy"
+                            />`
+                          : html`<span
+                              class=${`flex h-full w-full items-center justify-center bg-gradient-to-br ${fallbackBackground} text-lg font-semibold text-white/90`}
+                            >
+                              ${getLeaderInitials(leader)}
+                            </span>`}
+                      </div>
+                      <span
+                        class=${`absolute -bottom-1 -right-1 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-xs font-bold shadow-lg shadow-black/50 ${badge}`}
+                      >
+                        #${pad(rank)}
                       </span>
-                      <span class="text-[0.55rem] uppercase tracking-[0.2em] text-slate-400/70">${trend.label}</span>
-                    </span>
+                    </div>
+                    <div class="space-y-1.5">
+                      <h3 class="text-lg font-semibold text-white">${leader?.displayName ?? 'Inconnu·e'}</h3>
+                      ${normalizedUsername
+                        ? html`<p class="text-xs font-medium text-slate-400/80">${normalizedUsername}</p>`
+                        : null}
+                      <p class="text-[0.65rem] uppercase tracking-[0.3em] text-slate-400/70">Activité ${activityScore}</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 class="text-lg font-semibold text-white">${leader?.displayName ?? 'Inconnu·e'}</h3>
-                    ${normalizedUsername
-                      ? html`<p class="mt-1 text-xs font-medium text-slate-400/80">${normalizedUsername}</p>`
-                      : null}
-                    <p class="mt-1 text-xs uppercase tracking-[0.25em] text-slate-400">Activité ${activityScore}</p>
+                  <div class="flex flex-col items-start gap-1 rounded-full border border-white/10 bg-slate-950/60 px-4 py-2 text-[0.65rem] font-semibold leading-tight text-white/80 sm:items-end sm:self-start sm:text-right">
+                    <span class=${`flex items-center gap-1 ${trend.className}`}>
+                      <span aria-hidden="true">${trend.icon}</span>
+                      <span>${trend.delta}</span>
+                    </span>
+                    <span class="text-[0.55rem] uppercase tracking-[0.25em] text-slate-400/70">${trend.label}</span>
                   </div>
                 </div>
-                <dl class="grid flex-1 grid-cols-2 gap-5 text-sm sm:grid-cols-4">
+                <dl class="grid grid-cols-2 gap-5 text-sm sm:grid-cols-4">
                   <div>
                     <dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Score hype</dt>
                     <dd class="mt-1 text-base font-semibold text-sky-300">${formatScore(leader?.schScoreNorm)}</dd>
@@ -406,18 +491,21 @@ const ClassementsPage = ({ params = {} }) => {
 
   return html`
     <div class="classements-page flex flex-col gap-10">
-      <section class="grid gap-8 lg:grid-cols-[1.3fr_1fr]">
-        <div class="rounded-3xl bg-white/5 p-[1px]">
-          <div class="rounded-[1.45rem] bg-slate-950/80 p-8 shadow-neon">
-            <p class="text-xs uppercase tracking-[0.35em] text-slate-400">Classement officiel</p>
-            <h1 class="mt-4 text-3xl font-black leading-tight text-white sm:text-4xl">
-              Top 100 des personnes les plus hype &amp; cool
-            </h1>
-            <p class="mt-6 max-w-xl text-base text-slate-300 sm:text-lg">
-              Ce classement mesure l'énergie que chaque voix apporte au serveur : l'impact sur la fréquentation, la durée de parole et la vibe générale.
-            </p>
-            <div class="mt-8 flex flex-wrap items-center gap-4">
-              <div class="hype-pulse inline-flex items-center gap-3 rounded-full bg-gradient-to-r from-sky-500/20 via-fuchsia-500/20 to-purple-500/20 px-5 py-3 text-sm font-semibold text-sky-200">
+      <section class="rounded-3xl bg-white/5 p-[1px]">
+        <div class="relative overflow-hidden rounded-[1.45rem] bg-slate-950/80 p-8 shadow-neon">
+          <div class="pointer-events-none absolute inset-0 bg-gradient-to-br from-sky-500/15 via-fuchsia-500/10 to-purple-500/20"></div>
+          <div class="relative flex flex-col gap-8 sm:flex-row sm:items-center sm:justify-between">
+            <div class="max-w-2xl space-y-6">
+              <p class="text-xs uppercase tracking-[0.35em] text-slate-400">Classement officiel</p>
+              <h1 class="text-3xl font-black leading-tight text-white sm:text-4xl">
+                Top 100 des personnes les plus hype & cool
+              </h1>
+              <p class="text-base text-slate-300 sm:text-lg">
+                Ce classement mesure l'énergie que chaque voix apporte au serveur : l'impact sur la fréquentation, la durée de parole et la vibe générale.
+              </p>
+            </div>
+            <div class="flex flex-col items-start gap-3 sm:items-end">
+              <div class="hype-pulse inline-flex items-center gap-3 rounded-full bg-gradient-to-r from-sky-500/25 via-fuchsia-500/25 to-purple-500/25 px-5 py-3 text-sm font-semibold text-sky-200">
                 <span class="inline-flex h-3 w-3 animate-ping rounded-full bg-sky-400"></span>
                 Mise à jour en direct
               </div>
@@ -428,74 +516,6 @@ const ClassementsPage = ({ params = {} }) => {
             </div>
           </div>
         </div>
-        <aside class="flex flex-col gap-4">
-          <div class="rounded-3xl bg-white/5 p-[1px]">
-            <div class="rounded-[1.45rem] bg-slate-950/80 p-6">
-              <h2 class="text-sm font-semibold uppercase tracking-[0.3em] text-slate-400">Algorithme hype</h2>
-              <p class="mt-3 text-sm text-slate-300">
-                Le score hype combine l'effet de ton arrivée, l'impact quand tu quittes, ta capacité à retenir les autres et ton activité vocale.
-              </p>
-            </div>
-          </div>
-          <div class="rounded-3xl bg-white/5 p-[1px]">
-            <details class="group rounded-[1.45rem] bg-slate-950/85">
-              <summary class="flex cursor-pointer items-center justify-between gap-4 rounded-[1.45rem] px-6 py-5 text-sm font-semibold uppercase tracking-[0.3em] text-slate-400 transition hover:text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60">
-                <span>Formule transparente</span>
-                <span class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 text-xs text-slate-400 transition group-open:rotate-45 group-open:text-slate-200" aria-hidden="true">+</span>
-              </summary>
-              <div class="px-6 pb-6">
-                <p class="text-sm text-slate-300">
-                  Pour les classements <span class="font-semibold text-sky-200">Hype</span> &amp; <span class="font-semibold text-fuchsia-200">Cool</span>, nous combinons quatre signaux puis nous normalisons par le nombre de sessions.
-                </p>
-                <div class="mt-4 space-y-2 text-xs text-slate-200">
-                  <div class="rounded-2xl border border-white/10 bg-slate-900/80 p-4 font-mono text-sky-100 shadow-inner shadow-sky-500/10">
-                    SCH brut = 0.4 × effet_arrivée + 0.3 × effet_départ + 0.2 × rétention_minutes + 0.1 × score_activité
-                  </div>
-                  <div class="rounded-2xl border border-white/10 bg-slate-900/80 p-4 font-mono text-sky-100 shadow-inner shadow-sky-500/10">
-                    Score hype = SCH brut ÷ ln(1 + sessions)
-                  </div>
-                </div>
-                <ul class="mt-4 space-y-2 text-sm text-slate-300">
-                  <li class="flex items-start gap-3">
-                    <span class="mt-1 h-2.5 w-2.5 rounded-full bg-sky-400"></span>
-                    <span>L'effet d'arrivée mesure la variation de fréquentation dans les 3 minutes suivant ton arrivée.</span>
-                  </li>
-                  <li class="flex items-start gap-3">
-                    <span class="mt-1 h-2.5 w-2.5 rounded-full bg-emerald-400"></span>
-                    <span>L'effet de départ détecte si la salle se vide ou reste pleine juste après ton départ.</span>
-                  </li>
-                  <li class="flex items-start gap-3">
-                    <span class="mt-1 h-2.5 w-2.5 rounded-full bg-amber-400"></span>
-                    <span>La rétention compare la durée moyenne des autres quand tu es présent·e versus quand tu es absent·e.</span>
-                  </li>
-                  <li class="flex items-start gap-3">
-                    <span class="mt-1 h-2.5 w-2.5 rounded-full bg-fuchsia-400"></span>
-                    <span>Le score d'activité valorise les minutes parlées sans sur-récompenser les très longues sessions.</span>
-                  </li>
-                </ul>
-              </div>
-            </details>
-          </div>
-          <div class="rounded-3xl bg-gradient-to-br from-sky-500/20 via-fuchsia-500/20 to-purple-500/20 p-[1px]">
-            <div class="rounded-[1.45rem] bg-slate-950/85 p-6">
-              <h2 class="text-sm font-semibold uppercase tracking-[0.3em] text-slate-400">Comment grimper ?</h2>
-              <ul class="mt-3 space-y-2 text-sm text-slate-200/90">
-                <li class="flex items-start gap-3">
-                  <span class="mt-1 h-2 w-2 rounded-full bg-sky-400"></span>
-                  Fais grimper l'audience quand tu te connectes.
-                </li>
-                <li class="flex items-start gap-3">
-                  <span class="mt-1 h-2 w-2 rounded-full bg-fuchsia-400"></span>
-                  Reste actif dans la discussion, sans spam.
-                </li>
-                <li class="flex items-start gap-3">
-                  <span class="mt-1 h-2 w-2 rounded-full bg-purple-400"></span>
-                  Propulse de la bonne humeur et des vibes mémorables.
-                </li>
-              </ul>
-            </div>
-          </div>
-        </aside>
       </section>
 
       <section class="space-y-6">
