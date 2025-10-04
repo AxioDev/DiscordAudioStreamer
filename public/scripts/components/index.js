@@ -2305,27 +2305,75 @@ const ProfileIdentityCard = ({ profile, userId }) => {
     .slice(0, 2)
     || 'UA';
 
+  const [isAvatarOpen, setIsAvatarOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isAvatarOpen || typeof document === 'undefined') {
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setIsAvatarOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isAvatarOpen]);
+
+  const handleOpenAvatar = useCallback(() => {
+    if (!avatarUrl) {
+      return;
+    }
+    setIsAvatarOpen(true);
+  }, [avatarUrl]);
+
+  const handleCloseAvatar = useCallback(() => {
+    setIsAvatarOpen(false);
+  }, []);
+
   return html`
-    <section class="rounded-3xl border border-white/10 bg-gradient-to-br from-slate-950 via-slate-950/90 to-indigo-950/40 p-6 shadow-xl shadow-indigo-900/30 backdrop-blur">
-      <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div class="flex items-center gap-4">
+    <section class="relative rounded-3xl border border-white/10 bg-gradient-to-br from-slate-950 via-slate-950/90 to-indigo-950/40 p-6 shadow-xl shadow-indigo-900/30 backdrop-blur">
+      <div class="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex flex-col items-center gap-4 sm:flex-row sm:items-center">
           ${avatarUrl
-            ? html`<img
-                src=${avatarUrl}
-                alt=${displayName}
-                class="h-16 w-16 rounded-2xl border border-white/10 object-cover shadow-lg shadow-slate-950/40"
-                loading="lazy"
-                decoding="async"
-              />`
+            ? html`<button
+                type="button"
+                onClick=${handleOpenAvatar}
+                class="group relative flex shrink-0 items-center justify-center rounded-3xl border border-white/10 bg-black/30 p-1 shadow-lg shadow-slate-950/60 transition hover:border-indigo-300/60 hover:shadow-indigo-500/30"
+                aria-label="Agrandir l’avatar"
+              >
+                <img
+                  src=${avatarUrl}
+                  alt=${displayName}
+                  style=${{ width: '256px', height: '256px' }}
+                  class="rounded-[1.25rem] object-cover"
+                  loading="lazy"
+                  decoding="async"
+                />
+                <span class="pointer-events-none absolute inset-0 rounded-[1.25rem] bg-gradient-to-br from-transparent via-transparent to-black/30 opacity-0 transition group-hover:opacity-100"></span>
+                <span class="pointer-events-none absolute bottom-3 right-3 inline-flex items-center gap-1 rounded-full border border-white/20 bg-black/50 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-slate-100 opacity-0 transition group-hover:opacity-100">
+                  Voir
+                </span>
+              </button>`
             : html`<div
-                class="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-lg font-semibold text-white shadow-inner shadow-slate-950/60"
+                class="flex h-32 w-32 items-center justify-center rounded-3xl border border-white/10 bg-white/10 text-3xl font-semibold text-white shadow-inner shadow-slate-950/60 sm:h-40 sm:w-40"
                 aria-hidden="true"
               >
                 ${initials}
               </div>`}
-          <div>
+          <div class="text-center sm:text-left">
             <p class="text-xs uppercase tracking-[0.3em] text-indigo-200/80">Profil Discord</p>
-            <h1 class="text-2xl font-semibold text-white">${displayName}</h1>
+            <h1 class="mt-1 text-3xl font-semibold text-white">${displayName}</h1>
             ${username ? html`<p class="text-sm text-slate-300">${username}</p>` : null}
             ${identifier ? html`<p class="text-xs text-slate-500">${identifier}</p>` : null}
           </div>
@@ -2334,6 +2382,37 @@ const ProfileIdentityCard = ({ profile, userId }) => {
           <p>Ces données sont calculées à partir de l’activité vocale et textuelle enregistrée.</p>
         </div>
       </div>
+
+      ${isAvatarOpen && avatarUrl
+        ? html`<div
+            class="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/90 backdrop-blur"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Avatar agrandi"
+          >
+            <button
+              type="button"
+              onClick=${handleCloseAvatar}
+              class="absolute right-6 top-6 inline-flex items-center justify-center rounded-full border border-white/10 bg-black/40 p-2 text-slate-100 transition hover:bg-white/10"
+              aria-label="Fermer l’aperçu de l’avatar"
+            >
+              <${X} class="h-5 w-5" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick=${handleCloseAvatar}
+              class="max-h-[90vh] max-w-[90vw] overflow-hidden rounded-[1.75rem] border border-white/10 bg-black/40 p-3 shadow-2xl shadow-black/40"
+            >
+              <img
+                src=${avatarUrl}
+                alt=${displayName}
+                class="max-h-[80vh] max-w-[80vw] rounded-[1.5rem] object-contain"
+                loading="lazy"
+                decoding="async"
+              />
+            </button>
+          </div>`
+        : null}
     </section>
   `;
 };
@@ -2414,97 +2493,372 @@ const ProfileSummaryCards = ({ stats = {} }) => {
   `;
 };
 
+const PROFILE_ACTIVITY_GRANULARITIES = [
+  {
+    id: 'hour',
+    label: 'Vue horaire',
+    description: 'Agrégation par heure',
+    durationMs: HOUR_MS,
+  },
+  {
+    id: 'day',
+    label: 'Vue quotidienne',
+    description: 'Agrégation par jour',
+    durationMs: HOUR_MS * HOURS_IN_DAY,
+  },
+];
+
 const ProfileActivityTimeline = ({
   range = {},
   presenceSegments = [],
   speakingSegments = [],
   messageEvents = [],
 }) => {
-  const events = useMemo(() => {
-    const entries = [];
+  const [granularity, setGranularity] = useState('hour');
+  const canvasRef = useRef(null);
+  const chartRef = useRef(null);
 
-    const pushEvent = (event) => {
-      if (!event || !Number.isFinite(event.timestamp)) {
-        return;
+  const granularityConfig = PROFILE_ACTIVITY_GRANULARITIES.find((item) => item.id === granularity)
+    ?? PROFILE_ACTIVITY_GRANULARITIES[0];
+
+  const chartState = useMemo(() => {
+    const bucketSize = granularityConfig.durationMs;
+    const allTimestamps = [];
+
+    const collectTimestamp = (timestamp) => {
+      if (Number.isFinite(timestamp)) {
+        allTimestamps.push(timestamp);
       }
-      entries.push(event);
     };
 
-    presenceSegments.forEach((segment, index) => {
-      const joinedAt = Number.isFinite(segment?.joinedAtMs) ? segment.joinedAtMs : null;
-      if (Number.isFinite(joinedAt)) {
-        pushEvent({
-          key: `presence-join-${index}-${joinedAt}`,
-          timestamp: joinedAt,
-          label: 'Connexion au salon vocal',
-          icon: Headphones,
-          tone: 'text-emerald-300',
-          accent: 'border-emerald-400/40 bg-emerald-500/10',
-        });
-      }
-      const leftAt = Number.isFinite(segment?.leftAtMs) ? segment.leftAtMs : null;
-      if (Number.isFinite(leftAt)) {
-        pushEvent({
-          key: `presence-leave-${index}-${leftAt}`,
-          timestamp: leftAt,
-          label: 'Déconnexion du salon vocal',
-          icon: Headphones,
-          tone: 'text-slate-300',
-          accent: 'border-slate-400/30 bg-slate-500/10',
-        });
+    (presenceSegments || []).forEach((segment) => {
+      collectTimestamp(Number.isFinite(segment?.joinedAtMs) ? segment.joinedAtMs : null);
+      collectTimestamp(Number.isFinite(segment?.leftAtMs) ? segment.leftAtMs : null);
+    });
+
+    (speakingSegments || []).forEach((segment) => {
+      collectTimestamp(Number.isFinite(segment?.startedAtMs) ? segment.startedAtMs : null);
+      if (Number.isFinite(segment?.endedAtMs)) {
+        collectTimestamp(segment.endedAtMs);
+      } else if (Number.isFinite(segment?.startedAtMs) && Number.isFinite(segment?.durationMs)) {
+        collectTimestamp(segment.startedAtMs + Math.max(0, segment.durationMs));
       }
     });
 
-    speakingSegments.forEach((segment, index) => {
-      const startedAt = Number.isFinite(segment?.startedAtMs) ? segment.startedAtMs : null;
-      if (!Number.isFinite(startedAt)) {
-        return;
-      }
-      const duration = Number.isFinite(segment?.durationMs) ? Math.max(0, segment.durationMs) : 0;
-      const endedAt = Number.isFinite(segment?.endedAtMs)
-        ? segment.endedAtMs
-        : startedAt + duration;
-      pushEvent({
-        key: `speak-${index}-${startedAt}`,
-        timestamp: startedAt,
-        label: 'Prise de parole',
-        details: duration > 0 ? `Durée ${formatDurationLabel(duration)}` : null,
-        icon: Mic,
-        tone: 'text-fuchsia-300',
-        accent: 'border-fuchsia-400/40 bg-fuchsia-500/10',
-      });
-      if (Number.isFinite(endedAt) && endedAt > startedAt) {
-        pushEvent({
-          key: `speak-end-${index}-${endedAt}`,
-          timestamp: endedAt,
-          label: 'Fin de la prise de parole',
-          icon: MicOff,
-          tone: 'text-slate-300',
-          accent: 'border-slate-400/30 bg-slate-500/10',
-        });
-      }
+    (messageEvents || []).forEach((event) => {
+      collectTimestamp(Number.isFinite(event?.timestampMs) ? event.timestampMs : null);
     });
 
-    messageEvents.forEach((event, index) => {
+    const fallbackSince = allTimestamps.length > 0 ? Math.min(...allTimestamps) : null;
+    const fallbackUntil = allTimestamps.length > 0 ? Math.max(...allTimestamps) : null;
+
+    let sinceMs = Number.isFinite(range?.sinceMs) ? range.sinceMs : fallbackSince;
+    let untilMs = Number.isFinite(range?.untilMs) ? range.untilMs : fallbackUntil;
+
+    if (!Number.isFinite(sinceMs) || !Number.isFinite(untilMs)) {
+      return {
+        labels: [],
+        datasets: [],
+        buckets: [],
+        totals: { messages: 0, voiceJoin: 0, voiceLeave: 0, speakingMs: 0 },
+        hasData: false,
+      };
+    }
+
+    if (untilMs <= sinceMs) {
+      untilMs = sinceMs + bucketSize;
+    }
+
+    const safeStart = Math.floor(sinceMs / bucketSize) * bucketSize;
+    const safeEnd = Math.ceil(untilMs / bucketSize) * bucketSize;
+    const totalBuckets = Math.max(1, Math.ceil((safeEnd - safeStart) / bucketSize));
+
+    const buckets = Array.from({ length: totalBuckets }, (_, index) => {
+      const start = safeStart + index * bucketSize;
+      return {
+        start,
+        end: start + bucketSize,
+        messages: 0,
+        voiceJoin: 0,
+        voiceLeave: 0,
+        speakingMs: 0,
+      };
+    });
+
+    const clampIndex = (timestamp, options = {}) => {
+      if (!Number.isFinite(timestamp) || buckets.length === 0) {
+        return 0;
+      }
+      const { inclusiveEnd = false } = options;
+      if (timestamp <= safeStart) {
+        return 0;
+      }
+      if (timestamp >= safeEnd) {
+        return buckets.length - 1;
+      }
+      const relative = timestamp - safeStart;
+      const rawIndex = inclusiveEnd
+        ? Math.ceil(relative / bucketSize) - 1
+        : Math.floor(relative / bucketSize);
+      return Math.max(0, Math.min(buckets.length - 1, rawIndex));
+    };
+
+    (messageEvents || []).forEach((event) => {
       const timestamp = Number.isFinite(event?.timestampMs) ? event.timestampMs : null;
       if (!Number.isFinite(timestamp)) {
         return;
       }
-      const content = typeof event?.content === 'string' ? event.content.trim() : '';
-      pushEvent({
-        key: `message-${index}-${timestamp}`,
-        timestamp,
-        label: 'Message envoyé',
-        details: content ? `“${content.slice(0, 140)}${content.length > 140 ? '…' : ''}”` : null,
-        icon: MessageSquare,
-        tone: 'text-sky-300',
-        accent: 'border-sky-400/40 bg-sky-500/10',
-      });
+      const bucketIndex = clampIndex(timestamp);
+      buckets[bucketIndex].messages += 1;
     });
 
-    entries.sort((a, b) => b.timestamp - a.timestamp);
-    return entries.slice(0, 80);
-  }, [presenceSegments, speakingSegments, messageEvents]);
+    (presenceSegments || []).forEach((segment) => {
+      const joinedAt = Number.isFinite(segment?.joinedAtMs) ? segment.joinedAtMs : null;
+      if (Number.isFinite(joinedAt)) {
+        const index = clampIndex(joinedAt);
+        buckets[index].voiceJoin += 1;
+      }
+      const leftAt = Number.isFinite(segment?.leftAtMs) ? segment.leftAtMs : null;
+      if (Number.isFinite(leftAt)) {
+        const index = clampIndex(leftAt, { inclusiveEnd: true });
+        buckets[index].voiceLeave += 1;
+      }
+    });
+
+    (speakingSegments || []).forEach((segment) => {
+      const startedAt = Number.isFinite(segment?.startedAtMs) ? segment.startedAtMs : null;
+      if (!Number.isFinite(startedAt)) {
+        return;
+      }
+      let endedAt = Number.isFinite(segment?.endedAtMs) ? segment.endedAtMs : null;
+      const duration = Number.isFinite(segment?.durationMs) ? Math.max(0, segment.durationMs) : null;
+      if (!Number.isFinite(endedAt) && Number.isFinite(duration)) {
+        endedAt = startedAt + duration;
+      }
+      if (!Number.isFinite(endedAt)) {
+        endedAt = startedAt;
+      }
+
+      const normalizedStart = Math.max(startedAt, safeStart);
+      const normalizedEnd = Math.min(Math.max(endedAt, startedAt), safeEnd);
+      if (normalizedEnd <= normalizedStart) {
+        return;
+      }
+
+      const startIndex = clampIndex(normalizedStart);
+      const endIndex = clampIndex(normalizedEnd, { inclusiveEnd: true });
+
+      for (let index = startIndex; index <= endIndex; index += 1) {
+        const bucket = buckets[index];
+        if (!bucket) {
+          continue;
+        }
+        const overlapStart = Math.max(bucket.start, normalizedStart);
+        const overlapEnd = Math.min(bucket.end, normalizedEnd);
+        if (overlapEnd > overlapStart) {
+          bucket.speakingMs += overlapEnd - overlapStart;
+        }
+      }
+    });
+
+    const formatBucketLabel = (bucket) => {
+      const startDate = new Date(bucket.start);
+      if (granularityConfig.id === 'day') {
+        return startDate.toLocaleDateString('fr-FR', {
+          weekday: 'short',
+          day: '2-digit',
+          month: 'short',
+        });
+      }
+      const datePart = startDate.toLocaleDateString('fr-FR', {
+        day: '2-digit',
+        month: 'short',
+      });
+      const hourPart = startDate
+        .toLocaleTimeString('fr-FR', { hour: '2-digit' })
+        .replace(/\s*[hH]$/, '');
+      return `${datePart} · ${hourPart}h`;
+    };
+
+    const labels = buckets.map((bucket) => formatBucketLabel(bucket));
+
+    const totals = buckets.reduce(
+      (acc, bucket) => {
+        acc.messages += bucket.messages;
+        acc.voiceJoin += bucket.voiceJoin;
+        acc.voiceLeave += bucket.voiceLeave;
+        acc.speakingMs += bucket.speakingMs;
+        return acc;
+      },
+      { messages: 0, voiceJoin: 0, voiceLeave: 0, speakingMs: 0 },
+    );
+
+    const datasets = [
+      {
+        type: 'bar',
+        label: 'Messages envoyés',
+        data: buckets.map((bucket) => bucket.messages),
+        backgroundColor: 'rgba(56, 189, 248, 0.65)',
+        borderColor: 'rgba(56, 189, 248, 0.9)',
+        borderWidth: 1,
+        stack: 'events',
+        metaType: 'count',
+      },
+      {
+        type: 'bar',
+        label: 'Connexions vocales',
+        data: buckets.map((bucket) => bucket.voiceJoin),
+        backgroundColor: 'rgba(16, 185, 129, 0.65)',
+        borderColor: 'rgba(16, 185, 129, 0.9)',
+        borderWidth: 1,
+        stack: 'events',
+        metaType: 'count',
+      },
+      {
+        type: 'bar',
+        label: 'Déconnexions vocales',
+        data: buckets.map((bucket) => bucket.voiceLeave),
+        backgroundColor: 'rgba(148, 163, 184, 0.6)',
+        borderColor: 'rgba(148, 163, 184, 0.85)',
+        borderWidth: 1,
+        stack: 'events',
+        metaType: 'count',
+      },
+      {
+        type: 'line',
+        label: 'Temps de parole (minutes)',
+        data: buckets.map((bucket) => Number((bucket.speakingMs / 60000).toFixed(2))),
+        borderColor: 'rgba(244, 114, 182, 1)',
+        backgroundColor: 'rgba(244, 114, 182, 0.3)',
+        tension: 0.3,
+        yAxisID: 'y1',
+        fill: false,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        metaType: 'duration',
+      },
+    ];
+
+    const hasData = buckets.some((bucket) =>
+      bucket.messages > 0 || bucket.voiceJoin > 0 || bucket.voiceLeave > 0 || bucket.speakingMs > 0,
+    );
+
+    return { labels, datasets, buckets, totals, hasData };
+  }, [granularityConfig, presenceSegments, speakingSegments, messageEvents, range?.sinceMs, range?.untilMs]);
+
+  const chartOptions = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    scales: {
+      x: {
+        stacked: true,
+        ticks: { maxRotation: 0, autoSkip: true, color: '#94a3b8' },
+        grid: { color: 'rgba(148, 163, 184, 0.2)' },
+        title: {
+          display: true,
+          text: granularityConfig.id === 'day' ? 'Jours' : 'Heures',
+          color: '#cbd5f5',
+        },
+      },
+      y: {
+        stacked: true,
+        beginAtZero: true,
+        ticks: { precision: 0 },
+        title: {
+          display: true,
+          text: 'Nombre d’évènements',
+          color: '#cbd5f5',
+        },
+      },
+      y1: {
+        beginAtZero: true,
+        position: 'right',
+        grid: { drawOnChartArea: false },
+        ticks: {
+          callback: (value) => `${value} min`,
+        },
+        title: {
+          display: true,
+          text: 'Temps de parole',
+          color: '#f472b6',
+        },
+      },
+    },
+    plugins: {
+      legend: {
+        labels: { color: '#e2e8f0', usePointStyle: true },
+      },
+      tooltip: {
+        callbacks: {
+          title: (items) => {
+            if (!items?.length) {
+              return '';
+            }
+            const index = items[0].dataIndex;
+            return chartState.labels[index] ?? '';
+          },
+          label: (context) => {
+            const dataset = context.dataset || {};
+            const rawValue = typeof context.raw === 'number' ? context.raw : context.parsed?.y ?? 0;
+            if (dataset.metaType === 'duration') {
+              if (!rawValue) {
+                return `${dataset.label}: 0 min`;
+              }
+              if (rawValue < 1) {
+                const seconds = Math.round(rawValue * 60);
+                return `${dataset.label}: ${seconds} s`;
+              }
+              return `${dataset.label}: ${rawValue.toFixed(1)} min`;
+            }
+            return `${dataset.label}: ${rawValue}`;
+          },
+        },
+      },
+    },
+  }), [granularityConfig, chartState.labels]);
+
+  useEffect(() => {
+    if (!canvasRef.current || typeof window === 'undefined') {
+      return undefined;
+    }
+    if (chartRef.current) {
+      return undefined;
+    }
+    const context = canvasRef.current.getContext('2d');
+    if (!context) {
+      return undefined;
+    }
+    const chart = new Chart(context, {
+      type: 'bar',
+      data: { labels: [], datasets: [] },
+      options: chartOptions,
+    });
+    chartRef.current = chart;
+    return () => {
+      chart.destroy();
+      chartRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) {
+      return;
+    }
+    chart.options = chartOptions;
+    chart.update('none');
+  }, [chartOptions]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) {
+      return;
+    }
+    chart.data.labels = chartState.labels;
+    chart.data.datasets = chartState.datasets;
+    chart.update();
+  }, [chartState]);
 
   const sinceLabel = Number.isFinite(range?.sinceMs)
     ? formatDateTimeLabel(range.sinceMs, { includeDate: true, includeSeconds: false })
@@ -2513,47 +2867,73 @@ const ProfileActivityTimeline = ({
     ? formatDateTimeLabel(range.untilMs, { includeDate: true, includeSeconds: false })
     : null;
 
+  const totals = chartState.totals;
+
+  const handleGranularityChange = useCallback((nextGranularity) => {
+    setGranularity(nextGranularity);
+  }, []);
+
+  const granularityButtons = PROFILE_ACTIVITY_GRANULARITIES.map((item) => {
+    const isActive = item.id === granularityConfig.id;
+    return html`<button
+      key=${item.id}
+      type="button"
+      onClick=${() => handleGranularityChange(item.id)}
+      class=${`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+        isActive
+          ? 'border-indigo-300/60 bg-indigo-500/20 text-indigo-100 shadow-[0_0_12px_rgba(99,102,241,0.35)]'
+          : 'border-white/10 bg-white/5 text-slate-200 hover:border-indigo-300/40 hover:text-white'
+      }`}
+      aria-pressed=${isActive}
+    >
+      ${item.label}
+    </button>`;
+  });
+
   return html`
     <section class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-xl shadow-slate-950/40 backdrop-blur">
-      <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+      <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <h2 class="text-lg font-semibold text-white">Chronologie des activités</h2>
           <p class="text-xs text-slate-400">
             ${[sinceLabel, untilLabel].filter(Boolean).join(' → ') || 'Période inconnue'}
           </p>
+          <p class="mt-1 text-[0.7rem] uppercase tracking-[0.35em] text-indigo-200/70">
+            ${granularityConfig.description}
+          </p>
         </div>
-        <p class="text-xs text-slate-400">
-          ${events.length > 0
-            ? `${events.length} évènement${events.length === 1 ? '' : 's'} recensé${events.length === 1 ? '' : 's'}`
-            : 'Aucune activité sur cette période'}
-        </p>
+        <div class="flex flex-wrap gap-2">${granularityButtons}</div>
       </div>
 
-      ${events.length === 0
-        ? html`<p class="mt-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
-            Aucun évènement détecté pour cette période.
+      ${!chartState.hasData
+        ? html`<p class="mt-6 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-slate-300">
+            Aucune activité n’a été enregistrée pour cette période.
           </p>`
-        : html`<ol class="mt-4 space-y-3">
-            ${events.map((event) => {
-              const IconComponent = event.icon;
-              return html`<li
-                key=${event.key}
-                class=${`flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm text-slate-200 ${event.accent}`}
-              >
-                <span class=${`mt-1 flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/10 ${event.tone}`}>
-                  <${IconComponent} class="h-4 w-4" aria-hidden="true" />
-                </span>
-                <div class="flex-1">
-                  <p class="font-semibold text-white">${event.label}</p>
-                  ${event.details ? html`<p class="text-xs text-slate-300">${event.details}</p>` : null}
-                  <p class="text-xs text-slate-400">${formatDateTimeLabel(event.timestamp, {
-                    includeDate: true,
-                    includeSeconds: true,
-                  })}</p>
+        : html`
+            <div class="mt-6 space-y-6">
+              <div class="relative h-80 w-full overflow-hidden rounded-3xl border border-white/10 bg-black/20 p-4 shadow-inner shadow-black/30">
+                <canvas ref=${canvasRef} class="h-full w-full"></canvas>
+              </div>
+              <dl class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <div class="rounded-2xl border border-sky-400/40 bg-sky-500/10 p-4 text-sm text-slate-100">
+                  <dt class="text-xs uppercase tracking-[0.3em] text-sky-200">Messages envoyés</dt>
+                  <dd class="mt-2 text-2xl font-semibold text-white">${totals.messages}</dd>
                 </div>
-              </li>`;
-            })}
-          </ol>`}
+                <div class="rounded-2xl border border-emerald-400/40 bg-emerald-500/10 p-4 text-sm text-slate-100">
+                  <dt class="text-xs uppercase tracking-[0.3em] text-emerald-200">Connexions vocales</dt>
+                  <dd class="mt-2 text-2xl font-semibold text-white">${totals.voiceJoin}</dd>
+                </div>
+                <div class="rounded-2xl border border-slate-400/40 bg-slate-500/10 p-4 text-sm text-slate-100">
+                  <dt class="text-xs uppercase tracking-[0.3em] text-slate-200">Déconnexions vocales</dt>
+                  <dd class="mt-2 text-2xl font-semibold text-white">${totals.voiceLeave}</dd>
+                </div>
+                <div class="rounded-2xl border border-fuchsia-400/40 bg-fuchsia-500/10 p-4 text-sm text-slate-100">
+                  <dt class="text-xs uppercase tracking-[0.3em] text-fuchsia-200">Temps de parole</dt>
+                  <dd class="mt-2 text-2xl font-semibold text-white">${formatDurationLabel(totals.speakingMs)}</dd>
+                </div>
+              </dl>
+            </div>
+          `}
     </section>
   `;
 };
