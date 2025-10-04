@@ -45,7 +45,7 @@ const HomePage = ({
   return html`
     <${Fragment}>
     <section
-      class="relative overflow-visible rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/50 backdrop-blur-xl"
+      class="relative overflow-visible rounded-3xl border border-white/10 bg-white/5 px-6 py-10 shadow-xl shadow-slate-950/50 backdrop-blur-xl sm:px-8 sm:py-12"
     >
       <div class="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-fuchsia-500/25 blur-3xl"></div>
       <${StatusBadge}
@@ -72,7 +72,7 @@ const HomePage = ({
       </div>
     </section>
 
-    <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl">
+    <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 px-6 py-8 backdrop-blur-xl sm:p-8">
       <div class="pointer-events-none absolute -right-20 bottom-0 h-56 w-56 rounded-full bg-indigo-400/30 blur-3xl"></div>
       <div class="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
         <div class="space-y-2">
@@ -108,7 +108,7 @@ const HomePage = ({
 
     <${AnonymousBooth} slot=${anonymousSlot} now=${now} />
 
-    <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl">
+    <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 px-6 py-8 backdrop-blur-xl sm:p-8">
       <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 class="text-2xl font-semibold text-white">Intervenants en temps réel</h2>
