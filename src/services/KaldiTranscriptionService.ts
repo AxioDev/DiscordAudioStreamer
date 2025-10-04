@@ -133,8 +133,8 @@ export default class KaldiTranscriptionService {
     this.sessions.set(userId, session);
   }
 
-  public pushAudio(userId: string, chunk: Buffer): void {
-    if (!this.isEnabled || chunk.length === 0) {
+  public pushAudio(userId: string, chunk: Buffer | ArrayBufferView | ArrayBuffer): void {
+    if (!this.isEnabled || this.getChunkLength(chunk) === 0) {
       return;
     }
 
@@ -143,7 +143,12 @@ export default class KaldiTranscriptionService {
       return;
     }
 
-    const processed = this.downsampleAndConvert(chunk);
+    const normalizedInput = this.normalizeInputChunk(chunk);
+    if (!normalizedInput || normalizedInput.length === 0) {
+      return;
+    }
+
+    const processed = this.downsampleAndConvert(normalizedInput);
     if (processed.length === 0) {
       return;
     }
@@ -380,15 +385,9 @@ export default class KaldiTranscriptionService {
     }
   }
 
-  private prepareBinaryPayload(
-    data: Buffer | ArrayBuffer | ArrayBufferView | string,
-  ): Buffer {
+  private prepareBinaryPayload(data: Buffer | ArrayBuffer | ArrayBufferView): Buffer {
     if (Buffer.isBuffer(data)) {
-      return data;
-    }
-
-    if (typeof data === 'string') {
-      return Buffer.from(data, 'binary');
+      return Buffer.from(data);
     }
 
     if (data instanceof ArrayBuffer) {
@@ -400,6 +399,42 @@ export default class KaldiTranscriptionService {
     }
 
     throw new TypeError('Unsupported audio payload type for Kaldi transmission');
+  }
+
+  private normalizeInputChunk(
+    chunk: Buffer | ArrayBufferView | ArrayBuffer,
+  ): Buffer | null {
+    if (Buffer.isBuffer(chunk)) {
+      return chunk.length > 0 ? Buffer.from(chunk) : null;
+    }
+
+    if (chunk instanceof ArrayBuffer) {
+      return chunk.byteLength > 0 ? Buffer.from(chunk) : null;
+    }
+
+    if (ArrayBuffer.isView(chunk)) {
+      return chunk.byteLength > 0
+        ? Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)
+        : null;
+    }
+
+    return null;
+  }
+
+  private getChunkLength(chunk: Buffer | ArrayBufferView | ArrayBuffer): number {
+    if (Buffer.isBuffer(chunk)) {
+      return chunk.length;
+    }
+
+    if (chunk instanceof ArrayBuffer) {
+      return chunk.byteLength;
+    }
+
+    if (ArrayBuffer.isView(chunk)) {
+      return chunk.byteLength;
+    }
+
+    return 0;
   }
 
   private sendBinaryChunk(session: KaldiSession, chunk: Buffer): void {
