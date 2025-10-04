@@ -34,18 +34,6 @@ import { AboutPage } from './pages/about.js';
 import { ClassementsPage } from './pages/classements.js';
 import { BlogPage } from './pages/blog.js';
 
-const getInitialSoulDecision = () => {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  try {
-    return window.localStorage?.getItem('soulContract') ?? null;
-  } catch (error) {
-    console.warn("Impossible de lire le pacte d'âme", error);
-    return null;
-  }
-};
-
 const NAV_LINKS = [
   { label: 'Accueil', route: 'home', hash: '#/' },
   { label: 'Membres', route: 'members', hash: '#/membres' },
@@ -431,22 +419,6 @@ const App = () => {
   }, [participantsMap]);
 
   useEffect(() => {
-    if (soulDecision) {
-      setShowSoulModal(false);
-    } else {
-      setShowSoulModal(true);
-    }
-  }, [soulDecision]);
-
-  useEffect(() => {
-    if (!soulMessage) {
-      return undefined;
-    }
-    const timer = setTimeout(() => setSoulMessage(''), 5000);
-    return () => clearTimeout(timer);
-  }, [soulMessage]);
-
-  useEffect(() => {
     let cancelled = false;
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
 
@@ -593,24 +565,6 @@ const App = () => {
     }
     const normalized = TALK_WINDOW_OPTIONS.includes(minutes) ? minutes : DEFAULT_WINDOW_MINUTES;
     setSelectedWindowMinutes(normalized);
-  }, []);
-
-  const handleSoulDecision = useCallback((accepted) => {
-    const choice = accepted ? 'accepted' : 'declined';
-    setSoulDecision(choice);
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem('soulContract', choice);
-      }
-    } catch (error) {
-      console.warn("Impossible de stocker le pacte d'âme", error);
-    }
-    setSoulMessage(
-      accepted
-        ? "Merci pour ta confiance éternelle. Le dieu 8.6 t'offrira peut-être une tournée. 🍻"
-        : 'Refus enregistré. Tu gardes ton âme, mais reste pour la musique !'
-    );
-    setShowSoulModal(false);
   }, []);
 
   useEffect(() => {
@@ -988,9 +942,6 @@ const App = () => {
 
   return html`
     <div class="flex min-h-screen flex-col bg-slate-950 text-slate-100">
-      ${soulModalTemplate}
-      ${soulMessageTemplate}
-
       <header class="sticky top-0 z-20 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
         <div class="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
           <a
