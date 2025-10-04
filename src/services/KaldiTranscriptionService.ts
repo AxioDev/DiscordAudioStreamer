@@ -23,6 +23,7 @@ interface KaldiSession extends SessionMetadata {
   ready: boolean;
   closed: boolean;
   transcripts: string[];
+  hasPersisted: boolean;
   startedAt: Date;
   finalizePromise: Promise<void> | null;
   resolveFinalize: (() => void) | null;
@@ -95,6 +96,7 @@ export default class KaldiTranscriptionService {
       ready: false,
       closed: false,
       transcripts: [],
+      hasPersisted: false,
       startedAt: new Date(),
       finalizePromise: null,
       resolveFinalize: null,
@@ -115,7 +117,12 @@ export default class KaldiTranscriptionService {
     });
 
     ws.on('error', (error) => {
-      console.warn('Kaldi transcription session error', error);
+      console.error('Kaldi transcription session error', {
+        userId: session.userId,
+        guildId: session.guildId,
+        channelId: session.channelId,
+        error,
+      });
       this.terminateSession(session, error);
     });
 
@@ -144,7 +151,12 @@ export default class KaldiTranscriptionService {
     if (session.ready && session.ws && session.ws.readyState === WebSocket.OPEN) {
       session.ws.send(processed, { binary: true }, (error) => {
         if (error) {
-          console.warn('Failed to send audio chunk to Kaldi server', error);
+          console.error('Failed to send audio chunk to Kaldi server', {
+            userId: session.userId,
+            guildId: session.guildId,
+            channelId: session.channelId,
+            error,
+          });
           this.terminateSession(session, error);
         }
       });
@@ -179,18 +191,33 @@ export default class KaldiTranscriptionService {
       try {
         ws.send(JSON.stringify({ eof: 1 }));
       } catch (error) {
-        console.warn('Failed to signal Kaldi session EOF', error);
+        console.error('Failed to signal Kaldi session EOF', {
+          userId: session.userId,
+          guildId: session.guildId,
+          channelId: session.channelId,
+          error,
+        });
       }
       try {
         ws.close();
       } catch (error) {
-        console.warn('Failed to close Kaldi session', error);
+        console.error('Failed to close Kaldi session', {
+          userId: session.userId,
+          guildId: session.guildId,
+          channelId: session.channelId,
+          error,
+        });
       }
     } else if (ws && ws.readyState === WebSocket.CONNECTING) {
       try {
         ws.terminate();
       } catch (error) {
-        console.warn('Failed to terminate Kaldi session during finalize', error);
+        console.error('Failed to terminate Kaldi session during finalize', {
+          userId: session.userId,
+          guildId: session.guildId,
+          channelId: session.channelId,
+          error,
+        });
       }
     } else {
       this.removeSession(session);
@@ -216,9 +243,7 @@ export default class KaldiTranscriptionService {
       session.closed = true;
     }
 
-    if (!error) {
-      this.persistTranscript(session);
-    }
+    this.persistTranscript(session);
 
     if (session.resolveFinalize) {
       session.resolveFinalize();
@@ -232,6 +257,10 @@ export default class KaldiTranscriptionService {
   }
 
   private persistTranscript(session: KaldiSession): void {
+    if (session.hasPersisted) {
+      return;
+    }
+
     const transcript = session.transcripts
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0)
@@ -242,6 +271,8 @@ export default class KaldiTranscriptionService {
       return;
     }
 
+    session.hasPersisted = true;
+
     this.voiceActivityRepository
       .recordVoiceTranscription({
         userId: session.userId,
@@ -251,7 +282,13 @@ export default class KaldiTranscriptionService {
         timestamp: new Date(),
       })
       .catch((error) => {
-        console.error('Failed to persist voice transcription', error);
+        session.hasPersisted = false;
+        console.error('Failed to persist voice transcription', {
+          userId: session.userId,
+          guildId: session.guildId,
+          channelId: session.channelId,
+          error,
+        });
       });
   }
 
@@ -267,7 +304,12 @@ export default class KaldiTranscriptionService {
       }
       session.ws.send(chunk, { binary: true }, (error) => {
         if (error) {
-          console.warn('Failed to flush queued audio chunk to Kaldi server', error);
+          console.error('Failed to flush queued audio chunk to Kaldi server', {
+            userId: session.userId,
+            guildId: session.guildId,
+            channelId: session.channelId,
+            error,
+          });
           this.terminateSession(session, error);
         }
       });
@@ -292,7 +334,13 @@ export default class KaldiTranscriptionService {
     try {
       parsed = JSON.parse(payload);
     } catch (error) {
-      console.warn('Failed to parse Kaldi transcription payload', error);
+      console.error('Failed to parse Kaldi transcription payload', {
+        userId: session.userId,
+        guildId: session.guildId,
+        channelId: session.channelId,
+        error,
+        payload,
+      });
       return;
     }
 
@@ -303,7 +351,13 @@ export default class KaldiTranscriptionService {
     const status = (parsed as { status?: number }).status;
     if (typeof status === 'number' && status !== 0) {
       const message = (parsed as { message?: string }).message;
-      console.warn('Kaldi transcription server returned error status', status, message);
+      console.error('Kaldi transcription server returned error status', {
+        userId: session.userId,
+        guildId: session.guildId,
+        channelId: session.channelId,
+        status,
+        message,
+      });
       return;
     }
 
@@ -319,6 +373,12 @@ export default class KaldiTranscriptionService {
       const normalized = transcriptCandidate.trim();
       if (normalized.length > 0) {
         session.transcripts.push(normalized);
+        console.info('Kaldi transcription received', {
+          userId: session.userId,
+          guildId: session.guildId,
+          channelId: session.channelId,
+          transcript: normalized,
+        });
       }
     }
   }
@@ -334,7 +394,7 @@ export default class KaldiTranscriptionService {
         }),
       );
     } catch (error) {
-      console.warn('Failed to send Kaldi configuration payload', error);
+      console.error('Failed to send Kaldi configuration payload', error);
     }
   }
 
