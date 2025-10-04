@@ -725,7 +725,7 @@ const App = () => {
       </header>
 
       <main class="flex-1">
-        <div class="mx-auto flex w-full max-w-5xl flex-col gap-10 py-10">
+        <div class="mx-auto flex w-full max-w-5xl flex-col gap-10 px-4 py-10 sm:px-6 lg:px-0">
           ${
             route.name === 'ban'
               ? html`<${BanPage} />`
@@ -785,34 +785,3 @@ if ('serviceWorker' in navigator) {
       });
   });
 }
-(() => {
-  const button = document.getElementById('test-beep-trigger');
-  if (!button) {
-    return;
-  }
-
-  let pending = false;
-  button.addEventListener('click', async () => {
-    if (pending) {
-      return;
-    }
-
-    pending = true;
-    const previousOpacity = button.style.opacity;
-    button.style.opacity = '0.65';
-
-    try {
-      const response = await fetch('/test-beep', { method: 'POST' });
-      if (!response.ok) {
-        console.warn('Réponse inattendue pour le bip de test', response.status);
-      }
-    } catch (error) {
-      console.warn('Impossible de déclencher le bip de test', error);
-    } finally {
-      setTimeout(() => {
-        button.style.opacity = previousOpacity;
-      }, 150);
-      pending = false;
-    }
-  });
-})();
