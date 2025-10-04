@@ -529,7 +529,10 @@ export default class DiscordAudioBridge {
       this.speakerTracker.handleSpeakingEnd(userId);
       this.mixer.removeSource(userId);
       void this.transcriptionService?.finalizeSession(userId).catch((error) => {
-        console.warn('Failed to finalize transcription session on speaking end', error);
+        console.error('Failed to finalize transcription session on speaking end', {
+          userId,
+          error,
+        });
       });
     });
 
@@ -620,7 +623,10 @@ export default class DiscordAudioBridge {
         this.mixer.removeSource(userId);
         this.speakerTracker.handleSpeakingEnd(userId);
         void this.transcriptionService?.finalizeSession(userId).catch((error) => {
-          console.warn('Failed to finalize transcription session during cleanup', error);
+          console.error('Failed to finalize transcription session during cleanup', {
+            userId,
+            error,
+          });
         });
         console.log('Cleaned resources for user', userId);
       };
@@ -1006,7 +1012,10 @@ export default class DiscordAudioBridge {
         this.mixer.removeSource(userId);
         this.speakerTracker.handleSpeakingEnd(userId);
         void this.transcriptionService?.finalizeSession(userId).catch((error) => {
-          console.warn('Failed to finalize transcription session during manual cleanup', error);
+          console.error('Failed to finalize transcription session during manual cleanup', {
+            userId,
+            error,
+          });
         });
       }
       return;
@@ -1015,7 +1024,10 @@ export default class DiscordAudioBridge {
     this.mixer.removeSource(userId);
     this.speakerTracker.handleSpeakingEnd(userId);
     void this.transcriptionService?.finalizeSession(userId).catch((error) => {
-      console.warn('Failed to finalize transcription session during passive cleanup', error);
+      console.error('Failed to finalize transcription session during passive cleanup', {
+        userId,
+        error,
+      });
     });
   }
 }
