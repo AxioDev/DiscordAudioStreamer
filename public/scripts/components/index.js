@@ -3359,7 +3359,7 @@ const BeerCanDisplay = () => {
 
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
-    container.style.touchAction = 'none';
+    container.style.touchAction = 'pan-y';
     container.style.cursor = 'grab';
 
     const ambientLight = new THREE.AmbientLight(0xffffff, 1.1);
