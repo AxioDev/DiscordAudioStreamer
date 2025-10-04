@@ -60,6 +60,111 @@ const NAV_LINKS = [
   { label: 'À propos', route: 'about', hash: '#/about' },
 ];
 
+const ROUTE_ORDER = {
+  home: 0,
+  members: 1,
+  profile: 1.2,
+  shop: 2,
+  classements: 3,
+  blog: 4,
+  ban: 5,
+  about: 6,
+};
+
+const DEFAULT_TRANSITION_THEME = {
+  from: 'rgba(236, 72, 153, 0.42)',
+  via: 'rgba(14, 165, 233, 0.38)',
+  to: 'rgba(250, 204, 21, 0.35)',
+};
+
+const ROUTE_TRANSITION_THEMES = {
+  home: {
+    from: 'rgba(245, 158, 11, 0.45)',
+    via: 'rgba(56, 189, 248, 0.35)',
+    to: 'rgba(255, 255, 255, 0.35)',
+  },
+  members: {
+    from: 'rgba(129, 140, 248, 0.45)',
+    via: 'rgba(236, 72, 153, 0.38)',
+    to: 'rgba(244, 114, 182, 0.35)',
+  },
+  profile: {
+    from: 'rgba(14, 165, 233, 0.4)',
+    via: 'rgba(59, 130, 246, 0.4)',
+    to: 'rgba(34, 211, 238, 0.32)',
+  },
+  shop: {
+    from: 'rgba(251, 191, 36, 0.45)',
+    via: 'rgba(250, 204, 21, 0.42)',
+    to: 'rgba(249, 115, 22, 0.35)',
+  },
+  classements: {
+    from: 'rgba(59, 130, 246, 0.45)',
+    via: 'rgba(165, 180, 252, 0.35)',
+    to: 'rgba(125, 211, 252, 0.35)',
+  },
+  blog: {
+    from: 'rgba(236, 72, 153, 0.45)',
+    via: 'rgba(251, 113, 133, 0.32)',
+    to: 'rgba(96, 165, 250, 0.35)',
+  },
+  ban: {
+    from: 'rgba(248, 113, 113, 0.48)',
+    via: 'rgba(250, 204, 21, 0.28)',
+    to: 'rgba(244, 63, 94, 0.4)',
+  },
+  about: {
+    from: 'rgba(96, 165, 250, 0.35)',
+    via: 'rgba(45, 212, 191, 0.35)',
+    to: 'rgba(129, 140, 248, 0.32)',
+  },
+};
+
+const PAGE_TRANSITION_DURATION_MS = 780;
+
+const getRouteTheme = (name) => ROUTE_TRANSITION_THEMES[name] ?? DEFAULT_TRANSITION_THEME;
+
+const getRouteWeight = (route) => {
+  if (!route || typeof route !== 'object') {
+    return ROUTE_ORDER.home;
+  }
+  const value = ROUTE_ORDER[route.name];
+  return typeof value === 'number' ? value : ROUTE_ORDER.home;
+};
+
+const getTransitionDirection = (fromRoute, toRoute) => {
+  const fromWeight = getRouteWeight(fromRoute);
+  const toWeight = getRouteWeight(toRoute);
+  if (toWeight === fromWeight) {
+    return 'forward';
+  }
+  return toWeight > fromWeight ? 'forward' : 'backward';
+};
+
+const buildRouteKey = (route) => {
+  if (!route || typeof route !== 'object') {
+    return 'route:home';
+  }
+  if (route.name === 'profile') {
+    const userId = route.params?.userId ?? 'anonymous';
+    const since = route.params?.since ?? 'all';
+    const until = route.params?.until ?? 'now';
+    return `route:profile:${userId}:${since}:${until}`;
+  }
+  if (route.name === 'blog') {
+    const slug = route.params?.slug ?? 'index';
+    return `route:blog:${slug}`;
+  }
+  if (route.name === 'classements') {
+    const search = route.params?.search ?? '';
+    const sortBy = route.params?.sortBy ?? '';
+    const sortOrder = route.params?.sortOrder ?? '';
+    const period = route.params?.period ?? '';
+    return `route:classements:${search}:${sortBy}:${sortOrder}:${period}`;
+  }
+  return `route:${route.name}`;
+};
+
 const getRouteFromHash = () => {
   const hash = window.location.hash.replace(/^#/, '');
   if (!hash || hash === '/') {
@@ -210,6 +315,15 @@ const App = () => {
   const [soulDecision, setSoulDecision] = useState(getInitialSoulDecision);
   const [showSoulModal, setShowSoulModal] = useState(() => !getInitialSoulDecision());
   const [soulMessage, setSoulMessage] = useState('');
+  const [transitionState, setTransitionState] = useState(() => ({
+    active: false,
+    previous: null,
+    direction: 'forward',
+    id: 0,
+    palette: getRouteTheme(route?.name ?? 'home'),
+  }));
+  const previousRouteRef = useRef(route);
+  const transitionTimerRef = useRef(null);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -266,6 +380,50 @@ const App = () => {
 
   useEffect(() => {
     setMenuOpen(false);
+  }, [route]);
+
+  useEffect(() => {
+    const previousRoute = previousRouteRef.current;
+    const previousKey = buildRouteKey(previousRoute);
+    const nextKey = buildRouteKey(route);
+
+    if (previousKey === nextKey) {
+      previousRouteRef.current = route;
+      return undefined;
+    }
+
+    const direction = getTransitionDirection(previousRoute, route);
+    const palette = getRouteTheme(route?.name ?? 'home');
+
+    setTransitionState((state) => ({
+      active: true,
+      previous: previousRoute,
+      direction,
+      id: state.id + 1,
+      palette,
+    }));
+
+    if (transitionTimerRef.current) {
+      clearTimeout(transitionTimerRef.current);
+    }
+
+    transitionTimerRef.current = setTimeout(() => {
+      setTransitionState((state) => ({
+        ...state,
+        active: false,
+        previous: null,
+      }));
+      transitionTimerRef.current = null;
+    }, PAGE_TRANSITION_DURATION_MS);
+
+    previousRouteRef.current = route;
+
+    return () => {
+      if (transitionTimerRef.current) {
+        clearTimeout(transitionTimerRef.current);
+        transitionTimerRef.current = null;
+      }
+    };
   }, [route]);
 
   useEffect(() => {
@@ -739,6 +897,95 @@ const App = () => {
       `
     : null;
 
+  const renderRouteContent = (targetRoute) => {
+    if (!targetRoute || typeof targetRoute !== 'object') {
+      return html`<${HomePage}
+        status=${status}
+        streamInfo=${streamInfo}
+        audioKey=${audioKey}
+        speakers=${speakers}
+        now=${now}
+        anonymousSlot=${anonymousSlot}
+        speakingHistory=${speakingHistory}
+        isHistoryLoading=${isHistoryLoading}
+        selectedWindowMinutes=${selectedWindowMinutes}
+        onWindowChange=${handleWindowChange}
+        onViewProfile=${handleProfileOpen}
+        listenerStats=${listenerStats}
+      />`;
+    }
+
+    switch (targetRoute.name) {
+      case 'ban':
+        return html`<${BanPage} />`;
+      case 'about':
+        return html`<${AboutPage} />`;
+      case 'blog':
+        return html`<${BlogPage} params=${targetRoute.params} />`;
+      case 'members':
+        return html`<${MembersPage} onViewProfile=${handleProfileOpen} />`;
+      case 'shop':
+        return html`<${ShopPage} />`;
+      case 'profile':
+        return html`<${ProfilePage}
+          params=${targetRoute.params}
+          onNavigateHome=${() => {
+            window.location.hash = '#/';
+            setRoute({ name: 'home', params: {} });
+          }}
+          onUpdateRange=${updateProfileRoute}
+        />`;
+      case 'classements':
+        return html`<${ClassementsPage} params=${targetRoute.params} />`;
+      case 'home':
+      default:
+        return html`<${HomePage}
+          status=${status}
+          streamInfo=${streamInfo}
+          audioKey=${audioKey}
+          speakers=${speakers}
+          now=${now}
+          anonymousSlot=${anonymousSlot}
+          speakingHistory=${speakingHistory}
+          isHistoryLoading=${isHistoryLoading}
+          selectedWindowMinutes=${selectedWindowMinutes}
+          onWindowChange=${handleWindowChange}
+          onViewProfile=${handleProfileOpen}
+          listenerStats=${listenerStats}
+        />`;
+    }
+  };
+
+  const currentPageTemplate = renderRouteContent(route);
+  const previousPageTemplate =
+    transitionState.active && transitionState.previous
+      ? renderRouteContent(transitionState.previous)
+      : null;
+
+  const currentLayerClasses = ['page-transition-layer', 'page-transition-layer--current'];
+  if (transitionState.active) {
+    currentLayerClasses.push(
+      'is-animating',
+      'page-transition-layer--enter',
+      `page-transition-layer--${transitionState.direction}`,
+    );
+  } else {
+    currentLayerClasses.push('page-transition-layer--idle');
+  }
+
+  const previousLayerClasses = ['page-transition-layer', 'page-transition-layer--previous', 'page-transition-layer--exit', `page-transition-layer--${transitionState.direction}`];
+  if (transitionState.active) {
+    previousLayerClasses.push('is-animating');
+  }
+
+  const veilStyle = transitionState.palette
+    ? {
+        '--veil-from': transitionState.palette.from,
+        '--veil-via': transitionState.palette.via,
+        '--veil-to': transitionState.palette.to,
+      }
+    : undefined;
+
   return html`
     <div class="flex min-h-screen flex-col bg-slate-950 text-slate-100">
       ${soulModalTemplate}
@@ -813,43 +1060,34 @@ const App = () => {
 
       <main class="flex-1">
         <div class="mx-auto flex w-full max-w-5xl flex-col gap-10 py-10">
-          ${
-            route.name === 'ban'
-              ? html`<${BanPage} />`
-              : route.name === 'about'
-              ? html`<${AboutPage} />`
-              : route.name === 'blog'
-              ? html`<${BlogPage} params=${route.params} />`
-              : route.name === 'members'
-              ? html`<${MembersPage} onViewProfile=${handleProfileOpen} />`
-              : route.name === 'shop'
-              ? html`<${ShopPage} />`
-              : route.name === 'profile'
-              ? html`<${ProfilePage}
-                  params=${route.params}
-                  onNavigateHome=${() => {
-                    window.location.hash = '#/';
-                    setRoute({ name: 'home', params: {} });
-                  }}
-                  onUpdateRange=${updateProfileRoute}
-                />`
-              : route.name === 'classements'
-              ? html`<${ClassementsPage} params=${route.params} />`
-              : html`<${HomePage}
-                  status=${status}
-                  streamInfo=${streamInfo}
-                  audioKey=${audioKey}
-                  speakers=${speakers}
-                  now=${now}
-                  anonymousSlot=${anonymousSlot}
-                  speakingHistory=${speakingHistory}
-                  isHistoryLoading=${isHistoryLoading}
-                  selectedWindowMinutes=${selectedWindowMinutes}
-                  onWindowChange=${handleWindowChange}
-                  onViewProfile=${handleProfileOpen}
-                  listenerStats=${listenerStats}
-                />`
-          }
+          <div class="page-transition-stack w-full">
+            ${
+              previousPageTemplate
+                ? html`<div
+                    key=${`previous-${transitionState.id}-${buildRouteKey(transitionState.previous)}`}
+                    class=${previousLayerClasses.join(' ')}
+                  >
+                    ${previousPageTemplate}
+                  </div>`
+                : null
+            }
+            <div key=${`current-${buildRouteKey(route)}`} class=${currentLayerClasses.join(' ')}>
+              ${currentPageTemplate}
+            </div>
+            ${
+              transitionState.active
+                ? html`<div
+                    key=${`veil-${transitionState.id}`}
+                    class=${[`page-transition-veil`, `page-transition-veil--${transitionState.direction}`, 'is-animating'].join(' ')}
+                    style=${veilStyle}
+                  >
+                    <span class="page-transition-veil__glow"></span>
+                    <span class="page-transition-veil__beam"></span>
+                    <span class="page-transition-veil__spark"></span>
+                  </div>`
+                : null
+            }
+          </div>
         </div>
       </main>
 
