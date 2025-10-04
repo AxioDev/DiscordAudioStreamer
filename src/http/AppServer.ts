@@ -580,6 +580,32 @@ export default class AppServer {
             : Promise.resolve([] as UserMessageActivityEntry[]),
         ]);
 
+        const normalizeString = (value: string | null | undefined): string | null => {
+          if (typeof value !== 'string') {
+            return null;
+          }
+          const trimmed = value.trim();
+          return trimmed.length > 0 ? trimmed : null;
+        };
+
+        const normalizedProfile = profile
+          ? {
+              id: profile.id,
+              displayName:
+                normalizeString(profile.displayName)
+                ?? normalizeString(profile.globalName)
+                ?? normalizeString(profile.username),
+              username: normalizeString(profile.username),
+              avatar: normalizeString(profile.avatarUrl),
+              discriminator: normalizeString(profile.discriminator),
+              globalName: normalizeString(profile.globalName),
+              bannerUrl: normalizeString(profile.bannerUrl),
+              accentColor: normalizeString(profile.accentColor),
+              createdAt: normalizeString(profile.createdAt),
+              guild: profile.guild ?? null,
+            }
+          : null;
+
         if (!profile && presenceSegments.length === 0 && speakingSegments.length === 0 && messageEvents.length === 0) {
           res
             .status(404)
@@ -597,7 +623,7 @@ export default class AppServer {
         const toMillis = (date: Date | null) => (date instanceof Date ? date.getTime() : null);
 
         res.json({
-          profile,
+          profile: normalizedProfile,
           range: {
             since: sinceCandidate.toISOString(),
             until: untilCandidate.toISOString(),
