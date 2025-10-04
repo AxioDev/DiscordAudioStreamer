@@ -2,6 +2,9 @@
 title: "Bienvenue sur le blog de la Libre Antenne"
 date: 2024-11-28
 description: "Pourquoi nous lançons un carnet de bord pour la communauté."
+cover: "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=1200&q=80"
+tags: "communauté, annonce"
+seo_description: "Pourquoi nous avons créé un blog pour partager les coulisses et les actualités de la Libre Antenne."
 ---
 
 # Bienvenue sur le blog

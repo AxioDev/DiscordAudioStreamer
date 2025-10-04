@@ -12,7 +12,8 @@ import type ShopService from '../services/ShopService';
 import { ShopError, type ShopProvider } from '../services/ShopService';
 import type VoiceActivityRepository from '../services/VoiceActivityRepository';
 import ListenerStatsService, { type ListenerStatsUpdate } from '../services/ListenerStatsService';
-import BlogService from '../services/BlogService';
+import BlogService, { type BlogListOptions } from '../services/BlogService';
+import BlogRepository from '../services/BlogRepository';
 import type {
   HypeLeaderboardQueryOptions,
   HypeLeaderboardSortBy,
@@ -81,6 +82,8 @@ export default class AppServer {
 
   private readonly blogService: BlogService;
 
+  private readonly blogRepository: BlogRepository | null;
+
   constructor({
     config,
     transcoder,
@@ -107,8 +110,18 @@ export default class AppServer {
     this.unsubscribeListenerStats = this.listenerStatsService.onUpdate((update) =>
       this.handleListenerStatsUpdate(update),
     );
+
+    this.blogRepository = config.database?.url
+      ? new BlogRepository({ url: config.database.url, ssl: config.database.ssl })
+      : null;
+
     this.blogService = new BlogService({
       postsDirectory: path.resolve(__dirname, '..', '..', 'content', 'blog'),
+      repository: this.blogRepository,
+    });
+
+    void this.blogService.initialize().catch((error) => {
+      console.error('Failed to initialize blog service', error);
     });
 
     this.configureMiddleware();
@@ -208,6 +221,76 @@ export default class AppServer {
     }
 
     return `${Math.floor(timestampMs)}:${Math.floor(idValue)}`;
+  }
+
+  private parseBlogListOptions(query: Request['query']): BlogListOptions {
+    const options: BlogListOptions = {};
+
+    const rawSearch = this.extractString(query?.search);
+    if (rawSearch) {
+      options.search = rawSearch;
+    }
+
+    const tags = this.extractStringArray(query?.tag ?? query?.tags);
+    if (tags.length > 0) {
+      options.tags = tags;
+    }
+
+    const rawSort = this.extractString(query?.sort ?? query?.sortBy);
+    if (rawSort) {
+      if (rawSort === 'title') {
+        options.sortBy = 'title';
+      } else if (rawSort === 'date' || rawSort === 'recent' || rawSort === 'published_at') {
+        options.sortBy = 'date';
+      }
+    }
+
+    const rawOrder = this.extractString(query?.order ?? query?.sortOrder);
+    if (rawOrder === 'asc' || rawOrder === 'desc') {
+      options.sortOrder = rawOrder;
+    }
+
+    const rawLimit = this.extractString(query?.limit ?? query?.pageSize ?? query?.perPage);
+    if (rawLimit) {
+      const numericLimit = Number(rawLimit);
+      if (Number.isFinite(numericLimit) && numericLimit > 0) {
+        options.limit = Math.floor(numericLimit);
+      }
+    }
+
+    return options;
+  }
+
+  private extractString(value: unknown): string | null {
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private extractStringArray(value: unknown): string[] {
+    if (Array.isArray(value)) {
+      return value
+        .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+        .filter((entry) => entry.length > 0);
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return [];
+      }
+      if (trimmed.includes(',')) {
+        return trimmed
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0);
+      }
+      return [trimmed];
+    }
+
+    return [];
   }
 
   private buildProfileSummary(
@@ -463,11 +546,12 @@ export default class AppServer {
       });
     });
 
-    this.app.get('/api/blog/posts', async (_req, res) => {
+    this.app.get('/api/blog/posts', async (req, res) => {
       try {
-        const posts = await this.blogService.listPosts();
+        const options = this.parseBlogListOptions(req.query);
+        const { posts, availableTags } = await this.blogService.listPosts(options);
         res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=60');
-        res.json({ posts });
+        res.json({ posts, tags: availableTags });
       } catch (error) {
         console.error('Failed to list blog posts', error);
         res.status(500).json({
@@ -1379,6 +1463,11 @@ export default class AppServer {
       } catch (error) {
         console.warn('Failed to unsubscribe listener stats updates', error);
       }
+    }
+    if (this.blogRepository) {
+      this.blogRepository
+        .close()
+        .catch((error) => console.warn('Failed to close blog repository', error));
     }
   }
 
