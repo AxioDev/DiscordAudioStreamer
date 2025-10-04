@@ -1,7 +1,6 @@
 import {
   render,
   html,
-  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -9,6 +8,13 @@ import {
   useState,
   Menu,
   X,
+  AudioLines,
+  Users,
+  ShoppingBag,
+  BadgeCheck,
+  MessageSquare,
+  ShieldCheck,
+  Sparkles,
 } from './core/deps.js';
 import {
   DEFAULT_WINDOW_MINUTES,
@@ -35,17 +41,18 @@ import { ClassementsPage } from './pages/classements.js';
 import { BlogPage } from './pages/blog.js';
 
 const NAV_LINKS = [
-  { label: 'Accueil', route: 'home', hash: '#/' },
-  { label: 'Membres', route: 'members', hash: '#/membres' },
-  { label: 'Boutique', route: 'shop', hash: '#/boutique' },
+  { label: 'Accueil', route: 'home', hash: '#/', icon: AudioLines },
+  { label: 'Membres', route: 'members', hash: '#/membres', icon: Users },
+  { label: 'Boutique', route: 'shop', hash: '#/boutique', icon: ShoppingBag },
   {
     label: 'Classements',
     route: 'classements',
     hash: '#/classements',
+    icon: BadgeCheck,
   },
-  { label: 'Blog', route: 'blog', hash: '#/blog' },
-  { label: 'Modération', route: 'ban', hash: '#/bannir' },
-  { label: 'À propos', route: 'about', hash: '#/about' },
+  { label: 'Blog', route: 'blog', hash: '#/blog', icon: MessageSquare },
+  { label: 'Modération', route: 'ban', hash: '#/bannir', icon: ShieldCheck },
+  { label: 'À propos', route: 'about', hash: '#/about', icon: Sparkles },
 ];
 
 const getRouteFromHash = () => {
@@ -195,6 +202,44 @@ const App = () => {
   const [route, setRoute] = useState(() => getRouteFromHash());
   const [anonymousSlot, setAnonymousSlot] = useState(() => normalizeAnonymousSlot());
   const [listenerStats, setListenerStats] = useState(() => ({ count: 0, history: [] }));
+  const sidebarTouchStartRef = useRef(null);
+
+  const closeMenu = useCallback(() => {
+    setMenuOpen(false);
+  }, []);
+
+  useEffect(() => {
+    const body = document.body;
+    if (!body) {
+      return undefined;
+    }
+    const previousOverflow = body.style.overflow;
+    const previousTouchAction = body.style.touchAction;
+    if (menuOpen) {
+      body.style.overflow = 'hidden';
+      body.style.touchAction = 'none';
+    } else {
+      body.style.overflow = '';
+      body.style.touchAction = '';
+    }
+    return () => {
+      body.style.overflow = previousOverflow;
+      body.style.touchAction = previousTouchAction;
+    };
+  }, [menuOpen]);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return undefined;
+    }
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        closeMenu();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [menuOpen, closeMenu]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -250,8 +295,8 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    setMenuOpen(false);
-  }, [route]);
+    closeMenu();
+  }, [route, closeMenu]);
 
   useEffect(() => {
     participantsRef.current = participantsMap;
@@ -640,6 +685,45 @@ const App = () => {
 
   const audioKey = `${streamInfo.path}|${streamInfo.mimeType}`;
 
+  const handleOverlayClick = useCallback(() => {
+    closeMenu();
+  }, [closeMenu]);
+
+  const handleSidebarTouchStart = useCallback((event) => {
+    if (!event.touches || event.touches.length === 0) {
+      return;
+    }
+    const touch = event.touches[0];
+    sidebarTouchStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+    };
+  }, []);
+
+  const handleSidebarTouchMove = useCallback(
+    (event) => {
+      const start = sidebarTouchStartRef.current;
+      if (!start || !event.touches || event.touches.length === 0) {
+        return;
+      }
+      const touch = event.touches[0];
+      const deltaX = touch.clientX - start.x;
+      const deltaY = Math.abs(touch.clientY - start.y);
+      if (deltaY > 90) {
+        return;
+      }
+      if (deltaX < -70) {
+        sidebarTouchStartRef.current = null;
+        closeMenu();
+      }
+    },
+    [closeMenu],
+  );
+
+  const handleSidebarTouchEnd = useCallback(() => {
+    sidebarTouchStartRef.current = null;
+  }, []);
+
   const handleNavigate = (event, targetRoute) => {
     event.preventDefault();
     const link = NAV_LINKS.find((entry) => entry.route === targetRoute);
@@ -651,9 +735,20 @@ const App = () => {
     } else {
       setRoute({ name: targetRoute, params: {} });
     }
-    setMenuOpen(false);
+    closeMenu();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  const menuButtonLabel = menuOpen ? 'Fermer le menu de navigation' : 'Ouvrir le menu de navigation';
+  const mobileNavId = 'mobile-navigation';
+  const overlayClasses = [
+    'fixed inset-0 z-30 bg-slate-950/70 backdrop-blur-sm transition-opacity duration-300 ease-out lg:hidden',
+    menuOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0',
+  ].join(' ');
+  const sidebarClasses = [
+    'fixed inset-y-0 left-0 z-40 flex w-[80vw] max-w-sm transform flex-col overflow-y-auto bg-slate-900/95 px-6 py-6 shadow-2xl ring-1 ring-white/10 transition-transform duration-300 ease-in-out sm:w-[70vw] md:w-[30vw] md:max-w-md lg:hidden',
+    menuOpen ? 'translate-x-0' : '-translate-x-full pointer-events-none',
+  ].join(' ');
 
   return html`
     <div class="flex min-h-screen flex-col bg-slate-950 text-slate-100">
@@ -667,7 +762,7 @@ const App = () => {
             <span class="rounded bg-amber-400 px-2 py-1 text-sm font-bold text-amber-950">LA</span>
             Libre Antenne
           </a>
-          <nav class="hidden items-center gap-6 md:flex">
+          <nav class="hidden items-center gap-6 lg:flex">
             ${NAV_LINKS.map((link) => {
               const isActive = route.name === link.route;
               const href = link.external && link.href ? link.href : link.hash;
@@ -687,42 +782,78 @@ const App = () => {
             })}
           </nav>
           <button
-            class="flex items-center gap-2 rounded-lg border border-slate-700 p-2 text-slate-200 transition hover:border-slate-500 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 md:hidden"
+            class="flex items-center gap-2 rounded-lg border border-slate-700 p-2 text-slate-200 transition hover:border-slate-500 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 lg:hidden"
+            aria-controls=${mobileNavId}
             aria-expanded=${menuOpen}
-            aria-label="Ouvrir le menu de navigation"
+            aria-label=${menuButtonLabel}
+            type="button"
             onClick=${() => setMenuOpen((prev) => !prev)}
           >
             ${menuOpen ? html`<${X} class="h-5 w-5" />` : html`<${Menu} class="h-5 w-5" />`}
           </button>
         </div>
-        ${
-          menuOpen
-            ? html`
-                <nav class="border-t border-slate-800 bg-slate-900/95 md:hidden">
-                  <div class="mx-auto flex max-w-5xl flex-col gap-2 px-4 py-3">
-                    ${NAV_LINKS.map((link) => {
-                      const isActive = route.name === link.route;
-                      const href = link.external && link.href ? link.href : link.hash;
-                      const baseClasses = 'rounded-lg px-3 py-2 text-sm font-medium transition hover:bg-slate-800';
-                      const stateClass = isActive ? 'bg-slate-800 text-white' : 'text-slate-200';
-                      return html`
-                        <a
-                          key=${`mobile-${link.route}`}
-                          class=${[baseClasses, stateClass].join(' ')}
-                          href=${href}
-                          onClick=${(event) => handleNavigate(event, link.route)}
-                          aria-current=${isActive ? 'page' : undefined}
-                        >
-                          ${link.label}
-                        </a>
-                      `;
-                    })}
-                  </div>
-                </nav>
-              `
-            : null
-        }
       </header>
+      <div
+        class=${overlayClasses}
+        onClick=${handleOverlayClick}
+        aria-hidden="true"
+      ></div>
+      <aside
+        class=${sidebarClasses}
+        role="dialog"
+        aria-modal=${menuOpen ? 'true' : 'false'}
+        aria-label="Navigation principale"
+        id=${mobileNavId}
+        aria-hidden=${menuOpen ? 'false' : 'true'}
+        inert=${menuOpen ? undefined : true}
+        tabIndex=${menuOpen ? 0 : -1}
+        onTouchStart=${handleSidebarTouchStart}
+        onTouchMove=${handleSidebarTouchMove}
+        onTouchEnd=${handleSidebarTouchEnd}
+        onTouchCancel=${handleSidebarTouchEnd}
+      >
+        <div class="flex items-center justify-between gap-4">
+          <a
+            class="flex items-center gap-2 text-lg font-semibold tracking-wide text-white transition hover:text-amber-300"
+            href="#/"
+            onClick=${(event) => handleNavigate(event, 'home')}
+          >
+            <span class="rounded bg-amber-400 px-2 py-1 text-sm font-bold text-amber-950">LA</span>
+            Libre Antenne
+          </a>
+          <button
+            class="rounded-lg border border-slate-700 p-2 text-slate-200 transition hover:border-slate-500 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+            type="button"
+            aria-label="Fermer le menu"
+            onClick=${closeMenu}
+          >
+            <${X} class="h-5 w-5" />
+          </button>
+        </div>
+        <nav class="mt-8 flex flex-col gap-1" aria-label="Navigation mobile">
+          ${NAV_LINKS.map((link) => {
+            const isActive = route.name === link.route;
+            const href = link.external && link.href ? link.href : link.hash;
+            const baseClasses = 'flex items-center gap-3 rounded-xl px-3 py-3 text-base font-medium transition';
+            const stateClass = isActive
+              ? 'bg-white/10 text-white shadow-inner shadow-amber-500/10'
+              : 'text-slate-200 hover:bg-white/5';
+            const Icon = link.icon;
+            const iconClass = isActive ? 'text-amber-300' : 'text-slate-400';
+            return html`
+              <a
+                key=${`sidebar-${link.route}`}
+                class=${[baseClasses, stateClass].join(' ')}
+                href=${href}
+                onClick=${(event) => handleNavigate(event, link.route)}
+                aria-current=${isActive ? 'page' : undefined}
+              >
+                ${Icon ? html`<${Icon} class=${`h-5 w-5 ${iconClass}`} aria-hidden="true" />` : null}
+                <span>${link.label}</span>
+              </a>`;
+          })}
+        </nav>
+      </aside>
 
       <main class="flex-1">
         <div class="mx-auto flex w-full max-w-5xl flex-col gap-10 px-4 py-10 sm:px-6 lg:px-0">
