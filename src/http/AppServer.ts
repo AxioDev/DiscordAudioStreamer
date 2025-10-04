@@ -11,6 +11,7 @@ import type DiscordAudioBridge from '../discord/DiscordAudioBridge';
 import type ShopService from '../services/ShopService';
 import { ShopError, type ShopProvider } from '../services/ShopService';
 import type VoiceActivityRepository from '../services/VoiceActivityRepository';
+import ListenerStatsService, { type ListenerStatsUpdate } from '../services/ListenerStatsService';
 import type {
   HypeLeaderboardQueryOptions,
   HypeLeaderboardSortBy,
@@ -34,6 +35,7 @@ export interface AppServerOptions {
   discordBridge: DiscordAudioBridge;
   shopService: ShopService;
   voiceActivityRepository?: VoiceActivityRepository | null;
+  listenerStatsService: ListenerStatsService;
 }
 
 type FlushCapableResponse = Response & {
@@ -72,6 +74,10 @@ export default class AppServer {
 
   private readonly hypeLeaderboardService: HypeLeaderboardService | null;
 
+  private readonly listenerStatsService: ListenerStatsService;
+
+  private readonly unsubscribeListenerStats: (() => void) | null;
+
   constructor({
     config,
     transcoder,
@@ -81,6 +87,7 @@ export default class AppServer {
     discordBridge,
     shopService,
     voiceActivityRepository = null,
+    listenerStatsService,
   }: AppServerOptions) {
     this.config = config;
     this.transcoder = transcoder;
@@ -93,9 +100,28 @@ export default class AppServer {
     this.hypeLeaderboardService = voiceActivityRepository
       ? new HypeLeaderboardService({ repository: voiceActivityRepository })
       : null;
+    this.listenerStatsService = listenerStatsService;
+    this.unsubscribeListenerStats = this.listenerStatsService.onUpdate((update) =>
+      this.handleListenerStatsUpdate(update),
+    );
 
     this.configureMiddleware();
     this.registerRoutes();
+  }
+
+  private handleListenerStatsUpdate(update: ListenerStatsUpdate | null): void {
+    if (!update) {
+      return;
+    }
+
+    this.sseService.broadcast('listeners', {
+      count: update.count,
+      timestamp: update.entry.timestamp,
+      reason: update.reason,
+      delta: update.delta,
+      entry: update.entry,
+      inserted: update.inserted,
+    });
   }
 
   private parseTimestamp(value: unknown): Date | null {
@@ -338,6 +364,10 @@ export default class AppServer {
         initialState: () => ({
           ...this.speakerTracker.getInitialState(),
           anonymousSlot: this.anonymousSpeechManager.getPublicState(),
+          listeners: {
+            count: this.listenerStatsService.getCurrentCount(),
+            history: this.listenerStatsService.getHistory(),
+          },
         }),
       });
     });
@@ -418,6 +448,13 @@ export default class AppServer {
 
     this.app.post('/test-beep', (req, res) => {
       this.handleTestBeep(req, res);
+    });
+
+    this.app.get('/api/stream/listeners', (_req, res) => {
+      res.json({
+        count: this.listenerStatsService.getCurrentCount(),
+        history: this.listenerStatsService.getHistory(),
+      });
     });
 
     this.app.get('/api/voice-activity/history', async (req, res) => {
@@ -1182,10 +1219,44 @@ export default class AppServer {
     const clientStream = this.transcoder.createClientStream();
     clientStream.pipe(res);
 
-    req.on('close', () => {
+    let counted = false;
+    let closed = false;
+
+    const incrementResult = this.listenerStatsService.increment();
+    if (incrementResult) {
+      counted = true;
+      console.log('Stream listener connected', {
+        ip: req.ip,
+        listeners: incrementResult.count,
+      });
+    }
+
+    const cleanup = (): void => {
+      if (closed) {
+        return;
+      }
+      closed = true;
       this.transcoder.releaseClientStream(clientStream);
-      console.log('Client disconnected', req.ip);
-    });
+      if (counted) {
+        counted = false;
+        const update = this.listenerStatsService.decrement();
+        console.log('Stream listener disconnected', {
+          ip: req.ip,
+          listeners: update?.count ?? this.listenerStatsService.getCurrentCount(),
+        });
+      }
+    };
+
+    const handleClose = (): void => {
+      cleanup();
+    };
+
+    req.on('close', handleClose);
+    req.on('error', handleClose);
+    res.on('close', handleClose);
+    res.on('finish', handleClose);
+    res.on('error', handleClose);
+    clientStream.on('error', handleClose);
   }
 
   public start(): Server {
@@ -1217,6 +1288,13 @@ export default class AppServer {
         console.warn('Failed to close WebSocket server', error);
       }
       this.wsServer = null;
+    }
+    if (this.unsubscribeListenerStats) {
+      try {
+        this.unsubscribeListenerStats();
+      } catch (error) {
+        console.warn('Failed to unsubscribe listener stats updates', error);
+      }
     }
   }
 

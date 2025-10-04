@@ -742,6 +742,206 @@ const RealTimeTalkChart = ({ history, speakers, now, selectedWindowMinutes, onWi
   `;
 };
 
+const ListenerTrendCard = ({ stats, now }) => {
+  const gradientId = useMemo(
+    () => `listener-gradient-${Math.random().toString(36).slice(2, 10)}`,
+    [],
+  );
+
+  const { history, count } = stats || {};
+  const currentCount = Number.isFinite(count) ? Math.max(0, Math.round(count)) : 0;
+
+  const chart = useMemo(() => {
+    const sanitized = Array.isArray(history)
+      ? history
+          .map((entry) => {
+            const timestamp = Number(entry?.timestamp ?? entry?.time ?? entry?.ts);
+            const countValue = Number(entry?.count);
+            if (!Number.isFinite(timestamp) || !Number.isFinite(countValue)) {
+              return null;
+            }
+            return {
+              timestamp,
+              count: Math.max(0, Math.round(countValue)),
+            };
+          })
+          .filter(Boolean)
+          .sort((a, b) => a.timestamp - b.timestamp)
+      : [];
+
+    if (sanitized.length === 0) {
+      const fallbackTimestamp = Number.isFinite(now) ? now : Date.now();
+      return {
+        points: [],
+        polylinePoints: '',
+        areaPath: '',
+        width: 800,
+        height: 220,
+        maxCount: currentCount,
+        average: currentCount,
+        start: fallbackTimestamp,
+        end: fallbackTimestamp,
+        firstEntry: null,
+        lastEntry: null,
+      };
+    }
+
+    const effectiveNow = Number.isFinite(now) ? now : Date.now();
+    const windowMs = 6 * HOUR_MS;
+    const cutoff = effectiveNow - windowMs;
+    let filtered = sanitized.filter((entry) => entry.timestamp >= cutoff);
+
+    if (!filtered.length) {
+      filtered = sanitized.slice(-Math.min(240, sanitized.length));
+    }
+
+    if (filtered.length === 1) {
+      filtered = [
+        filtered[0],
+        { timestamp: filtered[0].timestamp + 1, count: filtered[0].count },
+      ];
+    }
+
+    const width = 800;
+    const height = 220;
+    const firstEntry = filtered[0];
+    const lastEntry = filtered[filtered.length - 1];
+    const range = lastEntry.timestamp - firstEntry.timestamp;
+    const maxCount = filtered.reduce((acc, item) => Math.max(acc, item.count), 0);
+    const totalCount = filtered.reduce((acc, item) => acc + item.count, 0);
+    const average = filtered.length > 0 ? totalCount / filtered.length : 0;
+
+    const points = filtered.map((item, index) => {
+      const ratio = range > 0 ? (item.timestamp - firstEntry.timestamp) / range : filtered.length <= 1 ? 0 : index / (filtered.length - 1);
+      const x = Math.round(ratio * width);
+      const yRatio = maxCount > 0 ? item.count / maxCount : 0;
+      const y = Math.round(height - yRatio * height);
+      return { x, y, ...item };
+    });
+
+    const polylinePoints = points.map((point) => `${point.x},${point.y}`).join(' ');
+    const areaPath = ['M 0', height, ...points.map((point) => `L ${point.x} ${point.y}`), `L ${width} ${height}`, 'Z'].join(' ');
+
+    return {
+      points,
+      polylinePoints,
+      areaPath,
+      width,
+      height,
+      maxCount,
+      average,
+      start: firstEntry.timestamp,
+      end: lastEntry.timestamp,
+      firstEntry,
+      lastEntry,
+    };
+  }, [history, now, currentCount]);
+
+  const peakCount = Math.max(chart.maxCount ?? 0, currentCount);
+  const averageLabel = chart.average > 0
+    ? chart.average
+        .toFixed(1)
+        .replace(/\.0$/, '')
+        .replace('.', ',')
+    : '0';
+  const rangeMs = chart.end > chart.start ? chart.end - chart.start : 0;
+  const windowLabel = rangeMs > 0 ? formatDuration(rangeMs) : 'instantané';
+  const lastUpdateLabel = chart.lastEntry ? formatRelative(chart.lastEntry.timestamp, now) : 'à l’instant';
+  const rangeStartLabel = chart.firstEntry
+    ? new Date(chart.firstEntry.timestamp).toLocaleTimeString('fr-FR', {
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : null;
+  const rangeEndLabel = chart.lastEntry
+    ? new Date(chart.lastEntry.timestamp).toLocaleTimeString('fr-FR', {
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : null;
+
+  const hasChartData = chart.points.length > 0 && chart.polylinePoints;
+  const sampleLabel = chart.points.length === 1 ? 'point' : 'points';
+  const windowDescription = windowLabel === 'instantané' ? 'instantanée' : windowLabel;
+
+  return html`
+    <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-slate-950/90 via-indigo-950/60 to-fuchsia-950/40 p-8 shadow-xl shadow-slate-950/50 backdrop-blur-xl">
+      <div class="pointer-events-none absolute -left-24 top-[-6rem] h-56 w-56 rounded-full bg-indigo-500/15 blur-3xl"></div>
+      <div class="pointer-events-none absolute -right-24 bottom-[-8rem] h-72 w-72 rounded-full bg-fuchsia-500/20 blur-[120px]"></div>
+      <div class="relative flex flex-col gap-6">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div class="space-y-2">
+            <p class="text-xs uppercase tracking-[0.35em] text-indigo-200/80">Audience</p>
+            <h2 class="text-2xl font-semibold text-white">Écoutes du flux en direct</h2>
+            <p class="text-sm text-slate-300">
+              Visualise l’évolution du nombre d’auditeurs en temps réel sur les dernières heures.
+            </p>
+          </div>
+          <div class="grid gap-4 sm:grid-cols-3">
+            <div class="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-slate-200">
+              <div class="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-indigo-200/80">
+                <${Headphones} class="h-4 w-4" aria-hidden="true" />
+                En cours
+              </div>
+              <p class="mt-2 text-3xl font-semibold text-white">${currentCount}</p>
+              <p class="text-xs text-slate-300">Mis à jour ${lastUpdateLabel}</p>
+            </div>
+            <div class="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-slate-200">
+              <span class="text-xs uppercase tracking-[0.3em] text-indigo-200/80">Pic observé</span>
+              <p class="mt-2 text-3xl font-semibold text-white">${peakCount}</p>
+              <p class="text-xs text-slate-300">Fenêtre ${windowDescription}</p>
+            </div>
+            <div class="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-slate-200">
+              <span class="text-xs uppercase tracking-[0.3em] text-indigo-200/80">Moyenne</span>
+              <p class="mt-2 text-3xl font-semibold text-white">${averageLabel}</p>
+              <p class="text-xs text-slate-300">Échantillon ${chart.points.length} ${sampleLabel}</p>
+            </div>
+          </div>
+        </div>
+
+        ${hasChartData
+          ? html`
+              <div class="relative rounded-3xl border border-white/10 bg-black/30 p-6">
+                <svg
+                  class="h-56 w-full"
+                  viewBox=${`0 0 ${chart.width} ${chart.height}`}
+                  preserveAspectRatio="none"
+                  role="presentation"
+                  aria-hidden="true"
+                >
+                  <defs>
+                    <linearGradient id=${gradientId} x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="0%" stop-color="rgba(129, 140, 248, 0.8)" />
+                      <stop offset="100%" stop-color="rgba(236, 72, 153, 0.05)" />
+                    </linearGradient>
+                  </defs>
+                  ${chart.areaPath
+                    ? html`<path d=${chart.areaPath} fill=${`url(#${gradientId})`} stroke="none" opacity="0.8" />`
+                    : null}
+                  <polyline
+                    points=${chart.polylinePoints}
+                    fill="none"
+                    stroke="url(#${gradientId})"
+                    stroke-width="6"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    opacity="0.9"
+                  ></polyline>
+                </svg>
+                <div class="mt-4 flex items-center justify-between text-xs text-slate-300">
+                  <span>${rangeStartLabel ?? '—'}</span>
+                  <span>${rangeEndLabel ?? '—'}</span>
+                </div>
+              </div>`
+          : html`
+              <p class="mt-6 rounded-3xl border border-dashed border-white/15 bg-black/20 p-6 text-sm text-slate-300">
+                Les premières écoutes seront visibles ici dès qu’un auditeur se connectera au flux.
+              </p>`}
+      </div>
+    </section>
+  `;
+};
+
 const AnonymousBooth = ({ slot, now }) => {
   const [session, setSession] = useState(() => ({
     token: null,
@@ -2988,6 +3188,7 @@ export {
   SpeakersSection,
   DailyActivityChart,
   RealTimeTalkChart,
+  ListenerTrendCard,
   AnonymousBooth,
   ShopProductCard,
   MemberAvatar,

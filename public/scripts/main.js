@@ -14,6 +14,7 @@ import {
   DEFAULT_WINDOW_MINUTES,
   HISTORY_RETENTION_MS,
   TALK_WINDOW_OPTIONS,
+  LISTENER_HISTORY_RETENTION_MS,
 } from './core/constants.js';
 import {
   buildProfileHash,
@@ -114,6 +115,44 @@ const getRouteFromHash = () => {
 };
 
 
+const normalizeListenerEntry = (raw) => {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+
+  const timestamp = Number(raw.timestamp ?? raw.time ?? raw.ts);
+  const count = Number(raw.count);
+
+  if (!Number.isFinite(timestamp) || !Number.isFinite(count)) {
+    return null;
+  }
+
+  return {
+    timestamp,
+    count: Math.max(0, Math.round(count)),
+  };
+};
+
+const normalizeListenerHistory = (history) => {
+  if (!Array.isArray(history)) {
+    return [];
+  }
+
+  const entries = history
+    .map((entry) => normalizeListenerEntry(entry))
+    .filter((entry) => entry !== null);
+
+  entries.sort((a, b) => a.timestamp - b.timestamp);
+  return entries;
+};
+
+const trimListenerHistory = (history, nowTs) => {
+  const reference = Number.isFinite(nowTs) ? nowTs : Date.now();
+  const cutoff = reference - LISTENER_HISTORY_RETENTION_MS;
+  return history.filter((entry) => entry.timestamp >= cutoff);
+};
+
+
 
 
 
@@ -156,6 +195,7 @@ const App = () => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [route, setRoute] = useState(() => getRouteFromHash());
   const [anonymousSlot, setAnonymousSlot] = useState(() => normalizeAnonymousSlot());
+  const [listenerStats, setListenerStats] = useState(() => ({ count: 0, history: [] }));
   const [soulDecision, setSoulDecision] = useState(getInitialSoulDecision);
   const [showSoulModal, setShowSoulModal] = useState(() => !getInitialSoulDecision());
   const [soulMessage, setSoulMessage] = useState('');
@@ -420,6 +460,14 @@ const App = () => {
         return;
       }
 
+      if (payload.listeners) {
+        const normalizedHistory = normalizeListenerHistory(payload.listeners.history);
+        const trimmedHistory = trimListenerHistory(normalizedHistory, Date.now());
+        const countValue = Number(payload.listeners.count);
+        const safeCount = Number.isFinite(countValue) ? Math.max(0, Math.round(countValue)) : 0;
+        setListenerStats({ count: safeCount, history: trimmedHistory });
+      }
+
       if (Array.isArray(payload.speakers)) {
         const nowTs = Date.now();
         const previous = participantsRef.current;
@@ -470,6 +518,50 @@ const App = () => {
         applyState(data);
       } catch (err) {
         console.error('state event parse error', err);
+      }
+    });
+
+    const applyListenerUpdate = (payload) => {
+      if (!payload || typeof payload !== 'object') {
+        return;
+      }
+
+      const countValue = Number(payload.count);
+      const entrySource = payload.entry || {
+        timestamp: payload.timestamp,
+        count: payload.count,
+      };
+      const entry = normalizeListenerEntry(entrySource);
+
+      setListenerStats((prev) => {
+        const safeCount = Number.isFinite(countValue) ? Math.max(0, Math.round(countValue)) : prev.count;
+        let nextHistory = Array.isArray(prev.history) ? prev.history.slice() : [];
+
+        if (entry) {
+          const inserted = Boolean(payload.inserted);
+          if (inserted) {
+            nextHistory = [...nextHistory, entry];
+          } else if (nextHistory.length > 0) {
+            nextHistory = [...nextHistory.slice(0, -1), entry];
+          } else {
+            nextHistory = [entry];
+          }
+        }
+
+        const trimmedHistory = trimListenerHistory(nextHistory, Date.now());
+        return {
+          count: safeCount,
+          history: trimmedHistory,
+        };
+      });
+    };
+
+    source.addEventListener('listeners', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        applyListenerUpdate(data);
+      } catch (err) {
+        console.error('listeners event parse error', err);
       }
     });
 
@@ -742,6 +834,7 @@ const App = () => {
                   selectedWindowMinutes=${selectedWindowMinutes}
                   onWindowChange=${handleWindowChange}
                   onViewProfile=${handleProfileOpen}
+                  listenerStats=${listenerStats}
                 />`
           }
         </div>
