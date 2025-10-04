@@ -83,8 +83,6 @@ const HomePage = ({
     <${AudioPlayer} streamInfo=${streamInfo} audioKey=${audioKey} status=${status} />
   </section>
 
-  <${ListenerTrendCard} stats=${listenerStats} now=${now} />
-
   <${DailyActivityChart}
     history=${speakingHistory}
     now=${now}
@@ -136,6 +134,8 @@ const HomePage = ({
       </div>
       <${SpeakersSection} speakers=${speakers} now=${now} onViewProfile=${onViewProfile} />
     </section>
+
+    <${ListenerTrendCard} stats=${listenerStats} now=${now} />
     </${Fragment}>
   `;
 };
