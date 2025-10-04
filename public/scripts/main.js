@@ -309,6 +309,9 @@ const App = () => {
   }));
   const previousRouteRef = useRef(route);
   const transitionTimerRef = useRef(null);
+  const [backendStatus, setBackendStatus] = useState('unknown');
+  const backendAvailable = backendStatus === 'available';
+  const backendOffline = backendStatus === 'unavailable';
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -316,106 +319,12 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    if (!window.location.hash) {
-      if (window.location.pathname === '/classements') {
-        const query = window.location.search?.replace(/^\?/, '');
-        const hashSuffix = query ? `?${query}` : '';
-        const targetHash = `#/classements${hashSuffix}`;
-        window.location.hash = targetHash;
-        setRoute({ name: 'classements', params: getRouteFromHash().params });
-      } else {
-        window.location.hash = '#/';
-        setRoute({ name: 'home', params: {} });
-      }
-    }
-  }, []);
-
-  const updateProfileRoute = useCallback(
-    (userId, sinceMs, untilMs, options = {}) => {
-      if (!userId) {
-        return;
-      }
-      const sinceParam = Number.isFinite(sinceMs) ? String(Math.floor(sinceMs)) : null;
-      const untilParam = Number.isFinite(untilMs) ? String(Math.floor(untilMs)) : null;
-      const nextRoute = { name: 'profile', params: { userId, since: sinceParam, until: untilParam } };
-      const nextHash = buildProfileHash(userId, sinceMs, untilMs);
-      if (window.location.hash !== nextHash) {
-        window.location.hash = nextHash;
-      }
-      setRoute(nextRoute);
-      if (options.scrollToTop) {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      }
-    },
-    [setRoute],
-  );
-
-  const handleProfileOpen = useCallback(
-    (userId) => {
-      updateProfileRoute(userId, null, null, { scrollToTop: true });
-    },
-    [updateProfileRoute],
-  );
-
-  useEffect(() => {
-    const updateRoute = () => setRoute(getRouteFromHash());
-    window.addEventListener('hashchange', updateRoute);
-    return () => window.removeEventListener('hashchange', updateRoute);
-  }, []);
-
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [route]);
-
-  useEffect(() => {
-    const previousRoute = previousRouteRef.current;
-    const previousKey = buildRouteKey(previousRoute);
-    const nextKey = buildRouteKey(route);
-
-    if (previousKey === nextKey) {
-      previousRouteRef.current = route;
+    if (!backendAvailable) {
+      setIsHistoryLoading(false);
+      setSpeakingHistory([]);
       return undefined;
     }
 
-    const direction = getTransitionDirection(previousRoute, route);
-    const palette = getRouteTheme(route?.name ?? 'home');
-
-    setTransitionState((state) => ({
-      active: true,
-      previous: previousRoute,
-      direction,
-      id: state.id + 1,
-      palette,
-    }));
-
-    if (transitionTimerRef.current) {
-      clearTimeout(transitionTimerRef.current);
-    }
-
-    transitionTimerRef.current = setTimeout(() => {
-      setTransitionState((state) => ({
-        ...state,
-        active: false,
-        previous: null,
-      }));
-      transitionTimerRef.current = null;
-    }, PAGE_TRANSITION_DURATION_MS);
-
-    previousRouteRef.current = route;
-
-    return () => {
-      if (transitionTimerRef.current) {
-        clearTimeout(transitionTimerRef.current);
-        transitionTimerRef.current = null;
-      }
-    };
-  }, [route]);
-
-  useEffect(() => {
-    participantsRef.current = participantsMap;
-  }, [participantsMap]);
-
-  useEffect(() => {
     let cancelled = false;
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
 
@@ -554,7 +463,7 @@ const App = () => {
         controller.abort();
       }
     };
-  }, []);
+  }, [backendAvailable]);
 
   const handleWindowChange = useCallback((minutes) => {
     if (!Number.isFinite(minutes)) {
@@ -565,6 +474,143 @@ const App = () => {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const updateStatus = (nextStatus) => {
+      if (cancelled) {
+        return;
+      }
+      setBackendStatus((previous) => (previous === nextStatus ? previous : nextStatus));
+    };
+
+    const checkAvailability = async () => {
+      try {
+        const response = await fetch('/status', { cache: 'no-store' });
+        updateStatus(response.ok ? 'available' : 'unavailable');
+      } catch (_error) {
+        updateStatus('unavailable');
+      }
+    };
+
+    checkAvailability();
+    const intervalId = window.setInterval(checkAvailability, 60_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!window.location.hash) {
+      if (window.location.pathname === '/classements') {
+        const query = window.location.search?.replace(/^\?/, '');
+        const hashSuffix = query ? `?${query}` : '';
+        const targetHash = `#/classements${hashSuffix}`;
+        window.location.hash = targetHash;
+        setRoute({ name: 'classements', params: getRouteFromHash().params });
+      } else {
+        window.location.hash = '#/';
+        setRoute({ name: 'home', params: {} });
+      }
+    }
+  }, []);
+
+  const updateProfileRoute = useCallback(
+    (userId, sinceMs, untilMs, options = {}) => {
+      if (!userId) {
+        return;
+      }
+      const sinceParam = Number.isFinite(sinceMs) ? String(Math.floor(sinceMs)) : null;
+      const untilParam = Number.isFinite(untilMs) ? String(Math.floor(untilMs)) : null;
+      const nextRoute = { name: 'profile', params: { userId, since: sinceParam, until: untilParam } };
+      const nextHash = buildProfileHash(userId, sinceMs, untilMs);
+      if (window.location.hash !== nextHash) {
+        window.location.hash = nextHash;
+      }
+      setRoute(nextRoute);
+      if (options.scrollToTop) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    },
+    [setRoute],
+  );
+
+  const handleProfileOpen = useCallback(
+    (userId) => {
+      updateProfileRoute(userId, null, null, { scrollToTop: true });
+    },
+    [updateProfileRoute],
+  );
+
+  useEffect(() => {
+    const updateRoute = () => setRoute(getRouteFromHash());
+    window.addEventListener('hashchange', updateRoute);
+    return () => window.removeEventListener('hashchange', updateRoute);
+  }, []);
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [route]);
+
+  useEffect(() => {
+    const previousRoute = previousRouteRef.current;
+    const previousKey = buildRouteKey(previousRoute);
+    const nextKey = buildRouteKey(route);
+
+    if (previousKey === nextKey) {
+      previousRouteRef.current = route;
+      return undefined;
+    }
+
+    const direction = getTransitionDirection(previousRoute, route);
+    const palette = getRouteTheme(route?.name ?? 'home');
+
+    setTransitionState((state) => ({
+      active: true,
+      previous: previousRoute,
+      direction,
+      id: state.id + 1,
+      palette,
+    }));
+
+    if (transitionTimerRef.current) {
+      clearTimeout(transitionTimerRef.current);
+    }
+
+    transitionTimerRef.current = setTimeout(() => {
+      setTransitionState((state) => ({
+        ...state,
+        active: false,
+        previous: null,
+      }));
+      transitionTimerRef.current = null;
+    }, PAGE_TRANSITION_DURATION_MS);
+
+    previousRouteRef.current = route;
+
+    return () => {
+      if (transitionTimerRef.current) {
+        clearTimeout(transitionTimerRef.current);
+        transitionTimerRef.current = null;
+      }
+    };
+  }, [route]);
+
+  useEffect(() => {
+    participantsRef.current = participantsMap;
+  }, [participantsMap]);
+
+  useEffect(() => {
+    if (!backendAvailable) {
+      setStatus(backendStatus === 'unavailable' ? 'error' : 'connecting');
+      setParticipantsMap(() => new Map());
+      participantsRef.current = new Map();
+      setListenerStats({ count: 0, history: [] });
+      setAnonymousSlot(normalizeAnonymousSlot());
+      return undefined;
+    }
+
     const source = new EventSource('/events');
     source.onopen = () => setStatus('connected');
     source.onerror = () => {
@@ -770,9 +816,8 @@ const App = () => {
         console.error('anonymous slot event parse error', err);
       }
     });
-
     return () => source.close();
-  }, []);
+  }, [backendAvailable, backendStatus]);
   const speakers = useMemo(() => {
     const values = Array.from(participantsMap.values()).map((participant) => ({
       ...participant,
@@ -828,6 +873,8 @@ const App = () => {
         onWindowChange=${handleWindowChange}
         onViewProfile=${handleProfileOpen}
         listenerStats=${listenerStats}
+        backendAvailable=${backendAvailable}
+        backendOffline=${backendOffline}
       />`;
     }
 
@@ -837,11 +884,19 @@ const App = () => {
       case 'about':
         return html`<${AboutPage} />`;
       case 'blog':
-        return html`<${BlogPage} params=${targetRoute.params} />`;
+        return html`<${BlogPage}
+          params=${targetRoute.params}
+          backendAvailable=${backendAvailable}
+          backendOffline=${backendOffline}
+        />`;
       case 'members':
-        return html`<${MembersPage} onViewProfile=${handleProfileOpen} />`;
+        return html`<${MembersPage}
+          onViewProfile=${handleProfileOpen}
+          backendAvailable=${backendAvailable}
+          backendOffline=${backendOffline}
+        />`;
       case 'shop':
-        return html`<${ShopPage} />`;
+        return html`<${ShopPage} backendAvailable=${backendAvailable} backendOffline=${backendOffline} />`;
       case 'profile':
         return html`<${ProfilePage}
           params=${targetRoute.params}
@@ -850,9 +905,15 @@ const App = () => {
             setRoute({ name: 'home', params: {} });
           }}
           onUpdateRange=${updateProfileRoute}
+          backendAvailable=${backendAvailable}
+          backendOffline=${backendOffline}
         />`;
       case 'classements':
-        return html`<${ClassementsPage} params=${targetRoute.params} />`;
+        return html`<${ClassementsPage}
+          params=${targetRoute.params}
+          backendAvailable=${backendAvailable}
+          backendOffline=${backendOffline}
+        />`;
       case 'home':
       default:
         return html`<${HomePage}
@@ -868,6 +929,8 @@ const App = () => {
           onWindowChange=${handleWindowChange}
           onViewProfile=${handleProfileOpen}
           listenerStats=${listenerStats}
+          backendAvailable=${backendAvailable}
+          backendOffline=${backendOffline}
         />`;
     }
   };

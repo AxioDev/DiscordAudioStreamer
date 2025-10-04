@@ -63,7 +63,7 @@ const parseCheckoutFeedback = () => {
   }
 };
 
-export const ShopPage = () => {
+export const ShopPage = ({ backendAvailable = true, backendOffline = false }) => {
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState([]);
   const [error, setError] = useState('');
@@ -77,6 +77,14 @@ export const ShopPage = () => {
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
+    if (!backendAvailable) {
+      if (backendOffline) {
+        setProducts([]);
+        setError('Boutique indisponible tant que le serveur est hors ligne.');
+        setLoading(false);
+      }
+      return;
+    }
     try {
       const response = await fetch('/api/shop/products');
       if (!response.ok) {
@@ -92,7 +100,7 @@ export const ShopPage = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [backendAvailable, backendOffline]);
 
   useEffect(() => {
     fetchProducts();
@@ -119,6 +127,15 @@ export const ShopPage = () => {
 
   const handleCheckout = useCallback(
     async (productId, provider) => {
+      if (!backendAvailable) {
+        const message = backendOffline
+          ? 'Le serveur de paiement est hors ligne. Réessaie un peu plus tard.'
+          : 'Connexion au serveur en cours… Réessaie dans quelques instants.';
+        setCheckoutState({ productId, provider, pending: false, error: message });
+        setFeedback({ type: 'error', message });
+        return;
+      }
+
       setCheckoutState({ productId, provider, pending: true, error: '' });
       setFeedback(null);
 
@@ -162,7 +179,7 @@ export const ShopPage = () => {
         setFeedback({ type: 'error', message });
       }
     },
-    [getReturnUrls],
+    [backendAvailable, backendOffline, getReturnUrls],
   );
 
   const sortedProducts = useMemo(() =>
@@ -252,6 +269,8 @@ export const ShopPage = () => {
                   product=${product}
                   checkoutState=${checkoutState}
                   onCheckout=${handleCheckout}
+                  canCheckout=${backendAvailable}
+                  isOffline=${backendOffline}
                 />`,
               )}
             </div>`}

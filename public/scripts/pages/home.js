@@ -30,6 +30,8 @@ const HomePage = ({
   onWindowChange,
   onViewProfile,
   listenerStats = { count: 0, history: [] },
+  backendAvailable = true,
+  backendOffline = false,
 }) => {
   const connectedCount = speakers.length;
   const activeSpeakersCount = speakers.reduce(
@@ -80,7 +82,13 @@ const HomePage = ({
           </p>
         </div>
       </div>
-    <${AudioPlayer} streamInfo=${streamInfo} audioKey=${audioKey} status=${status} />
+    <${AudioPlayer}
+      streamInfo=${streamInfo}
+      audioKey=${audioKey}
+      status=${status}
+      canPlayStream=${backendAvailable}
+      isServerOffline=${backendOffline}
+    />
   </section>
 
   <${DailyActivityChart}

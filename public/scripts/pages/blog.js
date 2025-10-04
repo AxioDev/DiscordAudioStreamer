@@ -124,7 +124,7 @@ const BlogCard = ({ post, onOpen, isActive }) => {
   `;
 };
 
-export const BlogPage = ({ params = {} }) => {
+export const BlogPage = ({ params = {}, backendAvailable = true, backendOffline = false }) => {
   const slug = typeof params?.slug === 'string' && params.slug.trim().length > 0 ? params.slug.trim() : null;
   const [posts, setPosts] = useState([]);
   const [availableTags, setAvailableTags] = useState([]);
@@ -146,6 +146,19 @@ export const BlogPage = ({ params = {} }) => {
   }, []);
 
   useEffect(() => {
+    if (!backendAvailable) {
+      if (backendOffline) {
+        setIsLoadingList(false);
+        setListError('Blog indisponible tant que le serveur est hors ligne.');
+        setPosts([]);
+        setAvailableTags([]);
+      } else {
+        setIsLoadingList(true);
+        setListError(null);
+      }
+      return undefined;
+    }
+
     let cancelled = false;
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
 
@@ -189,13 +202,25 @@ export const BlogPage = ({ params = {} }) => {
       cancelled = true;
       controller?.abort();
     };
-  }, [debouncedSearch, selectedTags]);
+  }, [backendAvailable, backendOffline, debouncedSearch, selectedTags]);
 
   useEffect(() => {
     if (!slug) {
       setActivePost(null);
       setPostError(null);
       setIsLoadingPost(false);
+      return;
+    }
+
+    if (!backendAvailable) {
+      if (backendOffline) {
+        setActivePost(null);
+        setPostError('Blog indisponible tant que le serveur est hors ligne.');
+        setIsLoadingPost(false);
+      } else {
+        setIsLoadingPost(true);
+        setPostError(null);
+      }
       return;
     }
 
@@ -242,7 +267,7 @@ export const BlogPage = ({ params = {} }) => {
       cancelled = true;
       controller?.abort();
     };
-  }, [slug]);
+  }, [backendAvailable, backendOffline, slug]);
 
   useEffect(() => {
     const baseTitle = 'Blog · Libre Antenne';

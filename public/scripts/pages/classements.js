@@ -165,7 +165,7 @@ const getTrendPresentation = (positionTrend) => {
   }
 };
 
-const ClassementsPage = ({ params = {} }) => {
+const ClassementsPage = ({ params = {}, backendAvailable = true, backendOffline = false }) => {
   const initialState = useMemo(() => deriveInitialState(params), [params.search, params.sortBy, params.sortOrder, params.period]);
   const [search, setSearch] = useState(initialState.search);
   const [debouncedSearch, setDebouncedSearch] = useState(initialState.search.trim());
@@ -246,6 +246,21 @@ const ClassementsPage = ({ params = {} }) => {
   }, []);
 
   useEffect(() => {
+    if (!backendAvailable) {
+      if (backendOffline) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+        setError(new Error('Classements indisponibles tant que le serveur est hors ligne.'));
+        setLeaders([]);
+        setSnapshot(null);
+        hasLoadedRef.current = false;
+      } else {
+        setIsLoading(true);
+        setIsRefreshing(false);
+      }
+      return undefined;
+    }
+
     const controller = new AbortController();
     if (controllerRef.current) {
       controllerRef.current.abort();
@@ -311,7 +326,7 @@ const ClassementsPage = ({ params = {} }) => {
       controller.abort();
       controllerRef.current = null;
     };
-  }, [debouncedSearch, sortBy, sortOrder, period, refreshTick]);
+  }, [backendAvailable, debouncedSearch, sortBy, sortOrder, period, refreshTick]);
 
   useEffect(() => {
     const params = new URLSearchParams();
