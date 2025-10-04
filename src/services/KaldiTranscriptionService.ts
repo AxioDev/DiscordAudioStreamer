@@ -148,20 +148,12 @@ export default class KaldiTranscriptionService {
       return;
     }
 
+    const payload = this.prepareBinaryPayload(processed);
+
     if (session.ready && session.ws && session.ws.readyState === WebSocket.OPEN) {
-      session.ws.send(processed, { binary: true }, (error) => {
-        if (error) {
-          console.error('Failed to send audio chunk to Kaldi server', {
-            userId: session.userId,
-            guildId: session.guildId,
-            channelId: session.channelId,
-            error,
-          });
-          this.terminateSession(session, error);
-        }
-      });
+      this.sendBinaryChunk(session, payload);
     } else {
-      session.queue.push(processed);
+      session.queue.push(payload);
     }
   }
 
@@ -302,17 +294,7 @@ export default class KaldiTranscriptionService {
       if (!chunk) {
         continue;
       }
-      session.ws.send(chunk, { binary: true }, (error) => {
-        if (error) {
-          console.error('Failed to flush queued audio chunk to Kaldi server', {
-            userId: session.userId,
-            guildId: session.guildId,
-            channelId: session.channelId,
-            error,
-          });
-          this.terminateSession(session, error);
-        }
-      });
+      this.sendBinaryChunk(session, chunk);
     }
   }
 
@@ -396,6 +378,48 @@ export default class KaldiTranscriptionService {
     } catch (error) {
       console.error('Failed to send Kaldi configuration payload', error);
     }
+  }
+
+  private prepareBinaryPayload(data: Buffer | ArrayBuffer | ArrayBufferView | string): Buffer {
+    if (Buffer.isBuffer(data)) {
+      return Buffer.from(data);
+    }
+
+    if (typeof data === 'string') {
+      return Buffer.from(data, 'binary');
+    }
+
+    if (data instanceof ArrayBuffer) {
+      return Buffer.from(data);
+    }
+
+    if (ArrayBuffer.isView(data)) {
+      return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+    }
+
+    throw new TypeError('Unsupported audio payload type for Kaldi transmission');
+  }
+
+  private sendBinaryChunk(session: KaldiSession, chunk: Buffer): void {
+    const ws = session.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      session.queue.push(chunk);
+      return;
+    }
+
+    const payload = Buffer.isBuffer(chunk) ? chunk : this.prepareBinaryPayload(chunk);
+
+    ws.send(payload, { binary: true, compress: false }, (error) => {
+      if (error) {
+        console.error('Failed to send audio chunk to Kaldi server', {
+          userId: session.userId,
+          guildId: session.guildId,
+          channelId: session.channelId,
+          error,
+        });
+        this.terminateSession(session, error);
+      }
+    });
   }
 
   private downsampleAndConvert(chunk: Buffer): Buffer {
