@@ -142,8 +142,18 @@ const normalizeCoverImage = (value: string | undefined | null): string | null =>
   if (!value) {
     return null;
   }
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
+
+  let normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  normalized = normalized.replace(/^['"]+/, '').replace(/['"]+$/, '').trim();
+  if (!normalized) {
+    return null;
+  }
+
+  return normalized;
 };
 
 const parseTags = (value: string | undefined | null): string[] => {

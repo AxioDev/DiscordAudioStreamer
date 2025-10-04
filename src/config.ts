@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import ffmpegStatic from 'ffmpeg-static';
 
 dotenv.config();
 
@@ -115,7 +116,7 @@ const config: Config = {
   guildId: process.env.GUILD_ID,
   voiceChannelId: process.env.VOICE_CHANNEL_ID,
   port: parseInteger(process.env.PORT, 3000),
-  ffmpegPath: process.env.FFMPEG_PATH || 'ffmpeg',
+  ffmpegPath: process.env.FFMPEG_PATH || ffmpegStatic || 'ffmpeg',
   outputFormat,
   opusBitrate: process.env.OPUS_BITRATE || '64000',
   mp3Bitrate: process.env.MP3_BITRATE || '96000',
@@ -202,8 +203,7 @@ config.audio.frameBytes =
   config.audio.frameSamples * config.audio.channels * config.audio.bytesPerSample;
 
 if (!config.botToken) {
-  console.error('BOT_TOKEN is required in the environment');
-  process.exit(1);
+  console.warn('BOT_TOKEN is not set; Discord features will be disabled.');
 }
 
 export default config;
