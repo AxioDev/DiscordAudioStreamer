@@ -127,6 +127,17 @@ const deriveExcerpt = (metadata: Record<string, string>, body: string): string |
   return sanitizeExcerpt(paragraphs[0]);
 };
 
+const normalizeMarkdownContent = (value: string | null | undefined): string => {
+  if (!value) {
+    return '';
+  }
+  const withUnixLineEndings = value.replace(/\r\n?/g, '\n');
+  if (withUnixLineEndings.includes('\\n') && !withUnixLineEndings.includes('\n')) {
+    return withUnixLineEndings.replace(/\\n/g, '\n');
+  }
+  return withUnixLineEndings;
+};
+
 const normalizeCoverImage = (value: string | undefined | null): string | null => {
   if (!value) {
     return null;
@@ -200,10 +211,11 @@ export default class BlogService {
         return null;
       }
       const summary = this.convertRowToSummary(row);
-      const contentHtml = marked.parse(row.content_markdown);
+      const markdown = normalizeMarkdownContent(row.content_markdown);
+      const contentHtml = marked.parse(markdown);
       return {
         ...summary,
-        contentMarkdown: row.content_markdown,
+        contentMarkdown: markdown,
         contentHtml: typeof contentHtml === 'string' ? contentHtml : String(contentHtml),
       };
     }
@@ -232,7 +244,8 @@ export default class BlogService {
 
     const date = toIsoString(row.published_at);
     const updatedAt = toIsoString(row.updated_at);
-    const excerpt = row.excerpt ?? sanitizeExcerpt(row.content_markdown) ?? null;
+    const normalizedMarkdown = normalizeMarkdownContent(row.content_markdown);
+    const excerpt = row.excerpt ?? sanitizeExcerpt(normalizedMarkdown) ?? null;
     const coverImageUrl = normalizeCoverImage(row.cover_image_url);
     const tags = Array.isArray(row.tags)
       ? row.tags.map((tag) => (typeof tag === 'string' ? tag.trim() : '')).filter((tag) => tag.length > 0)
