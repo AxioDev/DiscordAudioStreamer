@@ -27,6 +27,7 @@ import HypeLeaderboardService, {
   type HypeLeaderboardResult,
   type NormalizedHypeLeaderboardQueryOptions,
 } from '../services/HypeLeaderboardService';
+import SeoRenderer, { type SeoPageMetadata } from './SeoRenderer';
 
 export interface AppServerOptions {
   config: Config;
@@ -46,6 +47,25 @@ type FlushCapableResponse = Response & {
   flushHeaders?: () => void;
   flush?: () => void;
 };
+
+interface ProfileSummary {
+  rangeDurationMs: number;
+  totalPresenceMs: number;
+  totalSpeakingMs: number;
+  messageCount: number;
+  presenceSessions: number;
+  speakingSessions: number;
+  uniqueActiveDays: string[];
+  activeDayCount: number;
+  firstPresenceAt: { ms: number; iso: string } | null;
+  lastPresenceAt: { ms: number; iso: string } | null;
+  firstSpeakingAt: { ms: number; iso: string } | null;
+  lastSpeakingAt: { ms: number; iso: string } | null;
+  firstMessageAt: { ms: number; iso: string } | null;
+  lastMessageAt: { ms: number; iso: string } | null;
+  firstActivityAt: { ms: number; iso: string } | null;
+  lastActivityAt: { ms: number; iso: string } | null;
+}
 
 export default class AppServer {
   private readonly config: Config;
@@ -85,6 +105,8 @@ export default class AppServer {
   private readonly blogService: BlogService;
 
   private readonly blogRepository: BlogRepository | null;
+
+  private readonly seoRenderer: SeoRenderer;
 
   constructor({
     config,
@@ -127,6 +149,47 @@ export default class AppServer {
         postsDirectory: path.resolve(__dirname, '..', '..', 'content', 'blog'),
         repository: this.blogRepository,
       });
+
+    const defaultSocialImageUrl = new URL('/icons/icon-512.png', this.config.publicBaseUrl).toString();
+    this.seoRenderer = new SeoRenderer({
+      templatePath: path.resolve(__dirname, '..', '..', 'public', 'index.html'),
+      baseUrl: this.config.publicBaseUrl,
+      siteName: this.config.siteName,
+      defaultLocale: this.config.siteLocale,
+      defaultLanguage: this.config.siteLanguage,
+      defaultRobots: 'index,follow,max-snippet:-1,max-image-preview:large,max-video-preview:-1',
+      defaultTwitterSite: this.config.twitterSite ?? null,
+      defaultTwitterCreator: this.config.twitterCreator ?? null,
+      defaultImages: [
+        {
+          url: defaultSocialImageUrl,
+          alt: 'Illustration du direct communautaire Libre Antenne',
+          type: 'image/png',
+          width: 512,
+          height: 512,
+        },
+      ],
+      defaultStructuredData: [
+        {
+          '@context': 'https://schema.org',
+          '@type': 'BroadcastService',
+          name: this.config.siteName,
+          description:
+            "Flux audio communautaire en direct diffusé depuis Discord, libre d'accès et sans filtre.",
+          url: this.config.publicBaseUrl,
+          areaServed: 'FR',
+          inLanguage: this.config.siteLanguage,
+          provider: {
+            '@type': 'Organization',
+            name: this.config.siteName,
+            url: this.config.publicBaseUrl,
+          },
+          broadcastDisplayName: 'Libre Antenne – Direct Discord',
+          broadcastFrequency: 'Streaming en ligne',
+          sameAs: ['https://discord.com/', 'https://twitter.com/libreantenne'],
+        },
+      ],
+    });
 
     void this.blogService.initialize().catch((error) => {
       console.error('Failed to initialize blog service', error);
@@ -301,12 +364,91 @@ export default class AppServer {
     return [];
   }
 
+  private respondWithAppShell(res: Response, metadata: SeoPageMetadata, status = 200): void {
+    try {
+      const html = this.seoRenderer.render(metadata);
+      res.status(status);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    } catch (error) {
+      console.error('Failed to render SEO page', error);
+      res.status(500).sendFile(path.resolve(__dirname, '..', '..', 'public', 'index.html'));
+    }
+  }
+
+  private toAbsoluteUrl(pathname: string): string {
+    try {
+      return new URL(pathname, this.config.publicBaseUrl).toString();
+    } catch (error) {
+      return this.config.publicBaseUrl;
+    }
+  }
+
+  private formatDuration(ms: number): string {
+    if (!Number.isFinite(ms) || ms <= 0) {
+      return '0 min';
+    }
+    const totalMinutes = Math.floor(ms / 60000);
+    const parts: string[] = [];
+    if (totalMinutes >= 60) {
+      const hours = Math.floor(totalMinutes / 60);
+      parts.push(`${hours} h`);
+      const minutes = totalMinutes % 60;
+      if (minutes > 0) {
+        parts.push(`${minutes} min`);
+      }
+    } else if (totalMinutes > 0) {
+      parts.push(`${totalMinutes} min`);
+    }
+    if (parts.length === 0) {
+      const seconds = Math.max(1, Math.floor(ms / 1000));
+      parts.push(`${seconds} s`);
+    }
+    return parts.join(' ');
+  }
+
+  private combineKeywords(...sources: Array<string | string[] | null | undefined>): string[] {
+    const set = new Set<string>();
+    for (const source of sources) {
+      if (!source) {
+        continue;
+      }
+      if (Array.isArray(source)) {
+        for (const entry of source) {
+          if (typeof entry === 'string') {
+            const trimmed = entry.trim();
+            if (trimmed) {
+              set.add(trimmed);
+            }
+          }
+        }
+        continue;
+      }
+      if (typeof source === 'string') {
+        const trimmed = source.trim();
+        if (!trimmed) {
+          continue;
+        }
+        if (trimmed.includes(',')) {
+          trimmed
+            .split(',')
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0)
+            .forEach((entry) => set.add(entry));
+        } else {
+          set.add(trimmed);
+        }
+      }
+    }
+    return Array.from(set.values());
+  }
+
   private buildProfileSummary(
     range: { since: Date; until: Date },
     presenceSegments: UserVoicePresenceSegment[],
     speakingSegments: UserVoiceActivitySegment[],
     messageEvents: UserMessageActivityEntry[],
-  ): Record<string, unknown> {
+  ): ProfileSummary {
     const rangeStart = Number(range.since?.getTime()) || 0;
     const rangeEnd = Number(range.until?.getTime()) || rangeStart;
     const safeRangeEnd = Math.max(rangeEnd, rangeStart);
@@ -981,24 +1123,647 @@ export default class AppServer {
       }
     });
 
-    this.app.get('/classements', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, '..', '..', 'public', 'index.html'));
+    this.app.get('/classements', (req, res) => {
+      const search = this.extractString(req.query?.search);
+      const metadata: SeoPageMetadata = {
+        title: `${this.config.siteName} · Classements hype & statistiques en direct`,
+        description:
+          "Explore les classements hype de Libre Antenne : rétention, présence et interventions marquantes de la communauté.",
+        path: '/classements',
+        canonicalUrl: this.toAbsoluteUrl('/classements'),
+        robots: search ? 'noindex,follow' : undefined,
+        keywords: this.combineKeywords(
+          'classement Libre Antenne',
+          'statistiques Discord',
+          'hype score',
+          'radio libre',
+          this.config.siteName,
+        ),
+        openGraphType: 'website',
+        breadcrumbs: [
+          { name: 'Accueil', path: '/' },
+          { name: 'Classements', path: '/classements' },
+        ],
+        structuredData: [
+          {
+            '@context': 'https://schema.org',
+            '@type': 'Dataset',
+            name: `${this.config.siteName} – Classements hype`,
+            description:
+              'Classements temps réel des participations vocales et textuelles sur Libre Antenne.',
+            license: 'https://creativecommons.org/licenses/by/4.0/',
+            url: this.toAbsoluteUrl('/classements'),
+            creator: {
+              '@type': 'Organization',
+              name: this.config.siteName,
+              url: this.config.publicBaseUrl,
+            },
+            distribution: [
+              {
+                '@type': 'DataDownload',
+                encodingFormat: 'application/json',
+                contentUrl: this.toAbsoluteUrl('/api/voice-activity/hype-leaders'),
+              },
+            ],
+          },
+        ],
+      };
+
+      this.respondWithAppShell(res, metadata);
     });
 
-    this.app.get('/membres', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, '..', '..', 'public', 'index.html'));
+    this.app.get(['/membres', '/members'], (req, res) => {
+      const rawSearch = this.extractString(req.query?.search);
+      const search = rawSearch ? rawSearch.slice(0, 80) : null;
+      const baseDescription =
+        'Parcours les membres actifs de Libre Antenne, leurs présences vocales et leurs derniers messages Discord.';
+      const metadata: SeoPageMetadata = {
+        title: `${this.config.siteName} · Membres actifs & profils Discord`,
+        description: search
+          ? `Résultats pour « ${search} » dans la communauté Libre Antenne : profils, messages et activité audio.`
+          : baseDescription,
+        path: '/membres',
+        canonicalUrl: this.toAbsoluteUrl('/membres'),
+        robots: search ? 'noindex,follow' : undefined,
+        keywords: this.combineKeywords(
+          this.config.siteName,
+          'membres Libre Antenne',
+          'communauté Discord',
+          'profil audio',
+          search ? `membre ${search}` : null,
+        ),
+        openGraphType: 'website',
+        breadcrumbs: [
+          { name: 'Accueil', path: '/' },
+          { name: 'Membres', path: '/membres' },
+        ],
+        structuredData: [
+          {
+            '@context': 'https://schema.org',
+            '@type': 'CollectionPage',
+            name: `${this.config.siteName} – Membres`,
+            description: search
+              ? `Résultats de recherche pour ${search} parmi les membres de Libre Antenne.`
+              : 'Annuaire des membres actifs de la communauté audio Libre Antenne.',
+            url: this.toAbsoluteUrl('/membres'),
+            about: {
+              '@type': 'Organization',
+              name: this.config.siteName,
+              url: this.config.publicBaseUrl,
+            },
+            inLanguage: this.config.siteLanguage,
+          },
+        ],
+      };
+
+      this.respondWithAppShell(res, metadata);
     });
 
-    this.app.get('/blog', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, '..', '..', 'public', 'index.html'));
+    this.app.get(['/boutique', '/shop'], (_req, res) => {
+      const metadata: SeoPageMetadata = {
+        title: `${this.config.siteName} · Boutique officielle & soutien`,
+        description:
+          'Retrouve les produits officiels Libre Antenne pour soutenir la radio libre : mugs, t-shirts et accès premium.',
+        path: '/boutique',
+        canonicalUrl: this.toAbsoluteUrl('/boutique'),
+        keywords: this.combineKeywords(
+          this.config.siteName,
+          'boutique Libre Antenne',
+          'goodies radio libre',
+          'merch Discord',
+          'soutien communautaire',
+        ),
+        openGraphType: 'website',
+        breadcrumbs: [
+          { name: 'Accueil', path: '/' },
+          { name: 'Boutique', path: '/boutique' },
+        ],
+        structuredData: [
+          {
+            '@context': 'https://schema.org',
+            '@type': 'OfferCatalog',
+            name: `${this.config.siteName} – Boutique officielle`,
+            description:
+              'Catalogue des produits physiques et numériques pour soutenir le projet Libre Antenne.',
+            url: this.toAbsoluteUrl('/boutique'),
+            provider: {
+              '@type': 'Organization',
+              name: this.config.siteName,
+              url: this.config.publicBaseUrl,
+            },
+          },
+        ],
+      };
+
+      this.respondWithAppShell(res, metadata);
     });
 
-    this.app.get('/blog/:slug', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, '..', '..', 'public', 'index.html'));
+    this.app.get(['/bannir', '/ban'], (_req, res) => {
+      const metadata: SeoPageMetadata = {
+        title: `${this.config.siteName} · Outil de modération & bannissement`,
+        description:
+          'Accède à l’outil de modération Libre Antenne pour signaler ou bannir un membre perturbateur.',
+        path: '/bannir',
+        canonicalUrl: this.toAbsoluteUrl('/bannir'),
+        keywords: this.combineKeywords(
+          this.config.siteName,
+          'modération Libre Antenne',
+          'ban Discord',
+          'radio libre',
+        ),
+        openGraphType: 'website',
+        robots: 'noindex,follow',
+        breadcrumbs: [
+          { name: 'Accueil', path: '/' },
+          { name: 'Modération', path: '/bannir' },
+        ],
+      };
+
+      this.respondWithAppShell(res, metadata);
+    });
+
+    this.app.get('/about', (_req, res) => {
+      const metadata: SeoPageMetadata = {
+        title: `À propos de ${this.config.siteName} · Manifesto & histoire`,
+        description:
+          `${this.config.siteName} est une radio libre née sur Discord : découvre notre manifeste, notre histoire et comment participer au direct.`,
+        path: '/about',
+        canonicalUrl: this.toAbsoluteUrl('/about'),
+        keywords: this.combineKeywords(
+          this.config.siteName,
+          'radio libre',
+          'communauté Discord',
+          'manifeste Libre Antenne',
+        ),
+        openGraphType: 'website',
+        breadcrumbs: [
+          { name: 'Accueil', path: '/' },
+          { name: 'À propos', path: '/about' },
+        ],
+        structuredData: [
+          {
+            '@context': 'https://schema.org',
+            '@type': 'AboutPage',
+            name: `À propos – ${this.config.siteName}`,
+            description:
+              'Historique, valeurs et fonctionnement de la radio libre communautaire Libre Antenne.',
+            url: this.toAbsoluteUrl('/about'),
+            inLanguage: this.config.siteLanguage,
+            primaryImageOfPage: this.toAbsoluteUrl('/icons/icon-512.png'),
+            isPartOf: {
+              '@type': 'Organization',
+              name: this.config.siteName,
+              url: this.config.publicBaseUrl,
+            },
+          },
+        ],
+      };
+
+      this.respondWithAppShell(res, metadata);
+    });
+
+    this.app.get('/blog', (req, res) => {
+      const tags = this.extractStringArray(req.query?.tag ?? req.query?.tags ?? null);
+      const tagSnippet = tags.length > 0 ? `Focus sur ${tags.join(', ')}.` : '';
+      const metadata: SeoPageMetadata = {
+        title: `${this.config.siteName} · Blog & chroniques de la radio libre`,
+        description:
+          (tags.length > 0
+            ? `Articles Libre Antenne consacrés à ${tags.join(', ')} : coulisses du direct, récits de nuit et interviews.`
+            : 'Retrouve les coulisses, récits et actualités de la radio libre Libre Antenne.'),
+        path: '/blog',
+        canonicalUrl: this.toAbsoluteUrl('/blog'),
+        keywords: this.combineKeywords(
+          this.config.siteName,
+          'blog Libre Antenne',
+          'radio libre',
+          'histoires de nuit',
+          ...tags,
+        ),
+        openGraphType: 'website',
+        breadcrumbs: [
+          { name: 'Accueil', path: '/' },
+          { name: 'Blog', path: '/blog' },
+        ],
+        structuredData: [
+          {
+            '@context': 'https://schema.org',
+            '@type': 'Blog',
+            name: `${this.config.siteName} – Blog`,
+            description:
+              tags.length > 0
+                ? `Articles thématiques (${tags.join(', ')}) publiés par la communauté Libre Antenne.`
+                : 'Blog communautaire de Libre Antenne : actualités, stories et guides du direct.',
+            url: this.toAbsoluteUrl('/blog'),
+            inLanguage: this.config.siteLanguage,
+            about: {
+              '@type': 'Organization',
+              name: this.config.siteName,
+              url: this.config.publicBaseUrl,
+            },
+            keywords: tags.length > 0 ? tags : undefined,
+          },
+        ],
+        additionalMeta: tagSnippet
+          ? [
+              {
+                name: 'news_keywords',
+                content: tags.join(', '),
+              },
+            ]
+          : undefined,
+      };
+
+      this.respondWithAppShell(res, metadata);
+    });
+
+    this.app.get('/blog/:slug', async (req, res) => {
+      const rawSlug = typeof req.params.slug === 'string' ? req.params.slug.trim() : '';
+      if (!rawSlug) {
+        this.respondWithAppShell(
+          res,
+          {
+            title: 'Article introuvable · Libre Antenne',
+            description: "Impossible de trouver cet article du blog Libre Antenne.",
+            path: req.path,
+            canonicalUrl: this.toAbsoluteUrl('/blog'),
+            robots: 'noindex,follow',
+            breadcrumbs: [
+              { name: 'Accueil', path: '/' },
+              { name: 'Blog', path: '/blog' },
+            ],
+          },
+          404,
+        );
+        return;
+      }
+
+      try {
+        const post = await this.blogService.getPost(rawSlug);
+        if (!post) {
+          this.respondWithAppShell(
+            res,
+            {
+              title: 'Article introuvable · Libre Antenne',
+              description: "L'article demandé n'existe plus ou a été déplacé.",
+              path: req.path,
+              canonicalUrl: this.toAbsoluteUrl('/blog'),
+              robots: 'noindex,follow',
+              breadcrumbs: [
+                { name: 'Accueil', path: '/' },
+                { name: 'Blog', path: '/blog' },
+                { name: rawSlug, path: req.path },
+              ],
+            },
+            404,
+          );
+          return;
+        }
+
+        const canonicalPath = `/blog/${post.slug}`;
+        const description = post.seoDescription
+          ?? post.excerpt
+          ?? `Chronique Libre Antenne : ${post.title}.`;
+        const articleImage = post.coverImageUrl
+          ? [
+              {
+                url: post.coverImageUrl,
+                alt: `Illustration de l'article ${post.title}`,
+              },
+            ]
+          : undefined;
+        const metadata: SeoPageMetadata = {
+          title: `${post.title} · Blog Libre Antenne`,
+          description,
+          path: canonicalPath,
+          canonicalUrl: this.toAbsoluteUrl(canonicalPath),
+          keywords: this.combineKeywords(
+            post.title,
+            this.config.siteName,
+            'blog Libre Antenne',
+            ...(post.tags ?? []),
+          ),
+          openGraphType: 'article',
+          images: articleImage,
+          breadcrumbs: [
+            { name: 'Accueil', path: '/' },
+            { name: 'Blog', path: '/blog' },
+            { name: post.title, path: canonicalPath },
+          ],
+          article: {
+            publishedTime: post.date ?? undefined,
+            modifiedTime: post.updatedAt ?? post.date ?? undefined,
+            section: 'Blog',
+            tags: post.tags,
+          },
+          authorName: this.config.siteName,
+          publisherName: this.config.siteName,
+          structuredData: [
+            {
+              '@context': 'https://schema.org',
+              '@type': 'Article',
+              headline: post.title,
+              description,
+              datePublished: post.date ?? undefined,
+              dateModified: post.updatedAt ?? post.date ?? undefined,
+              url: this.toAbsoluteUrl(canonicalPath),
+              inLanguage: this.config.siteLanguage,
+              author: {
+                '@type': 'Organization',
+                name: this.config.siteName,
+                url: this.config.publicBaseUrl,
+              },
+              publisher: {
+                '@type': 'Organization',
+                name: this.config.siteName,
+                url: this.config.publicBaseUrl,
+                logo: {
+                  '@type': 'ImageObject',
+                  url: this.toAbsoluteUrl('/icons/icon-512.png'),
+                },
+              },
+              image: articleImage?.map((image) => this.toAbsoluteUrl(image.url)),
+              keywords: post.tags,
+              mainEntityOfPage: this.toAbsoluteUrl(canonicalPath),
+              articleSection: 'Blog',
+            },
+          ],
+        };
+
+        this.respondWithAppShell(res, metadata);
+      } catch (error) {
+        console.error('Failed to render blog post page', error);
+        this.respondWithAppShell(
+          res,
+          {
+            title: `${this.config.siteName} · Blog`,
+            description: 'Une erreur est survenue lors du chargement de cet article.',
+            path: '/blog',
+            canonicalUrl: this.toAbsoluteUrl('/blog'),
+            robots: 'noindex,follow',
+            breadcrumbs: [
+              { name: 'Accueil', path: '/' },
+              { name: 'Blog', path: '/blog' },
+            ],
+          },
+          500,
+        );
+      }
+    });
+
+    this.app.get(['/profil/:userId', '/profile/:userId'], async (req, res) => {
+      const rawUserId = typeof req.params.userId === 'string' ? req.params.userId.trim() : '';
+      if (!rawUserId) {
+        this.respondWithAppShell(
+          res,
+          {
+            title: 'Profil introuvable · Libre Antenne',
+            description: "Impossible de charger ce profil Libre Antenne.",
+            path: req.path,
+            canonicalUrl: this.toAbsoluteUrl('/membres'),
+            robots: 'noindex,follow',
+            breadcrumbs: [
+              { name: 'Accueil', path: '/' },
+              { name: 'Membres', path: '/membres' },
+            ],
+          },
+          404,
+        );
+        return;
+      }
+
+      try {
+        const identity = await this.discordBridge.fetchUserIdentity(rawUserId);
+        let presenceSegments: UserVoicePresenceSegment[] = [];
+        let speakingSegments: UserVoiceActivitySegment[] = [];
+        let messageEvents: UserMessageActivityEntry[] = [];
+
+        const rangeEnd = new Date();
+        const rangeStart = new Date(rangeEnd.getTime() - 90 * 24 * 60 * 60 * 1000);
+
+        if (this.voiceActivityRepository) {
+          try {
+            [presenceSegments, speakingSegments, messageEvents] = await Promise.all([
+              this.voiceActivityRepository.listUserVoicePresence({ userId: rawUserId, since: rangeStart, until: rangeEnd }),
+              this.voiceActivityRepository.listUserVoiceActivity({ userId: rawUserId, since: rangeStart, until: rangeEnd }),
+              this.voiceActivityRepository.listUserMessageActivity({ userId: rawUserId, since: rangeStart, until: rangeEnd }),
+            ]);
+          } catch (activityError) {
+            console.warn('Failed to load profile activity for SEO', rawUserId, activityError);
+          }
+        }
+
+        const hasActivity =
+          presenceSegments.length > 0 || speakingSegments.length > 0 || messageEvents.length > 0;
+
+        if (!identity && !hasActivity) {
+          this.respondWithAppShell(
+            res,
+            {
+              title: 'Profil introuvable · Libre Antenne',
+              description: "Impossible de trouver ce membre dans la communauté Libre Antenne.",
+              path: req.path,
+              canonicalUrl: this.toAbsoluteUrl('/membres'),
+              robots: 'noindex,follow',
+              breadcrumbs: [
+                { name: 'Accueil', path: '/' },
+                { name: 'Membres', path: '/membres' },
+              ],
+            },
+            404,
+          );
+          return;
+        }
+
+        const profileName = (() => {
+          const candidates = [
+            identity?.guild?.displayName,
+            identity?.globalName,
+            identity?.username,
+          ];
+          for (const candidate of candidates) {
+            if (typeof candidate === 'string') {
+              const trimmed = candidate.trim();
+              if (trimmed.length > 0) {
+                return trimmed;
+              }
+            }
+          }
+          return `Membre ${rawUserId}`;
+        })();
+
+        const summary = this.buildProfileSummary(
+          { since: rangeStart, until: rangeEnd },
+          presenceSegments,
+          speakingSegments,
+          messageEvents,
+        );
+
+        const highlightParts: string[] = [];
+        if (summary.totalPresenceMs > 0) {
+          highlightParts.push(`${this.formatDuration(summary.totalPresenceMs)} de présence vocale`);
+        }
+        if (summary.totalSpeakingMs > 0) {
+          highlightParts.push(`${this.formatDuration(summary.totalSpeakingMs)} au micro`);
+        }
+        if (summary.messageCount > 0) {
+          highlightParts.push(`${summary.messageCount} messages`);
+        }
+        if (summary.activeDayCount > 0) {
+          highlightParts.push(`${summary.activeDayCount} jours actifs`);
+        }
+        const highlights = highlightParts.length > 0
+          ? ` Activité des 90 derniers jours : ${highlightParts.join(' · ')}.`
+          : '';
+
+        const canonicalPath = `/profil/${encodeURIComponent(rawUserId)}`;
+        const metadata: SeoPageMetadata = {
+          title: `${profileName} · Profil Libre Antenne`,
+          description: `${profileName} participe à la radio libre Libre Antenne.${highlights}`.trim(),
+          path: canonicalPath,
+          canonicalUrl: this.toAbsoluteUrl(canonicalPath),
+          keywords: this.combineKeywords(
+            profileName,
+            identity?.username ?? null,
+            identity?.globalName ?? null,
+            'profil Libre Antenne',
+            'radio libre',
+            'Discord audio',
+          ),
+          openGraphType: 'profile',
+          images: identity?.avatarUrl
+            ? [
+                {
+                  url: identity.avatarUrl,
+                  alt: `Avatar de ${profileName}`,
+                  width: 256,
+                  height: 256,
+                },
+              ]
+            : undefined,
+          breadcrumbs: [
+            { name: 'Accueil', path: '/' },
+            { name: 'Membres', path: '/membres' },
+            { name: profileName, path: canonicalPath },
+          ],
+          profile: {
+            username: identity?.username ?? identity?.globalName ?? null,
+          },
+          structuredData: [
+            {
+              '@context': 'https://schema.org',
+              '@type': 'ProfilePage',
+              name: `${profileName} – Profil Libre Antenne`,
+              description: `${profileName} sur Libre Antenne.${highlights}`.trim(),
+              url: this.toAbsoluteUrl(canonicalPath),
+              inLanguage: this.config.siteLanguage,
+              about: {
+                '@type': 'Person',
+                name: profileName,
+                identifier: rawUserId,
+                alternateName: identity?.username ?? identity?.globalName ?? undefined,
+                image: identity?.avatarUrl ?? undefined,
+                memberOf: {
+                  '@type': 'Organization',
+                  name: this.config.siteName,
+                  url: this.config.publicBaseUrl,
+                },
+                startDate: identity?.guild?.joinedAt ?? undefined,
+                interactionStatistic: [
+                  summary.totalPresenceMs > 0
+                    ? {
+                        '@type': 'InteractionCounter',
+                        interactionType: { '@type': 'CommunicateAction', name: 'Présence vocale' },
+                        userInteractionCount: Math.round(summary.totalPresenceMs / 60000),
+                      }
+                    : undefined,
+                  summary.totalSpeakingMs > 0
+                    ? {
+                        '@type': 'InteractionCounter',
+                        interactionType: { '@type': 'SpeakAction', name: 'Temps au micro' },
+                        userInteractionCount: Math.round(summary.totalSpeakingMs / 60000),
+                      }
+                    : undefined,
+                  summary.messageCount > 0
+                    ? {
+                        '@type': 'InteractionCounter',
+                        interactionType: { '@type': 'CommunicateAction', name: 'Messages Discord' },
+                        userInteractionCount: summary.messageCount,
+                      }
+                    : undefined,
+                ].filter(Boolean),
+              },
+            },
+          ],
+        };
+
+        this.respondWithAppShell(res, metadata);
+      } catch (error) {
+        console.error('Failed to build profile page SEO', error);
+        this.respondWithAppShell(
+          res,
+          {
+            title: `${this.config.siteName} · Membres`,
+            description: 'Impossible de charger ce profil pour le moment.',
+            path: '/membres',
+            canonicalUrl: this.toAbsoluteUrl('/membres'),
+            robots: 'noindex,follow',
+            breadcrumbs: [
+              { name: 'Accueil', path: '/' },
+              { name: 'Membres', path: '/membres' },
+            ],
+          },
+          500,
+        );
+      }
     });
 
     this.app.get('/', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, '..', '..', 'public', 'index.html'));
+      const metadata: SeoPageMetadata = {
+        title: `${this.config.siteName} · Radio libre et streaming communautaire`,
+        description:
+          'Libre Antenne diffuse en continu les voix du salon Discord : un espace sans filtre pour les esprits libres, les joueurs et les noctambules.',
+        path: '/',
+        canonicalUrl: this.toAbsoluteUrl('/'),
+        keywords: this.combineKeywords(
+          'radio libre',
+          'libre antenne',
+          'talk show en direct',
+          'discord audio',
+          'streaming communautaire',
+          'communauté nocturne',
+        ),
+        openGraphType: 'website',
+        structuredData: [
+          {
+            '@context': 'https://schema.org',
+            '@type': 'RadioChannel',
+            name: this.config.siteName,
+            url: this.config.publicBaseUrl,
+            inLanguage: this.config.siteLanguage,
+            broadcastServiceTier: 'Libre Antenne – Direct Discord',
+          },
+        ],
+      };
+
+      this.respondWithAppShell(res, metadata);
+    });
+
+    this.app.get('*', (req, res) => {
+      this.respondWithAppShell(
+        res,
+        {
+          title: `Page introuvable · ${this.config.siteName}`,
+          description: `La page ${req.path} n'existe pas ou n'est plus disponible sur ${this.config.siteName}.`,
+          path: req.path,
+          canonicalUrl: this.toAbsoluteUrl(req.path),
+          robots: 'noindex,follow',
+          breadcrumbs: [
+            { name: 'Accueil', path: '/' },
+          ],
+        },
+        404,
+      );
     });
   }
 
