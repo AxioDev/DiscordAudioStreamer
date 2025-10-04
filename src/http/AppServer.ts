@@ -130,7 +130,10 @@ export default class AppServer {
     this.shopService = shopService;
     this.voiceActivityRepository = voiceActivityRepository;
     this.hypeLeaderboardService = voiceActivityRepository
-      ? new HypeLeaderboardService({ repository: voiceActivityRepository })
+      ? new HypeLeaderboardService({
+          repository: voiceActivityRepository,
+          identityProvider: (userId) => this.discordBridge.fetchUserIdentity(userId),
+        })
       : null;
     this.listenerStatsService = listenerStatsService;
     this.unsubscribeListenerStats = this.listenerStatsService.onUpdate((update) =>
@@ -149,6 +152,12 @@ export default class AppServer {
         postsDirectory: path.resolve(__dirname, '..', '..', 'content', 'blog'),
         repository: this.blogRepository,
       });
+
+    if (this.hypeLeaderboardService) {
+      void this.hypeLeaderboardService.start().catch((error) => {
+        console.error('Failed to initialize hype leaderboard precomputation', error);
+      });
+    }
 
     const defaultSocialImageUrl = new URL('/icons/icon-512.png', this.config.publicBaseUrl).toString();
     this.seoRenderer = new SeoRenderer({
@@ -2224,6 +2233,13 @@ export default class AppServer {
     if (this.httpServer) {
       this.httpServer.close();
       this.httpServer = null;
+    }
+    if (this.hypeLeaderboardService) {
+      try {
+        this.hypeLeaderboardService.stop();
+      } catch (error) {
+        console.warn('Failed to stop hype leaderboard service', error);
+      }
     }
     if (this.wsServer) {
       try {

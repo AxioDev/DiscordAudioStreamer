@@ -1,3 +1,4 @@
+import type { DiscordUserIdentity } from '../discord/DiscordAudioBridge';
 import type VoiceActivityRepository from './VoiceActivityRepository';
 import type {
   HypeLeaderEntry,
@@ -21,6 +22,9 @@ export interface LeaderboardPositionTrend {
 export interface HypeLeaderWithTrend extends HypeLeaderEntry {
   rank: number;
   positionTrend: LeaderboardPositionTrend;
+  avatar?: string | null;
+  avatarUrl?: string | null;
+  profile?: { avatar: string | null } | null;
 }
 
 export interface HypeLeaderboardResult {
@@ -39,10 +43,59 @@ export interface NormalizedHypeLeaderboardQueryOptions {
   periodDays: number | null;
 }
 
+interface CachedIdentity {
+  avatarUrl: string | null;
+  displayName: string | null;
+  username: string | null;
+  fetchedAt: number;
+}
+
+type IdentityProvider = (
+  userId: string,
+) => Promise<Pick<DiscordUserIdentity, 'avatarUrl' | 'displayName' | 'username'> | null>;
+
+type EnrichedLeader = HypeLeaderEntry & {
+  avatar?: string | null;
+  avatarUrl?: string | null;
+  profile?: { avatar: string | null } | null;
+};
+
+interface BaseLeaderboardCache {
+  periodKey: string;
+  periodDays: number | null;
+  bucketStart: Date;
+  computedAt: Date;
+  leaders: EnrichedLeader[];
+}
+
+interface CachedLeaderboardResult {
+  cacheKey: string;
+  snapshotOptions: NormalizedHypeLeaderboardQueryOptions;
+  bucketStart: Date;
+  computedAt: Date;
+  result: HypeLeaderboardResult;
+}
+
 interface HypeLeaderboardServiceOptions {
   repository: VoiceActivityRepository;
   snapshotIntervalMs?: number;
+  precomputePeriods?: ReadonlyArray<number | null>;
+  precomputeSorts?: ReadonlyArray<HypeLeaderboardSortBy>;
+  identityProvider?: IdentityProvider;
 }
+
+const DEFAULT_PRECOMPUTE_PERIODS: readonly (number | null)[] = [null, 7, 30, 90, 365];
+
+const DEFAULT_SORT_COLUMNS: readonly HypeLeaderboardSortBy[] = [
+  'schScoreNorm',
+  'schRaw',
+  'arrivalEffect',
+  'departureEffect',
+  'retentionMinutes',
+  'activityScore',
+  'sessions',
+  'displayName',
+];
 
 export default class HypeLeaderboardService {
   private readonly repository: VoiceActivityRepository;
@@ -57,13 +110,62 @@ export default class HypeLeaderboardService {
     periodDays: 30,
   };
 
-  constructor({ repository, snapshotIntervalMs = 60 * 60 * 1000 }: HypeLeaderboardServiceOptions) {
+  private readonly precomputePeriods: readonly (number | null)[];
+
+  private readonly sortableColumns: readonly HypeLeaderboardSortBy[];
+
+  private readonly identityProvider?: IdentityProvider;
+
+  private readonly identityCache = new Map<string, CachedIdentity>();
+
+  private readonly identityCacheTtlMs = 6 * 60 * 60 * 1000;
+
+  private readonly baseLeaderboards = new Map<string, BaseLeaderboardCache>();
+
+  private readonly precomputedResults = new Map<string, CachedLeaderboardResult>();
+
+  private refreshTimer: NodeJS.Timeout | null = null;
+
+  private refreshPromise: Promise<void> | null = null;
+
+  private readonly maxLeaderboardSize = 200;
+
+  constructor({
+    repository,
+    snapshotIntervalMs = 60 * 60 * 1000,
+    precomputePeriods = DEFAULT_PRECOMPUTE_PERIODS,
+    precomputeSorts = DEFAULT_SORT_COLUMNS,
+    identityProvider,
+  }: HypeLeaderboardServiceOptions) {
     this.repository = repository;
     this.snapshotIntervalMs = Math.max(60_000, snapshotIntervalMs);
+    this.precomputePeriods = precomputePeriods.length > 0 ? [...precomputePeriods] : DEFAULT_PRECOMPUTE_PERIODS;
+    this.sortableColumns = precomputeSorts.length > 0 ? [...precomputeSorts] : DEFAULT_SORT_COLUMNS;
+    this.identityProvider = identityProvider;
   }
 
   public getDefaultOptions(): NormalizedHypeLeaderboardQueryOptions {
     return { ...this.defaultOptions };
+  }
+
+  public async start(now: Date = new Date()): Promise<void> {
+    await this.refreshPrecomputedLeaderboards(now);
+    this.refreshTimer = setInterval(() => {
+      void this.refreshPrecomputedLeaderboards(new Date()).catch((error) => {
+        console.error('Scheduled hype leaderboard refresh failed', error);
+      });
+    }, this.snapshotIntervalMs);
+    if (typeof this.refreshTimer.unref === 'function') {
+      this.refreshTimer.unref();
+    }
+  }
+
+  public stop(): void {
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+    this.refreshPromise = null;
   }
 
   public normalizeOptions(
@@ -74,7 +176,7 @@ export default class HypeLeaderboardService {
         return this.defaultOptions.limit;
       }
       const normalized = Math.max(1, Math.floor(Number(options.limit)));
-      return Math.min(normalized, 200);
+      return Math.min(normalized, this.maxLeaderboardSize);
     })();
 
     const search = (() => {
@@ -88,18 +190,8 @@ export default class HypeLeaderboardService {
 
     const sortBy: HypeLeaderboardSortBy = (() => {
       const candidate = options?.sortBy;
-      const allowed: HypeLeaderboardQueryOptions['sortBy'][] = [
-        'schScoreNorm',
-        'schRaw',
-        'arrivalEffect',
-        'departureEffect',
-        'retentionMinutes',
-        'activityScore',
-        'sessions',
-        'displayName',
-      ];
-      if (candidate && allowed.includes(candidate)) {
-        return candidate as HypeLeaderboardSortBy;
+      if (candidate && this.sortableColumns.includes(candidate)) {
+        return candidate;
       }
       return this.defaultOptions.sortBy;
     })();
@@ -138,8 +230,214 @@ export default class HypeLeaderboardService {
     options: NormalizedHypeLeaderboardQueryOptions,
     now: Date = new Date(),
   ): Promise<HypeLeaderboardResult> {
-    const leaders = await this.repository.listHypeLeaders(options);
-    const ranked = leaders.map<HypeLeaderWithTrend>((leader, index) => ({
+    const normalized = this.normalizeOptions(options);
+    const base = await this.ensureBaseLeaderboard(normalized.periodDays ?? null, now);
+    if (!base) {
+      const bucketStart = this.getBucketStart(now);
+      return { leaders: [], snapshot: { bucketStart, comparedTo: null } };
+    }
+
+    const snapshotOptions: NormalizedHypeLeaderboardQueryOptions = {
+      ...normalized,
+      limit: normalized.search ? normalized.limit : this.maxLeaderboardSize,
+    };
+
+    const cacheKey = this.buildCacheKey(snapshotOptions);
+    const cached = this.precomputedResults.get(cacheKey);
+    if (cached && cached.bucketStart.getTime() === base.bucketStart.getTime()) {
+      return {
+        leaders: this.cloneLeaders(cached.result.leaders, normalized.limit),
+        snapshot: cached.result.snapshot,
+      };
+    }
+
+    const { ranked, comparedAt } = await this.buildRankedLeaders(base, snapshotOptions);
+    const cachedResult: HypeLeaderboardResult = {
+      leaders: ranked,
+      snapshot: {
+        bucketStart: base.bucketStart,
+        comparedTo: comparedAt,
+      },
+    };
+
+    this.precomputedResults.set(cacheKey, {
+      cacheKey,
+      snapshotOptions,
+      bucketStart: base.bucketStart,
+      computedAt: new Date(),
+      result: cachedResult,
+    });
+
+    return {
+      leaders: this.cloneLeaders(ranked, normalized.limit),
+      snapshot: cachedResult.snapshot,
+    };
+  }
+
+  private async refreshPrecomputedLeaderboards(now: Date): Promise<void> {
+    if (this.refreshPromise) {
+      await this.refreshPromise;
+      return;
+    }
+
+    const promise = (async () => {
+      for (const period of this.precomputePeriods) {
+        const base = await this.ensureBaseLeaderboard(period ?? null, now, true);
+        if (!base) {
+          continue;
+        }
+        for (const sortBy of this.sortableColumns) {
+          for (const sortOrder of ['desc', 'asc'] as const) {
+            const options = this.normalizeOptions({
+              limit: this.maxLeaderboardSize,
+              search: null,
+              sortBy,
+              sortOrder,
+              periodDays: period === null ? null : period,
+            });
+            options.limit = this.maxLeaderboardSize;
+            const cacheKey = this.buildCacheKey(options);
+            const { ranked, comparedAt } = await this.buildRankedLeaders(base, options);
+            const result: HypeLeaderboardResult = {
+              leaders: ranked,
+              snapshot: {
+                bucketStart: base.bucketStart,
+                comparedTo: comparedAt,
+              },
+            };
+            this.precomputedResults.set(cacheKey, {
+              cacheKey,
+              snapshotOptions: options,
+              bucketStart: base.bucketStart,
+              computedAt: new Date(),
+              result,
+            });
+          }
+        }
+      }
+    })();
+
+    this.refreshPromise = promise;
+    try {
+      await promise;
+    } finally {
+      this.refreshPromise = null;
+    }
+  }
+
+  private async ensureBaseLeaderboard(
+    periodDays: number | null,
+    now: Date,
+    forceRefresh = false,
+  ): Promise<BaseLeaderboardCache | null> {
+    const periodKey = this.getPeriodKey(periodDays);
+    const bucketStart = this.getBucketStart(now);
+    const existing = this.baseLeaderboards.get(periodKey);
+
+    if (!forceRefresh && existing && existing.bucketStart.getTime() === bucketStart.getTime()) {
+      return existing;
+    }
+
+    return this.computeBaseLeaderboard(periodDays, bucketStart);
+  }
+
+  private async computeBaseLeaderboard(
+    periodDays: number | null,
+    bucketStart: Date,
+  ): Promise<BaseLeaderboardCache | null> {
+    try {
+      const leaders = await this.repository.listHypeLeaders({
+        limit: null,
+        search: null,
+        sortBy: 'schScoreNorm',
+        sortOrder: 'desc',
+        periodDays,
+      });
+
+      const enriched = await this.enrichLeaders(leaders);
+      const base: BaseLeaderboardCache = {
+        periodKey: this.getPeriodKey(periodDays),
+        periodDays,
+        bucketStart,
+        computedAt: new Date(),
+        leaders: enriched,
+      };
+      this.baseLeaderboards.set(base.periodKey, base);
+      return base;
+    } catch (error) {
+      console.error('Failed to compute base hype leaderboard', error);
+      return null;
+    }
+  }
+
+  private async enrichLeaders(leaders: HypeLeaderEntry[]): Promise<EnrichedLeader[]> {
+    if (leaders.length === 0) {
+      return [];
+    }
+
+    const identityPromises = leaders.map((leader) => this.fetchIdentity(leader.userId));
+    const identities = await Promise.all(identityPromises);
+
+    return leaders.map<EnrichedLeader>((leader, index) => {
+      const identity = identities[index];
+      const avatarUrl = identity?.avatarUrl ?? null;
+      const displayName = this.normalizeString(leader.displayName)
+        ?? this.normalizeString(identity?.displayName)
+        ?? 'Anonyme';
+      const username = this.normalizeString(leader.username) ?? this.normalizeString(identity?.username);
+
+      return {
+        ...leader,
+        displayName,
+        username,
+        avatar: avatarUrl,
+        avatarUrl,
+        profile: avatarUrl ? { avatar: avatarUrl } : null,
+      };
+    });
+  }
+
+  private async fetchIdentity(userId: string): Promise<CachedIdentity | null> {
+    if (!this.identityProvider) {
+      return null;
+    }
+
+    const cached = this.identityCache.get(userId);
+    const now = Date.now();
+    if (cached && now - cached.fetchedAt < this.identityCacheTtlMs) {
+      return cached;
+    }
+
+    try {
+      const identity = await this.identityProvider(userId);
+      const normalized: CachedIdentity = {
+        avatarUrl: this.normalizeString(identity?.avatarUrl) ?? null,
+        displayName: this.normalizeString(identity?.displayName),
+        username: this.normalizeString(identity?.username),
+        fetchedAt: now,
+      };
+      this.identityCache.set(userId, normalized);
+      return normalized;
+    } catch (error) {
+      console.warn('Failed to resolve Discord identity for leaderboard user', userId, error);
+      if (cached) {
+        cached.fetchedAt = now;
+        return cached;
+      }
+      return null;
+    }
+  }
+
+  private async buildRankedLeaders(
+    base: BaseLeaderboardCache,
+    options: NormalizedHypeLeaderboardQueryOptions,
+  ): Promise<{ ranked: HypeLeaderWithTrend[]; comparedAt: Date | null }> {
+    const filtered = this.applySearch(base.leaders, options.search);
+    const sorted = this.sortLeaders(filtered, options);
+    const limit = Math.min(options.limit, sorted.length);
+    const limited = sorted.slice(0, limit);
+
+    const ranked = limited.map<HypeLeaderWithTrend>((leader, index) => ({
       ...leader,
       rank: index + 1,
       positionTrend: {
@@ -151,10 +449,7 @@ export default class HypeLeaderboardService {
       },
     }));
 
-    const bucketStart = this.getBucketStart(now);
-    const previousBucket = new Date(bucketStart.getTime() - this.snapshotIntervalMs);
     const optionsHash = this.buildCacheKey(options);
-
     const snapshotEntries: HypeLeaderboardSnapshotEntry[] = ranked.map((entry) => ({
       userId: entry.userId,
       rank: entry.rank,
@@ -164,12 +459,13 @@ export default class HypeLeaderboardService {
     }));
 
     await this.repository.saveHypeLeaderboardSnapshot({
-      bucketStart,
+      bucketStart: base.bucketStart,
       optionsHash,
       options: this.toSnapshotOptions(options),
       leaders: snapshotEntries,
     });
 
+    const previousBucket = new Date(base.bucketStart.getTime() - this.snapshotIntervalMs);
     const comparisonSnapshot =
       (await this.repository.loadHypeLeaderboardSnapshot({
         bucketStart: previousBucket,
@@ -177,7 +473,7 @@ export default class HypeLeaderboardService {
       })) ||
       (await this.repository.loadLatestHypeLeaderboardSnapshot({
         optionsHash,
-        before: bucketStart,
+        before: base.bucketStart,
       }));
 
     const previousRankMap = new Map<string, number>();
@@ -189,9 +485,7 @@ export default class HypeLeaderboardService {
     }
 
     for (const entry of ranked) {
-      const previousRank = previousRankMap.has(entry.userId)
-        ? Number(previousRankMap.get(entry.userId))
-        : null;
+      const previousRank = previousRankMap.has(entry.userId) ? Number(previousRankMap.get(entry.userId)) : null;
       const delta = previousRank === null ? null : previousRank - entry.rank;
       let movement: LeaderboardPositionMovement = 'new';
       if (previousRank !== null) {
@@ -213,13 +507,121 @@ export default class HypeLeaderboardService {
       };
     }
 
-    return {
-      leaders: ranked,
-      snapshot: {
-        bucketStart,
-        comparedTo: comparedAt,
-      },
-    };
+    return { ranked, comparedAt };
+  }
+
+  private applySearch(leaders: EnrichedLeader[], search: string | null): EnrichedLeader[] {
+    const normalized = this.normalizeString(search);
+    if (!normalized) {
+      return leaders;
+    }
+
+    const normalizedNeedle = this.normalizeSearchValue(normalized);
+    if (!normalizedNeedle) {
+      return leaders;
+    }
+    const needle = normalizedNeedle;
+    return leaders.filter((leader) => {
+      const display = this.normalizeSearchValue(leader.displayName);
+      const username = this.normalizeSearchValue(leader.username);
+      const displayMatch = typeof display === 'string' && display.includes(needle);
+      const usernameMatch = typeof username === 'string' && username.includes(needle);
+      return displayMatch || usernameMatch;
+    });
+  }
+
+  private sortLeaders(
+    leaders: EnrichedLeader[],
+    options: NormalizedHypeLeaderboardQueryOptions,
+  ): EnrichedLeader[] {
+    const sorted = [...leaders];
+    const direction = options.sortOrder === 'asc' ? 1 : -1;
+
+    sorted.sort((a, b) => {
+      const primary = this.compareBySort(a, b, options.sortBy);
+      if (primary !== 0) {
+        return direction * primary;
+      }
+
+      const fallbackScore = this.compareNumbers(b.schScoreNorm, a.schScoreNorm);
+      if (fallbackScore !== 0) {
+        return fallbackScore;
+      }
+
+      return this.compareStrings(a.displayName, b.displayName);
+    });
+
+    return sorted;
+  }
+
+  private compareBySort(a: EnrichedLeader, b: EnrichedLeader, sortBy: HypeLeaderboardSortBy): number {
+    switch (sortBy) {
+      case 'displayName':
+        return this.compareStrings(a.displayName, b.displayName);
+      case 'sessions':
+        return this.compareNumbers(a.sessions, b.sessions);
+      case 'arrivalEffect':
+        return this.compareNumbers(a.arrivalEffect, b.arrivalEffect);
+      case 'departureEffect':
+        return this.compareNumbers(a.departureEffect, b.departureEffect);
+      case 'retentionMinutes':
+        return this.compareNumbers(a.retentionMinutes, b.retentionMinutes);
+      case 'activityScore':
+        return this.compareNumbers(a.activityScore, b.activityScore);
+      case 'schRaw':
+        return this.compareNumbers(a.schRaw, b.schRaw);
+      case 'schScoreNorm':
+      default:
+        return this.compareNumbers(a.schScoreNorm, b.schScoreNorm);
+    }
+  }
+
+  private compareNumbers(a: number | null | undefined, b: number | null | undefined): number {
+    const left = Number.isFinite(a) ? Number(a) : 0;
+    const right = Number.isFinite(b) ? Number(b) : 0;
+    if (left === right) {
+      return 0;
+    }
+    return left < right ? -1 : 1;
+  }
+
+  private compareStrings(a: string | null | undefined, b: string | null | undefined): number {
+    const left = this.normalizeString(a) ?? '';
+    const right = this.normalizeString(b) ?? '';
+    if (left === right) {
+      return 0;
+    }
+    return left.localeCompare(right, 'fr', { sensitivity: 'base' });
+  }
+
+  private normalizeSearchValue(value: string | null | undefined): string | null {
+    const normalized = this.normalizeString(value);
+    if (!normalized) {
+      return null;
+    }
+    return normalized
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+  }
+
+  private normalizeString(value: string | null | undefined): string | null {
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private cloneLeaders(leaders: HypeLeaderWithTrend[], limit: number): HypeLeaderWithTrend[] {
+    return leaders.slice(0, limit).map((leader) => ({
+      ...leader,
+      positionTrend: { ...leader.positionTrend },
+    }));
+  }
+
+  private getPeriodKey(periodDays: number | null): string {
+    return periodDays === null ? 'all' : String(periodDays);
   }
 
   private getBucketStart(date: Date): Date {

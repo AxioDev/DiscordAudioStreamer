@@ -1351,6 +1351,9 @@ export default class VoiceActivityRepository {
     }
 
     const boundedLimit = (() => {
+      if (limit === null || limit === undefined) {
+        return null;
+      }
       if (!Number.isFinite(limit)) {
         return 100;
       }
@@ -1422,8 +1425,13 @@ export default class VoiceActivityRepository {
       parameterIndex += 1;
     }
 
-    const limitParameter = `$${parameterIndex}`;
-    params.push(boundedLimit);
+    let limitClause = '';
+    if (boundedLimit !== null) {
+      const limitParameter = `$${parameterIndex}`;
+      params.push(boundedLimit);
+      parameterIndex += 1;
+      limitClause = `LIMIT ${limitParameter}`;
+    }
 
     const query = `WITH
     sessions_count AS (
@@ -1561,7 +1569,7 @@ WHERE sc.session_count >= 5
   AND u.user_id NOT IN ('1419381362116268112')
 ${searchClause}
 ORDER BY ${sortColumn} ${sortDirection}, sch_score_norm DESC, display_name ASC
-LIMIT ${limitParameter}`;
+${limitClause}`;
 
     try {
       const result = await pool.query(query, params);
