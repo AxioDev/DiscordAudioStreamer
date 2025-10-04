@@ -14,6 +14,7 @@ import type VoiceActivityRepository from '../services/VoiceActivityRepository';
 import ListenerStatsService, { type ListenerStatsUpdate } from '../services/ListenerStatsService';
 import BlogService, { type BlogListOptions } from '../services/BlogService';
 import BlogRepository from '../services/BlogRepository';
+import BlogProposalService, { BlogProposalError } from '../services/BlogProposalService';
 import type {
   HypeLeaderboardQueryOptions,
   HypeLeaderboardSortBy,
@@ -41,6 +42,7 @@ export interface AppServerOptions {
   listenerStatsService: ListenerStatsService;
   blogRepository?: BlogRepository | null;
   blogService?: BlogService | null;
+  blogProposalService?: BlogProposalService | null;
 }
 
 type FlushCapableResponse = Response & {
@@ -108,6 +110,8 @@ export default class AppServer {
 
   private readonly blogRepository: BlogRepository | null;
 
+  private readonly blogProposalService: BlogProposalService;
+
   private readonly seoRenderer: SeoRenderer;
 
   constructor({
@@ -122,6 +126,7 @@ export default class AppServer {
     listenerStatsService,
     blogRepository = null,
     blogService = null,
+    blogProposalService = null,
   }: AppServerOptions) {
     this.config = config;
     this.transcoder = transcoder;
@@ -154,6 +159,18 @@ export default class AppServer {
         postsDirectory: path.resolve(__dirname, '..', '..', 'content', 'blog'),
         repository: this.blogRepository,
       });
+
+    this.blogProposalService =
+      blogProposalService ??
+      new BlogProposalService({
+        proposalsDirectory: path.resolve(__dirname, '..', '..', 'content', 'blog', 'proposals'),
+        repository: this.blogRepository,
+        blogService: this.blogService,
+      });
+
+    void this.blogProposalService.initialize().catch((error) => {
+      console.error('Failed to initialize blog proposal service', error);
+    });
 
     if (this.hypeLeaderboardService) {
       void this.hypeLeaderboardService.start().catch((error) => {
@@ -754,6 +771,63 @@ export default class AppServer {
         res.status(500).json({
           error: 'BLOG_POST_FAILED',
           message: "Impossible de récupérer cet article.",
+        });
+      }
+    });
+
+    this.app.post('/api/blog/proposals', async (req, res) => {
+      const payload = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+
+      const tagsRaw = payload.tags;
+      let tags: string[] = [];
+      if (Array.isArray(tagsRaw)) {
+        tags = tagsRaw.filter((tag): tag is string => typeof tag === 'string');
+      } else if (typeof tagsRaw === 'string') {
+        tags = tagsRaw
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0);
+      }
+
+      try {
+        const result = await this.blogProposalService.submitProposal({
+          title: typeof payload.title === 'string' ? payload.title : '',
+          slug: typeof payload.slug === 'string' ? payload.slug : null,
+          excerpt: typeof payload.excerpt === 'string' ? payload.excerpt : null,
+          contentMarkdown: typeof payload.contentMarkdown === 'string' ? payload.contentMarkdown : '',
+          coverImageUrl: typeof payload.coverImageUrl === 'string' ? payload.coverImageUrl : null,
+          tags,
+          seoDescription: typeof payload.seoDescription === 'string' ? payload.seoDescription : null,
+          authorName: typeof payload.authorName === 'string' ? payload.authorName : null,
+          authorContact: typeof payload.authorContact === 'string' ? payload.authorContact : null,
+        });
+
+        res.status(201).json({
+          message: 'Merci ! Ta proposition a bien été envoyée à la rédaction.',
+          proposal: result,
+        });
+      } catch (error) {
+        if (error instanceof BlogProposalError) {
+          const status =
+            error.code === 'VALIDATION_ERROR'
+              ? 400
+              : error.code === 'CONFLICT'
+              ? 409
+              : error.code === 'UNAVAILABLE'
+              ? 503
+              : 500;
+          res.status(status).json({
+            error: error.code,
+            message: error.message,
+            details: error.details ?? null,
+          });
+          return;
+        }
+
+        console.error('Failed to submit blog proposal', error);
+        res.status(500).json({
+          error: 'BLOG_PROPOSAL_FAILED',
+          message: 'Impossible de transmettre la proposition pour le moment.',
         });
       }
     });

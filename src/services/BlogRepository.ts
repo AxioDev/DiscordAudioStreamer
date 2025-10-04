@@ -32,6 +32,27 @@ export interface BlogPostRow {
   updated_at: Date | null;
 }
 
+export interface BlogPostProposalInput {
+  title: string;
+  slug: string;
+  excerpt: string | null;
+  contentMarkdown: string;
+  coverImageUrl: string | null;
+  tags: string[];
+  seoDescription: string | null;
+  authorName: string | null;
+  authorContact: string | null;
+  reference: string;
+  submittedAt: Date;
+}
+
+export interface BlogPostProposalRow {
+  id: number;
+  slug: string;
+  reference: string;
+  submitted_at: Date;
+}
+
 interface SeedPostInput {
   slug: string;
   title: string;
@@ -124,6 +145,31 @@ export default class BlogRepository {
     );
     await pool.query(
       'CREATE INDEX IF NOT EXISTS blog_posts_tags_idx ON blog_posts USING GIN (tags)',
+    );
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS blog_post_proposals (
+        id SERIAL PRIMARY KEY,
+        slug TEXT NOT NULL,
+        title TEXT NOT NULL,
+        excerpt TEXT,
+        content_markdown TEXT NOT NULL,
+        cover_image_url TEXT,
+        tags TEXT[] DEFAULT ARRAY[]::TEXT[],
+        seo_description TEXT,
+        author_name TEXT,
+        author_contact TEXT,
+        reference TEXT NOT NULL UNIQUE,
+        submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await pool.query(
+      'CREATE UNIQUE INDEX IF NOT EXISTS blog_post_proposals_slug_idx ON blog_post_proposals (slug)',
+    );
+
+    await pool.query(
+      'CREATE INDEX IF NOT EXISTS blog_post_proposals_submitted_at_idx ON blog_post_proposals (submitted_at DESC)',
     );
   }
 
@@ -330,6 +376,68 @@ export default class BlogRepository {
     );
 
     return rows.length > 0 ? rows[0] : null;
+  }
+
+  async getProposalBySlug(slug: string): Promise<BlogPostProposalRow | null> {
+    const pool = await this.getPool();
+    if (!pool) {
+      return null;
+    }
+
+    const { rows } = await pool.query<BlogPostProposalRow>(
+      `
+        SELECT
+          id,
+          slug,
+          reference,
+          submitted_at
+        FROM blog_post_proposals
+        WHERE slug = $1
+        LIMIT 1
+      `,
+      [slug],
+    );
+
+    return rows.length > 0 ? rows[0] : null;
+  }
+
+  async createProposal(input: BlogPostProposalInput): Promise<void> {
+    const pool = await this.getPool();
+    if (!pool) {
+      throw new Error('Aucune base de données configurée pour enregistrer la proposition.');
+    }
+
+    await pool.query(
+      `
+        INSERT INTO blog_post_proposals (
+          slug,
+          title,
+          excerpt,
+          content_markdown,
+          cover_image_url,
+          tags,
+          seo_description,
+          author_name,
+          author_contact,
+          reference,
+          submitted_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `,
+      [
+        input.slug,
+        input.title,
+        input.excerpt,
+        input.contentMarkdown,
+        input.coverImageUrl,
+        input.tags,
+        input.seoDescription,
+        input.authorName,
+        input.authorContact,
+        input.reference,
+        input.submittedAt,
+      ],
+    );
   }
 
   async upsertPost(input: {
