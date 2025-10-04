@@ -2378,9 +2378,6 @@ const ProfileIdentityCard = ({ profile, userId }) => {
             ${identifier ? html`<p class="text-xs text-slate-500">${identifier}</p>` : null}
           </div>
         </div>
-        <div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
-          <p>Ces données sont calculées à partir de l’activité vocale et textuelle enregistrée.</p>
-        </div>
       </div>
 
       ${isAvatarOpen && avatarUrl
