@@ -713,6 +713,35 @@ export default class AppServer {
       });
     });
 
+    this.app.get('/api/guild/summary', async (_req, res) => {
+      try {
+        const summary = await this.discordBridge.getGuildSummary();
+        res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=120');
+        res.json({ guild: summary });
+      } catch (error) {
+        const name = (error as Error)?.name;
+        if (name === 'GUILD_NOT_CONFIGURED') {
+          res.status(503).json({
+            error: 'GUILD_NOT_CONFIGURED',
+            message: 'La configuration du serveur Discord est incomplète.',
+          });
+          return;
+        }
+        if (name === 'GUILD_UNAVAILABLE') {
+          res.status(503).json({
+            error: 'GUILD_UNAVAILABLE',
+            message: 'Le serveur Discord est momentanément indisponible.',
+          });
+          return;
+        }
+        console.error('Failed to load guild summary', error);
+        res.status(500).json({
+          error: 'GUILD_SUMMARY_FAILED',
+          message: 'Impossible de récupérer les informations du serveur Discord.',
+        });
+      }
+    });
+
     this.app.get('/api/blog/posts', async (req, res) => {
       try {
         const options = this.parseBlogListOptions(req.query);
