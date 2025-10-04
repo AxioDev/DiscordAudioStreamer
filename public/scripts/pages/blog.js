@@ -40,7 +40,7 @@ const BlogGridSkeleton = () =>
             key=${`blog-skeleton-${index}`}
             class="flex h-full flex-col gap-4 rounded-2xl border border-slate-800/70 bg-slate-900/60 p-5 shadow-inner"
           >
-            <div class="aspect-video w-full rounded-xl bg-slate-800/60"></div>
+            <div class="aspect-[16/9] w-full rounded-xl bg-slate-800/60"></div>
             <div class="h-4 w-3/4 rounded bg-slate-800/60"></div>
             <div class="h-3 w-1/2 rounded bg-slate-800/40"></div>
             <div class="h-3 w-full rounded bg-slate-800/40"></div>
@@ -77,17 +77,17 @@ const BlogCard = ({ post, onOpen, isActive }) => {
       >
         ${post.coverImageUrl
           ? html`
-              <div class="relative aspect-video w-full overflow-hidden">
+              <div class="relative aspect-[16/9] w-full overflow-hidden">
                 <img
                   src=${post.coverImageUrl}
                   alt=${`Illustration de l'article ${post.title}`}
                   loading="lazy"
-                  class="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                  class="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-105"
                 />
                 <div class="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-slate-950/90 to-transparent"></div>
               </div>
             `
-          : html`<div class="aspect-video w-full bg-slate-800/60"></div>`}
+          : html`<div class="aspect-[16/9] w-full bg-slate-800/60"></div>`}
         <div class="flex flex-1 flex-col gap-4 p-5">
           ${post.tags.length > 0
             ? html`
@@ -385,7 +385,7 @@ export const BlogPage = ({ params = {} }) => {
               ${isLoadingPost
                 ? html`
                     <div class="space-y-4 rounded-3xl border border-slate-800/70 bg-slate-950/70 p-8 shadow-xl">
-                      <div class="aspect-video w-full animate-pulse rounded-2xl bg-slate-800/60"></div>
+                      <div class="aspect-[16/9] w-full animate-pulse rounded-2xl bg-slate-800/60"></div>
                       <div class="h-8 w-2/3 animate-pulse rounded bg-slate-800/60"></div>
                       <div class="h-4 w-1/3 animate-pulse rounded bg-slate-800/50"></div>
                       <div class="h-4 w-full animate-pulse rounded bg-slate-800/40"></div>
@@ -398,11 +398,11 @@ export const BlogPage = ({ params = {} }) => {
                     <article class="overflow-hidden rounded-3xl border border-slate-800/70 bg-slate-950/70 shadow-xl">
                       ${activePost.coverImageUrl
                         ? html`
-                            <div class="relative">
+                            <div class="relative aspect-[16/9] w-full max-h-[420px] overflow-hidden">
                               <img
                                 src=${activePost.coverImageUrl}
                                 alt=${`Illustration de l'article ${activePost.title}`}
-                                class="h-auto w-full max-h-[420px] object-cover"
+                                class="absolute inset-0 h-full w-full object-cover"
                               />
                               <div class="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-slate-950/90 to-transparent"></div>
                             </div>
