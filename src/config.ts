@@ -94,6 +94,12 @@ export interface Config {
   shop: ShopConfig;
   database: DatabaseConfig;
   openAI: OpenAIConfig;
+  publicBaseUrl: string;
+  siteName: string;
+  siteLocale: string;
+  siteLanguage: string;
+  twitterSite?: string;
+  twitterCreator?: string;
 }
 
 const config: Config = {
@@ -167,6 +173,12 @@ const config: Config = {
     ),
     dailyArticleTags: parseStringList(process.env.OPENAI_DAILY_ARTICLE_TAGS || 'journal,libre-antenne'),
   },
+  publicBaseUrl: process.env.PUBLIC_BASE_URL || 'https://libre-antenne.xyz/',
+  siteName: process.env.SITE_NAME || 'Libre Antenne',
+  siteLocale: process.env.SITE_LOCALE || 'fr_FR',
+  siteLanguage: process.env.SITE_LANGUAGE || 'fr-FR',
+  twitterSite: process.env.TWITTER_SITE || '@libreantenne',
+  twitterCreator: process.env.TWITTER_CREATOR || process.env.TWITTER_SITE || '@libreantenne',
 };
 
 config.audio.frameSamples = Math.floor(
