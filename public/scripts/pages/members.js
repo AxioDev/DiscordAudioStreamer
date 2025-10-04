@@ -9,6 +9,7 @@ import {
   ArrowRight,
   BadgeCheck,
   CalendarDays,
+  X,
   RefreshCcw,
   Search,
 } from '../core/deps.js';
