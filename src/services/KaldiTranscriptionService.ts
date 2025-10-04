@@ -19,7 +19,7 @@ interface SessionMetadata {
 
 interface KaldiSession extends SessionMetadata {
   ws: WebSocket | null;
-  queue: Uint8Array[];
+  queue: Buffer[];
   ready: boolean;
   closed: boolean;
   transcripts: string[];
@@ -382,36 +382,34 @@ export default class KaldiTranscriptionService {
 
   private prepareBinaryPayload(
     data: Buffer | ArrayBuffer | ArrayBufferView | string,
-  ): Uint8Array {
+  ): Buffer {
     if (Buffer.isBuffer(data)) {
-      return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+      return data;
     }
 
     if (typeof data === 'string') {
-      return new Uint8Array(Buffer.from(data, 'binary'));
+      return Buffer.from(data, 'binary');
     }
 
     if (data instanceof ArrayBuffer) {
-      return new Uint8Array(data);
+      return Buffer.from(data);
     }
 
     if (ArrayBuffer.isView(data)) {
-      return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+      return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
     }
 
     throw new TypeError('Unsupported audio payload type for Kaldi transmission');
   }
 
-  private sendBinaryChunk(session: KaldiSession, chunk: Uint8Array): void {
+  private sendBinaryChunk(session: KaldiSession, chunk: Buffer): void {
     const ws = session.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       session.queue.push(chunk);
       return;
     }
 
-    const payload = Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
-
-    ws.send(payload, { binary: true, compress: false }, (error) => {
+    ws.send(chunk, { binary: true, compress: false }, (error) => {
       if (error) {
         console.error('Failed to send audio chunk to Kaldi server', {
           userId: session.userId,
