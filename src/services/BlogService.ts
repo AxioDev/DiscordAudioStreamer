@@ -161,11 +161,14 @@ export default class BlogService {
 
   private readonly repository: BlogRepository | null;
 
+  private repositoryAvailable: boolean;
+
   private initializationPromise: Promise<void> | null = null;
 
   constructor(options: BlogServiceOptions) {
     this.postsDirectory = options.postsDirectory ?? null;
     this.repository = options.repository ?? null;
+    this.repositoryAvailable = Boolean(this.repository);
   }
 
   initialize(): Promise<void> {
@@ -178,7 +181,7 @@ export default class BlogService {
   async listPosts(options: BlogListOptions = {}): Promise<BlogListResult> {
     await this.initialize();
 
-    if (this.repository) {
+    if (this.repository && this.repositoryAvailable) {
       const listOptions: RepositoryListOptions = {
         search: options.search ?? null,
         tags: options.tags ?? null,
@@ -186,12 +189,17 @@ export default class BlogService {
         sortBy: options.sortBy === 'title' ? 'title' : 'published_at',
         sortOrder: options.sortOrder ?? null,
       };
-      const rows = await this.repository.listPosts(listOptions);
-      const tags = await this.repository.listTags();
-      return {
-        posts: rows.map((row) => this.convertRowToSummary(row)),
-        availableTags: tags,
-      };
+      try {
+        const rows = await this.repository.listPosts(listOptions);
+        const tags = await this.repository.listTags();
+        return {
+          posts: rows.map((row) => this.convertRowToSummary(row)),
+          availableTags: tags,
+        };
+      } catch (error) {
+        this.repositoryAvailable = false;
+        console.error('BlogService: failed to list posts from repository, falling back to filesystem.', error);
+      }
     }
 
     const fallback = await this.listPostsFromFilesystem(options);
@@ -205,28 +213,40 @@ export default class BlogService {
 
     await this.initialize();
 
-    if (this.repository) {
-      const row = await this.repository.getPostBySlug(slug);
-      if (!row) {
-        return null;
+    if (this.repository && this.repositoryAvailable) {
+      try {
+        const row = await this.repository.getPostBySlug(slug);
+        if (!row) {
+          return null;
+        }
+        const summary = this.convertRowToSummary(row);
+        const markdown = normalizeMarkdownContent(row.content_markdown);
+        const contentHtml = marked.parse(markdown);
+        return {
+          ...summary,
+          contentMarkdown: markdown,
+          contentHtml: typeof contentHtml === 'string' ? contentHtml : String(contentHtml),
+        };
+      } catch (error) {
+        this.repositoryAvailable = false;
+        console.error('BlogService: failed to load post from repository, falling back to filesystem.', error);
       }
-      const summary = this.convertRowToSummary(row);
-      const markdown = normalizeMarkdownContent(row.content_markdown);
-      const contentHtml = marked.parse(markdown);
-      return {
-        ...summary,
-        contentMarkdown: markdown,
-        contentHtml: typeof contentHtml === 'string' ? contentHtml : String(contentHtml),
-      };
     }
 
     return this.getPostFromFilesystem(slug);
   }
 
   private async initializeInternal(): Promise<void> {
-    if (this.repository) {
+    if (!this.repository || !this.repositoryAvailable) {
+      return;
+    }
+
+    try {
       await this.repository.ensureSchema();
       await this.repository.seedDemoContent();
+    } catch (error) {
+      this.repositoryAvailable = false;
+      console.error('BlogService: repository initialization failed, falling back to filesystem.', error);
     }
   }
 
