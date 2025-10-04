@@ -39,6 +39,7 @@ import { BanPage } from './pages/ban.js';
 import { AboutPage } from './pages/about.js';
 import { ClassementsPage } from './pages/classements.js';
 import { BlogPage } from './pages/blog.js';
+import { BlogProposalPage } from './pages/blog-proposal.js';
 
 const NAV_LINKS = [
   { label: 'Accueil', route: 'home', hash: '#/', icon: AudioLines },
@@ -93,11 +94,17 @@ const getRouteFromHash = () => {
     return { name: 'classements', params };
   }
   if (head === 'blog') {
-    const slug = segments.length > 1 ? segments[1] : null;
+    const second = segments.length > 1 ? segments[1] : null;
+    if (second) {
+      const normalized = second.toLowerCase();
+      if (['proposer', 'proposal', 'soumettre'].includes(normalized)) {
+        return { name: 'blog-proposal', params: {} };
+      }
+    }
     return {
       name: 'blog',
       params: {
-        slug: slug ? decodeURIComponent(slug) : null,
+        slug: second ? decodeURIComponent(second) : null,
       },
     };
   }
@@ -828,9 +835,10 @@ const App = () => {
             Libre Antenne
           </a>
           <nav class="hidden items-center gap-6 lg:flex">
-            ${NAV_LINKS.map((link) => {
-              const isActive = route.name === link.route;
-              const href = link.external && link.href ? link.href : link.hash;
+          ${NAV_LINKS.map((link) => {
+            const isActive =
+              route.name === link.route || (link.route === 'blog' && route.name === 'blog-proposal');
+            const href = link.external && link.href ? link.href : link.hash;
               const baseClasses = 'text-sm font-medium transition hover:text-white';
               const stateClass = isActive ? 'text-white' : 'text-slate-300';
               return html`
@@ -897,7 +905,8 @@ const App = () => {
         </div>
         <nav class="mt-8 flex flex-col gap-1" aria-label="Navigation mobile">
           ${NAV_LINKS.map((link) => {
-            const isActive = route.name === link.route;
+            const isActive =
+              route.name === link.route || (link.route === 'blog' && route.name === 'blog-proposal');
             const href = link.external && link.href ? link.href : link.hash;
             const baseClasses = 'flex items-center gap-3 rounded-xl px-3 py-3 text-base font-medium transition';
             const stateClass = isActive
@@ -929,6 +938,8 @@ const App = () => {
               ? html`<${AboutPage} />`
               : route.name === 'blog'
               ? html`<${BlogPage} params=${route.params} />`
+              : route.name === 'blog-proposal'
+              ? html`<${BlogProposalPage} />`
               : route.name === 'members'
               ? html`<${MembersPage} onViewProfile=${handleProfileOpen} />`
               : route.name === 'shop'

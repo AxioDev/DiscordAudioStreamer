@@ -1,4 +1,4 @@
-import { html, useCallback, useEffect, useMemo, useRef, useState } from '../core/deps.js';
+import { html, useCallback, useEffect, useMemo, useRef, useState, Sparkles } from '../core/deps.js';
 
 const formatDate = (isoString) => {
   if (!isoString) {
@@ -300,6 +300,17 @@ export const BlogPage = ({ params = {} }) => {
     setSelectedTags([]);
   }, []);
 
+  const handleOpenProposal = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    if (window.location.hash !== '#/blog/proposer') {
+      window.location.hash = '#/blog/proposer';
+    } else {
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    }
+  }, []);
+
   return html`
     <section class="blog-page space-y-10 px-4 pb-16">
       <header class="mx-auto flex max-w-6xl flex-col gap-6 rounded-3xl border border-slate-800/80 bg-slate-950/70 p-8 shadow-xl">
@@ -313,39 +324,49 @@ export const BlogPage = ({ params = {} }) => {
             recherche et les filtres pour retrouver facilement les sujets qui vous intéressent.
           </p>
         </div>
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div class="relative w-full sm:max-w-sm">
-            <svg
-              class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <circle cx="11" cy="11" r="7"></circle>
-              <line x1="20" y1="20" x2="16.65" y2="16.65"></line>
-            </svg>
-            <input
-              type="search"
-              value=${searchTerm}
-              onInput=${handleSearchChange}
-              placeholder="Rechercher un article..."
-              class="w-full rounded-xl border border-slate-700 bg-slate-900/80 py-2 pl-9 pr-3 text-sm text-white placeholder:text-slate-500 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-300"
-            />
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-3">
+            <div class="relative w-full sm:max-w-sm">
+              <svg
+                class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="11" cy="11" r="7"></circle>
+                <line x1="20" y1="20" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input
+                type="search"
+                value=${searchTerm}
+                onInput=${handleSearchChange}
+                placeholder="Rechercher un article..."
+                class="w-full rounded-xl border border-slate-700 bg-slate-900/80 py-2 pl-9 pr-3 text-sm text-white placeholder:text-slate-500 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-300"
+              />
+            </div>
+            ${hasActiveFilters
+              ? html`
+                  <button
+                    type="button"
+                    class="inline-flex items-center justify-center rounded-xl border border-amber-400/60 bg-amber-500/10 px-4 py-2 text-sm font-medium text-amber-200 transition hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+                    onClick=${handleResetFilters}
+                  >
+                    Réinitialiser les filtres
+                  </button>
+                `
+              : null}
           </div>
-          ${hasActiveFilters
-            ? html`
-                <button
-                  type="button"
-                  class="inline-flex items-center justify-center rounded-xl border border-amber-400/60 bg-amber-500/10 px-4 py-2 text-sm font-medium text-amber-200 transition hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
-                  onClick=${handleResetFilters}
-                >
-                  Réinitialiser les filtres
-                </button>
-              `
-            : null}
+          <button
+            type="button"
+            onClick=${() => handleOpenProposal()}
+            class="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-amber-400/60 bg-amber-500/10 px-4 py-2 text-sm font-semibold text-amber-100 shadow-sm transition hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+          >
+            <${Sparkles} class="h-4 w-4" aria-hidden="true" />
+            Proposer un article
+          </button>
         </div>
         ${tagOptions.length > 0
           ? html`

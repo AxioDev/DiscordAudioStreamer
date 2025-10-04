@@ -10,6 +10,7 @@ import {
 import htm from 'https://esm.sh/htm@3.1.1?deps=preact@10.19.2';
 import Chart from 'https://esm.sh/chart.js@4.4.2/auto';
 import * as THREE from 'https://esm.sh/three@0.161.0';
+import { marked } from 'https://esm.sh/marked@12.0.2?deps=preact@10.19.2';
 import {
   Activity,
   AlertCircle,
@@ -96,4 +97,5 @@ export {
   Volume2,
   VolumeX,
   X,
+  marked,
 };
