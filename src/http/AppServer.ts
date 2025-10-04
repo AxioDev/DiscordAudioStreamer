@@ -100,6 +100,8 @@ export default class AppServer {
 
   private readonly listenerStatsService: ListenerStatsService;
 
+  private readonly streamListenersByIp = new Map<string, number>();
+
   private readonly unsubscribeListenerStats: (() => void) | null;
 
   private readonly blogService: BlogService;
@@ -2130,6 +2132,41 @@ export default class AppServer {
     return 1;
   }
 
+  private normalizeIp(ip: string | null | undefined): string {
+    if (!ip) {
+      return 'unknown';
+    }
+
+    const trimmed = ip.trim();
+    if (trimmed.startsWith('::ffff:')) {
+      return trimmed.slice(7);
+    }
+
+    return trimmed;
+  }
+
+  private getClientIp(req: Request): string {
+    const forwarded = req.headers['x-forwarded-for'];
+
+    if (typeof forwarded === 'string' && forwarded.length > 0) {
+      const [first] = forwarded.split(',');
+      if (first) {
+        return this.normalizeIp(first);
+      }
+    } else if (Array.isArray(forwarded)) {
+      for (const value of forwarded) {
+        if (typeof value === 'string' && value.length > 0) {
+          const [first] = value.split(',');
+          if (first) {
+            return this.normalizeIp(first);
+          }
+        }
+      }
+    }
+
+    return this.normalizeIp(req.ip ?? req.socket.remoteAddress ?? null);
+  }
+
   private handleStreamRequest(req: Request, res: Response): void {
     const mimeType = this.config.mimeTypes[this.config.outputFormat] || 'application/octet-stream';
     res.setHeader('Content-Type', mimeType);
@@ -2141,6 +2178,8 @@ export default class AppServer {
     res.setHeader('Transfer-Encoding', 'chunked');
     res.setHeader('X-Accel-Buffering', 'no');
     res.setHeader('Accept-Ranges', 'none');
+
+    const clientIp = this.getClientIp(req);
 
     try {
       req.socket.setNoDelay(true);
@@ -2167,7 +2206,7 @@ export default class AppServer {
 
     console.log(
       `New client for ${this.config.streamEndpoint}`,
-      req.ip,
+      clientIp,
       'headerBuffer:',
       headerBuffer.length,
     );
@@ -2175,15 +2214,25 @@ export default class AppServer {
     const clientStream = this.transcoder.createClientStream();
     clientStream.pipe(res);
 
-    let counted = false;
     let closed = false;
 
-    const incrementResult = this.listenerStatsService.increment();
-    if (incrementResult) {
-      counted = true;
+    const previousConnectionCount = this.streamListenersByIp.get(clientIp) ?? 0;
+    const nextConnectionCount = previousConnectionCount + 1;
+    this.streamListenersByIp.set(clientIp, nextConnectionCount);
+
+    if (previousConnectionCount === 0) {
+      const incrementResult = this.listenerStatsService.increment();
+      if (incrementResult) {
+        console.log('Stream listener connected', {
+          ip: clientIp,
+          listeners: incrementResult.count,
+        });
+      }
+    } else {
       console.log('Stream listener connected', {
-        ip: req.ip,
-        listeners: incrementResult.count,
+        ip: clientIp,
+        connectionsForIp: nextConnectionCount,
+        listeners: this.listenerStatsService.getCurrentCount(),
       });
     }
 
@@ -2193,12 +2242,23 @@ export default class AppServer {
       }
       closed = true;
       this.transcoder.releaseClientStream(clientStream);
-      if (counted) {
-        counted = false;
+
+      const currentConnections = this.streamListenersByIp.get(clientIp) ?? 0;
+      const remainingConnections = Math.max(0, currentConnections - 1);
+
+      if (remainingConnections <= 0) {
+        this.streamListenersByIp.delete(clientIp);
         const update = this.listenerStatsService.decrement();
         console.log('Stream listener disconnected', {
-          ip: req.ip,
+          ip: clientIp,
           listeners: update?.count ?? this.listenerStatsService.getCurrentCount(),
+        });
+      } else {
+        this.streamListenersByIp.set(clientIp, remainingConnections);
+        console.log('Stream listener disconnected', {
+          ip: clientIp,
+          remainingConnectionsForIp: remainingConnections,
+          listeners: this.listenerStatsService.getCurrentCount(),
         });
       }
     };
