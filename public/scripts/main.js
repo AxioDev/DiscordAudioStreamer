@@ -32,6 +32,7 @@ import { ProfilePage } from './pages/profile.js';
 import { BanPage } from './pages/ban.js';
 import { AboutPage } from './pages/about.js';
 import { ClassementsPage } from './pages/classements.js';
+import { BlogPage } from './pages/blog.js';
 
 const getInitialSoulDecision = () => {
   if (typeof window === 'undefined') {
@@ -54,6 +55,7 @@ const NAV_LINKS = [
     route: 'classements',
     hash: '#/classements',
   },
+  { label: 'Blog', route: 'blog', hash: '#/blog' },
   { label: 'Modération', route: 'ban', hash: '#/bannir' },
   { label: 'À propos', route: 'about', hash: '#/about' },
 ];
@@ -94,6 +96,15 @@ const getRouteFromHash = () => {
       period: search.get('period') ?? null,
     };
     return { name: 'classements', params };
+  }
+  if (head === 'blog') {
+    const slug = segments.length > 1 ? segments[1] : null;
+    return {
+      name: 'blog',
+      params: {
+        slug: slug ? decodeURIComponent(slug) : null,
+      },
+    };
   }
   if (head === 'bannir' || head === 'ban') {
     return { name: 'ban', params: {} };
@@ -807,6 +818,8 @@ const App = () => {
               ? html`<${BanPage} />`
               : route.name === 'about'
               ? html`<${AboutPage} />`
+              : route.name === 'blog'
+              ? html`<${BlogPage} params=${route.params} />`
               : route.name === 'members'
               ? html`<${MembersPage} onViewProfile=${handleProfileOpen} />`
               : route.name === 'shop'

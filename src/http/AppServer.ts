@@ -12,6 +12,7 @@ import type ShopService from '../services/ShopService';
 import { ShopError, type ShopProvider } from '../services/ShopService';
 import type VoiceActivityRepository from '../services/VoiceActivityRepository';
 import ListenerStatsService, { type ListenerStatsUpdate } from '../services/ListenerStatsService';
+import BlogService from '../services/BlogService';
 import type {
   HypeLeaderboardQueryOptions,
   HypeLeaderboardSortBy,
@@ -78,6 +79,8 @@ export default class AppServer {
 
   private readonly unsubscribeListenerStats: (() => void) | null;
 
+  private readonly blogService: BlogService;
+
   constructor({
     config,
     transcoder,
@@ -104,6 +107,9 @@ export default class AppServer {
     this.unsubscribeListenerStats = this.listenerStatsService.onUpdate((update) =>
       this.handleListenerStatsUpdate(update),
     );
+    this.blogService = new BlogService({
+      postsDirectory: path.resolve(__dirname, '..', '..', 'content', 'blog'),
+    });
 
     this.configureMiddleware();
     this.registerRoutes();
@@ -455,6 +461,50 @@ export default class AppServer {
         count: this.listenerStatsService.getCurrentCount(),
         history: this.listenerStatsService.getHistory(),
       });
+    });
+
+    this.app.get('/api/blog/posts', async (_req, res) => {
+      try {
+        const posts = await this.blogService.listPosts();
+        res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=60');
+        res.json({ posts });
+      } catch (error) {
+        console.error('Failed to list blog posts', error);
+        res.status(500).json({
+          error: 'BLOG_LIST_FAILED',
+          message: 'Impossible de récupérer les articles du blog.',
+        });
+      }
+    });
+
+    this.app.get('/api/blog/posts/:slug', async (req, res) => {
+      const rawSlug = typeof req.params.slug === 'string' ? req.params.slug.trim() : '';
+      if (!rawSlug) {
+        res.status(400).json({
+          error: 'SLUG_REQUIRED',
+          message: "Le lien de l'article est requis.",
+        });
+        return;
+      }
+
+      try {
+        const post = await this.blogService.getPost(rawSlug);
+        if (!post) {
+          res.status(404).json({
+            error: 'POST_NOT_FOUND',
+            message: "Impossible de trouver l'article demandé.",
+          });
+          return;
+        }
+        res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=60');
+        res.json({ post });
+      } catch (error) {
+        console.error('Failed to load blog post', error);
+        res.status(500).json({
+          error: 'BLOG_POST_FAILED',
+          message: "Impossible de récupérer cet article.",
+        });
+      }
     });
 
     this.app.get('/api/voice-activity/history', async (req, res) => {
@@ -844,6 +894,14 @@ export default class AppServer {
     });
 
     this.app.get('/membres', (_req, res) => {
+      res.sendFile(path.resolve(__dirname, '..', '..', 'public', 'index.html'));
+    });
+
+    this.app.get('/blog', (_req, res) => {
+      res.sendFile(path.resolve(__dirname, '..', '..', 'public', 'index.html'));
+    });
+
+    this.app.get('/blog/:slug', (_req, res) => {
       res.sendFile(path.resolve(__dirname, '..', '..', 'public', 'index.html'));
     });
 
