@@ -8,6 +8,7 @@ These instructions apply to the entire repository.
 - Prefer readability, maintainability, and adherence to established patterns in this project.
 - Before committing, ensure the project builds successfully and that all automated tests pass.
 - When applicable, run the web application and verify there are no console errors or runtime issues.
+- Always launch the site in the provided virtual browser environment and confirm the page renders correctly with a clean console before finishing changes that affect the web UI.
 - Document any important decisions or deviations directly in the relevant files or commit messages.
 - Keep dependencies tidy; remove unused packages and avoid unnecessary additions.
 
