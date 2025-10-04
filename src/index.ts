@@ -6,6 +6,7 @@ import AppServer from './http/AppServer';
 import SseService from './services/SseService';
 import SpeakerTracker from './services/SpeakerTracker';
 import DiscordAudioBridge from './discord/DiscordAudioBridge';
+import NullDiscordAudioBridge from './discord/NullDiscordAudioBridge';
 import AnonymousSpeechManager from './services/AnonymousSpeechManager';
 import ShopService from './services/ShopService';
 import VoiceActivityRepository from './services/VoiceActivityRepository';
@@ -105,18 +106,30 @@ const dailyArticleService = new DailyArticleService({
   voiceActivityRepository,
 });
 
-const discordBridge = new DiscordAudioBridge({
-  config,
-  mixer,
-  speakerTracker,
-  voiceActivityRepository,
-  transcriptionService: kaldiTranscriptionService,
-});
+const discordBridge: DiscordAudioBridge = config.botToken
+  ? new DiscordAudioBridge({
+      config,
+      mixer,
+      speakerTracker,
+      voiceActivityRepository,
+      transcriptionService: kaldiTranscriptionService,
+    })
+  : (new NullDiscordAudioBridge({
+      config,
+      mixer,
+      speakerTracker,
+      voiceActivityRepository,
+      transcriptionService: kaldiTranscriptionService,
+    }) as unknown as DiscordAudioBridge);
 
-discordBridge.login().catch((error) => {
-  console.error('Discord login failed', error);
-  process.exit(1);
-});
+if (config.botToken) {
+  discordBridge.login().catch((error) => {
+    console.error('Discord login failed', error);
+    process.exit(1);
+  });
+} else {
+  console.warn('Discord bot token missing; continuing without connecting to Discord.');
+}
 
 const anonymousSpeechManager = new AnonymousSpeechManager({
   discordBridge,
