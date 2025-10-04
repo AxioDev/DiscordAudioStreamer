@@ -34,18 +34,6 @@ import { AboutPage } from './pages/about.js';
 import { ClassementsPage } from './pages/classements.js';
 import { BlogPage } from './pages/blog.js';
 
-const getInitialSoulDecision = () => {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  try {
-    return window.localStorage?.getItem('soulContract') ?? null;
-  } catch (error) {
-    console.warn("Impossible de lire le pacte d'âme", error);
-    return null;
-  }
-};
-
 const NAV_LINKS = [
   { label: 'Accueil', route: 'home', hash: '#/' },
   { label: 'Membres', route: 'members', hash: '#/membres' },
@@ -207,9 +195,6 @@ const App = () => {
   const [route, setRoute] = useState(() => getRouteFromHash());
   const [anonymousSlot, setAnonymousSlot] = useState(() => normalizeAnonymousSlot());
   const [listenerStats, setListenerStats] = useState(() => ({ count: 0, history: [] }));
-  const [soulDecision, setSoulDecision] = useState(getInitialSoulDecision);
-  const [showSoulModal, setShowSoulModal] = useState(() => !getInitialSoulDecision());
-  const [soulMessage, setSoulMessage] = useState('');
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -271,22 +256,6 @@ const App = () => {
   useEffect(() => {
     participantsRef.current = participantsMap;
   }, [participantsMap]);
-
-  useEffect(() => {
-    if (soulDecision) {
-      setShowSoulModal(false);
-    } else {
-      setShowSoulModal(true);
-    }
-  }, [soulDecision]);
-
-  useEffect(() => {
-    if (!soulMessage) {
-      return undefined;
-    }
-    const timer = setTimeout(() => setSoulMessage(''), 5000);
-    return () => clearTimeout(timer);
-  }, [soulMessage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -435,24 +404,6 @@ const App = () => {
     }
     const normalized = TALK_WINDOW_OPTIONS.includes(minutes) ? minutes : DEFAULT_WINDOW_MINUTES;
     setSelectedWindowMinutes(normalized);
-  }, []);
-
-  const handleSoulDecision = useCallback((accepted) => {
-    const choice = accepted ? 'accepted' : 'declined';
-    setSoulDecision(choice);
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem('soulContract', choice);
-      }
-    } catch (error) {
-      console.warn("Impossible de stocker le pacte d'âme", error);
-    }
-    setSoulMessage(
-      accepted
-        ? "Merci pour ta confiance éternelle. Le dieu 8.6 t'offrira peut-être une tournée. 🍻"
-        : 'Refus enregistré. Tu gardes ton âme, mais reste pour la musique !'
-    );
-    setShowSoulModal(false);
   }, []);
 
   useEffect(() => {
@@ -704,46 +655,8 @@ const App = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const soulModalTemplate = showSoulModal
-    ? html`
-        <div class="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4">
-          <div class="w-full max-w-md space-y-4 rounded-xl bg-slate-900 p-6 text-center shadow-2xl">
-            <h2 class="text-2xl font-semibold">Pacte sacré</h2>
-            <p class="text-sm text-slate-300 sm:text-base">
-              (Promis, c'est surtout pour l'ambiance. Les démons adorent les vibes chill.)
-            </p>
-            <div class="flex flex-col gap-3 sm:flex-row sm:justify-center">
-              <button
-                class="inline-flex items-center justify-center rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-amber-950 shadow-lg transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
-                onClick=${() => handleSoulDecision(true)}
-              >
-                J'offre mon âme (et une tournée)
-              </button>
-              <button
-                class="inline-flex items-center justify-center rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
-                onClick=${() => handleSoulDecision(false)}
-              >
-                Nope, je suis team libre arbitre
-              </button>
-            </div>
-          </div>
-        </div>
-      `
-    : null;
-
-  const soulMessageTemplate = soulMessage
-    ? html`
-        <div class="pointer-events-none fixed bottom-4 right-4 z-30 max-w-xs rounded-lg bg-slate-900/90 px-4 py-3 text-sm shadow-xl">
-          ${soulMessage}
-        </div>
-      `
-    : null;
-
   return html`
     <div class="flex min-h-screen flex-col bg-slate-950 text-slate-100">
-      ${soulModalTemplate}
-      ${soulMessageTemplate}
-
       <header class="sticky top-0 z-20 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
         <div class="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
           <a
