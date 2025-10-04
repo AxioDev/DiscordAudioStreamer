@@ -1625,7 +1625,13 @@ const readCheckoutFeedbackFromHash = () => {
   }
 };
 
-const ShopProductCard = ({ product, checkoutState, onCheckout }) => {
+const ShopProductCard = ({
+  product,
+  checkoutState,
+  onCheckout,
+  canCheckout = true,
+  isOffline = false,
+}) => {
   const providerSections = (product.providers || [])
     .map((provider) => {
       const details = PAYMENT_PROVIDERS[provider];
@@ -1637,15 +1643,23 @@ const ShopProductCard = ({ product, checkoutState, onCheckout }) => {
         checkoutState.productId === product.id &&
         checkoutState.provider === provider;
       const ButtonIcon = details.Icon;
+      const disabled = !canCheckout || isPending;
+      const label = isPending
+        ? 'Redirection…'
+        : disabled
+        ? isOffline
+          ? 'Indisponible'
+          : 'Connexion…'
+        : `Payer avec ${details.label}`;
       return html`
         <div key=${`${product.id}-${provider}`} class="flex flex-col gap-1">
           <button
             type="button"
             class=${`flex w-full items-center justify-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold text-white transition focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-50 ${details.accent}`}
             onClick=${() => onCheckout(product.id, provider)}
-            disabled=${isPending}
+            disabled=${disabled}
           >
-            ${isPending ? 'Redirection…' : `Payer avec ${details.label}`}
+            ${label}
             <${ButtonIcon} class="h-4 w-4" aria-hidden="true" />
           </button>
           <span class="text-xs text-slate-400">${details.helper}</span>
@@ -1808,7 +1822,13 @@ const getRouteFromHash = () => {
   return { name: 'home', params: {} };
 };
 
-const AudioPlayer = ({ streamInfo, audioKey, status }) => {
+const AudioPlayer = ({
+  streamInfo,
+  audioKey,
+  status,
+  canPlayStream = true,
+  isServerOffline = false,
+}) => {
   const audioRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -1816,6 +1836,9 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(0.75);
   const lastVolumeRef = useRef(0.75);
+  const playbackUnavailable = !canPlayStream;
+  const awaitingStream = playbackUnavailable && !isServerOffline;
+  const showErrorState = hasError || (playbackUnavailable && isServerOffline);
 
   const isIgnorablePlayError = (error) => {
     if (!error) return false;
@@ -1897,6 +1920,16 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
     const audio = audioRef.current;
     if (!audio) return;
 
+    if (!canPlayStream) {
+      if (!audio.paused) {
+        audio.pause();
+      }
+      audio.removeAttribute('src');
+      setIsPlaying(false);
+      setIsLoading(awaitingStream);
+      return;
+    }
+
     setHasError(false);
 
     if (!audio.paused) {
@@ -1909,7 +1942,7 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
     return () => {
       audio.pause();
     };
-  }, [audioKey, streamInfo.path]);
+  }, [audioKey, streamInfo.path, canPlayStream, isServerOffline, awaitingStream]);
 
   const clearBrowserCaches = async () => {
     if (typeof window === 'undefined') {
@@ -1953,6 +1986,10 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
     const audio = audioRef.current;
     if (!audio) return;
 
+    if (!canPlayStream) {
+      return;
+    }
+
     if (hasError) {
       setHasError(false);
     }
@@ -1993,6 +2030,10 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
   const handleRetry = async () => {
     const audio = audioRef.current;
     if (!audio) return;
+
+    if (!canPlayStream) {
+      return;
+    }
 
     setHasError(false);
     setIsLoading(true);
@@ -2054,7 +2095,7 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
   };
 
   const renderVolumeIcon = () => {
-    if (hasError) {
+    if (showErrorState) {
       return html`<${AlertCircle} class="h-5 w-5" aria-hidden="true" />`;
     }
 
@@ -2074,9 +2115,11 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
   };
 
   const statusConfig = STATUS_LABELS[status] ?? STATUS_LABELS.connecting;
-  const statusText = hasError
-    ? 'Flux indisponible. Relance le flux pour réessayer.'
-    : isLoading
+  const statusText = showErrorState
+    ? isServerOffline
+      ? 'Flux indisponible (serveur hors ligne).'
+      : 'Flux indisponible. Relance le flux pour réessayer.'
+    : awaitingStream || isLoading
     ? 'Connexion au flux…'
     : isPlaying
     ? 'Lecture en cours'
@@ -2094,10 +2137,10 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
               class="relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-fuchsia-500 via-indigo-500 to-sky-400 text-white shadow-lg shadow-fuchsia-900/40 transition focus:outline-none focus:ring-2 focus:ring-fuchsia-300 focus:ring-offset-2 focus:ring-offset-slate-950 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
               aria-label=${isPlaying ? 'Mettre le flux en pause' : 'Lancer la lecture du flux'}
               onClick=${togglePlay}
-              disabled=${isLoading && !isPlaying && !hasError}
+              disabled=${playbackUnavailable || (isLoading && !isPlaying && !hasError)}
             >
               ${
-                hasError
+                showErrorState
                   ? html`<${AlertCircle} class="h-7 w-7" aria-hidden="true" />`
                   : isLoading && !isPlaying
                   ? html`<span class="h-6 w-6 animate-spin rounded-full border-2 border-white/70 border-t-transparent"></span>`
@@ -2149,7 +2192,7 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
               <p class="text-sm text-slate-200">
                 Libre Antenne diffuse le salon vocal en continu. Branche-toi et profite du chaos.
               </p>
-              <p class=${`text-xs font-medium ${hasError ? 'text-rose-200' : 'text-slate-300'}`}>${statusText}</p>
+              <p class=${`text-xs font-medium ${showErrorState ? 'text-rose-200' : 'text-slate-300'}`}>${statusText}</p>
             </div>
           </div>
         </div>
@@ -2184,20 +2227,24 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
         </div>
       </div>
       ${
-        hasError
+        showErrorState
           ? html`<div class="relative mt-5 flex flex-wrap items-center gap-3 rounded-2xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
               <div class="flex items-center gap-2 font-semibold">
                 <${AlertCircle} class="h-5 w-5" aria-hidden="true" />
-                Flux indisponible
+                ${playbackUnavailable ? 'Flux indisponible (serveur hors ligne)' : 'Flux indisponible'}
               </div>
-              <button
-                type="button"
-                class="inline-flex items-center gap-2 rounded-full border border-rose-200/40 bg-rose-200/10 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.3em] text-rose-100 transition hover:bg-rose-200/20"
-                onClick=${handleRetry}
-              >
-                Relancer le flux
-                <${RefreshCcw} class="h-3.5 w-3.5" aria-hidden="true" />
-              </button>
+              ${
+                playbackUnavailable
+                  ? html`<p class="text-xs text-rose-100/80">Le serveur de diffusion est momentanément inaccessible. Réessaie dans quelques instants.</p>`
+                  : html`<button
+                      type="button"
+                      class="inline-flex items-center gap-2 rounded-full border border-rose-200/40 bg-rose-200/10 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.3em] text-rose-100 transition hover:bg-rose-200/20"
+                      onClick=${handleRetry}
+                    >
+                      Relancer le flux
+                      <${RefreshCcw} class="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>`
+              }
             </div>`
           : null
       }

@@ -29,7 +29,7 @@ import {
   ProfileMessagesCard,
 } from '../components/index.js';
 
-const ProfilePage = ({ params, onNavigateHome, onUpdateRange }) => {
+const ProfilePage = ({ params, onNavigateHome, onUpdateRange, backendAvailable = true, backendOffline = false }) => {
   const userId = typeof params?.userId === 'string' && params.userId.trim().length > 0 ? params.userId.trim() : null;
   const [range, setRange] = useState(() => normalizeProfileRange(params ?? {}));
   const [draftSince, setDraftSince] = useState(() => toInputValue(range.sinceMs));
@@ -66,6 +66,15 @@ const ProfilePage = ({ params, onNavigateHome, onUpdateRange }) => {
     const sinceMs = range.sinceMs;
     const untilMs = range.untilMs;
     if (!Number.isFinite(sinceMs) || !Number.isFinite(untilMs) || untilMs <= sinceMs) {
+      return undefined;
+    }
+
+    if (!backendAvailable) {
+      if (backendOffline) {
+        setState({ status: 'error', data: null, error: 'Profil indisponible tant que le serveur est hors ligne.' });
+      } else {
+        setState((prev) => ({ status: 'loading', data: prev.data, error: null }));
+      }
       return undefined;
     }
 
@@ -120,7 +129,7 @@ const ProfilePage = ({ params, onNavigateHome, onUpdateRange }) => {
 
     fetchProfile();
     return () => controller?.abort();
-  }, [userId, range.sinceMs, range.untilMs, refreshNonce]);
+  }, [backendAvailable, backendOffline, userId, range.sinceMs, range.untilMs, refreshNonce]);
 
   const handleBack = useCallback(
     (event) => {

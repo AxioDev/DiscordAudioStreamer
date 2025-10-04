@@ -18,7 +18,7 @@ import { formatDateTimeLabel } from '../utils/index.js';
 
 const MEMBERS_PAGE_SIZE = 24;
 
-const MembersPage = ({ onViewProfile }) => {
+const MembersPage = ({ onViewProfile, backendAvailable = true, backendOffline = false }) => {
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -54,6 +54,19 @@ const MembersPage = ({ onViewProfile }) => {
     const controller = new AbortController();
 
     const loadMembers = async () => {
+      if (!backendAvailable) {
+        if (backendOffline) {
+          setLoading(false);
+          setError('Les membres sont indisponibles tant que le serveur est hors ligne.');
+          setMembers([]);
+          setNextCursor(null);
+        } else {
+          setLoading(true);
+          setError('');
+        }
+        return;
+      }
+
       setLoading(true);
       setError('');
       setNextCursor(null);
@@ -123,7 +136,7 @@ const MembersPage = ({ onViewProfile }) => {
       isActive = false;
       controller.abort();
     };
-  }, [currentCursor, searchTerm, refreshNonce]);
+  }, [backendAvailable, backendOffline, currentCursor, searchTerm, refreshNonce]);
 
   const handleSearchSubmit = useCallback(
     (event) => {
