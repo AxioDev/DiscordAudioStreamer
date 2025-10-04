@@ -38,6 +38,8 @@ export interface AppServerOptions {
   shopService: ShopService;
   voiceActivityRepository?: VoiceActivityRepository | null;
   listenerStatsService: ListenerStatsService;
+  blogRepository?: BlogRepository | null;
+  blogService?: BlogService | null;
 }
 
 type FlushCapableResponse = Response & {
@@ -94,6 +96,8 @@ export default class AppServer {
     shopService,
     voiceActivityRepository = null,
     listenerStatsService,
+    blogRepository = null,
+    blogService = null,
   }: AppServerOptions) {
     this.config = config;
     this.transcoder = transcoder;
@@ -111,14 +115,18 @@ export default class AppServer {
       this.handleListenerStatsUpdate(update),
     );
 
-    this.blogRepository = config.database?.url
-      ? new BlogRepository({ url: config.database.url, ssl: config.database.ssl })
-      : null;
+    this.blogRepository =
+      blogRepository ??
+      (config.database?.url
+        ? new BlogRepository({ url: config.database.url, ssl: config.database.ssl })
+        : null);
 
-    this.blogService = new BlogService({
-      postsDirectory: path.resolve(__dirname, '..', '..', 'content', 'blog'),
-      repository: this.blogRepository,
-    });
+    this.blogService =
+      blogService ??
+      new BlogService({
+        postsDirectory: path.resolve(__dirname, '..', '..', 'content', 'blog'),
+        repository: this.blogRepository,
+      });
 
     void this.blogService.initialize().catch((error) => {
       console.error('Failed to initialize blog service', error);

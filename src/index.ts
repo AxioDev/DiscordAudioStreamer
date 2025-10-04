@@ -1,3 +1,4 @@
+import path from 'path';
 import config from './config';
 import AudioMixer from './audio/AudioMixer';
 import FfmpegTranscoder from './audio/FfmpegTranscoder';
@@ -9,6 +10,9 @@ import AnonymousSpeechManager from './services/AnonymousSpeechManager';
 import ShopService from './services/ShopService';
 import VoiceActivityRepository from './services/VoiceActivityRepository';
 import ListenerStatsService from './services/ListenerStatsService';
+import BlogRepository from './services/BlogRepository';
+import BlogService from './services/BlogService';
+import DailyArticleService from './services/DailyArticleService';
 
 const mixer = new AudioMixer({
   frameBytes: config.audio.frameBytes,
@@ -64,6 +68,26 @@ const speakerTracker = new SpeakerTracker({
   voiceActivityRepository,
 });
 
+const blogRepository = config.database.url
+  ? new BlogRepository({ url: config.database.url, ssl: config.database.ssl })
+  : null;
+
+const blogService = new BlogService({
+  postsDirectory: path.resolve(__dirname, '..', 'content', 'blog'),
+  repository: blogRepository,
+});
+
+void blogService.initialize().catch((error) => {
+  console.error('BlogService initialization failed', error);
+});
+
+const dailyArticleService = new DailyArticleService({
+  config,
+  blogRepository,
+  blogService,
+  voiceActivityRepository,
+});
+
 const discordBridge = new DiscordAudioBridge({
   config,
   mixer,
@@ -93,6 +117,8 @@ const appServer = new AppServer({
   shopService,
   voiceActivityRepository,
   listenerStatsService,
+  blogRepository,
+  blogService,
 });
 appServer.start();
 
@@ -143,11 +169,23 @@ function shutdown(): void {
     console.warn('Error while stopping HTTP server', error);
   }
 
+  try {
+    dailyArticleService.stop();
+  } catch (error) {
+    console.warn('Error while stopping daily article service', error);
+  }
+
   discordBridge
     .destroy()
     .catch((error) => console.warn('Error while destroying Discord bridge', error))
     .finally(() => process.exit(0));
 }
+
+process.on('beforeExit', () => {
+  if (typeof dailyArticleService?.stop === 'function') {
+    dailyArticleService.stop();
+  }
+});
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
