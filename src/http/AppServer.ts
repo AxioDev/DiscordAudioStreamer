@@ -1749,7 +1749,7 @@ export default class AppServer {
       this.respondWithAppShell(res, metadata);
     });
 
-    this.app.get('/*', (req, res) => {
+    this.app.get('*', (req, res) => {
       this.respondWithAppShell(
         res,
         {
