@@ -364,6 +364,12 @@ export default class AppServer {
     return [];
   }
 
+  private setClientNoCache(res: Response): void {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+
   private respondWithAppShell(res: Response, metadata: SeoPageMetadata, status = 200): void {
     try {
       const html = this.seoRenderer.render(metadata);
@@ -1091,8 +1097,8 @@ export default class AppServer {
     });
 
     this.app.get('/api/voice-activity/hype-leaders', async (req, res) => {
+      this.setClientNoCache(res);
       if (!this.voiceActivityRepository || !this.hypeLeaderboardService) {
-        res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=30');
         res.json({
           leaders: [],
           snapshot: {
@@ -1106,7 +1112,6 @@ export default class AppServer {
       try {
         const options = this.parseLeaderboardRequest(req);
         const result = await this.getCachedHypeLeaders(options);
-        res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=30');
         res.json({ leaders: result.leaders, snapshot: result.snapshot });
       } catch (error) {
         console.error('Failed to retrieve hype leaderboard', error);
@@ -1124,6 +1129,7 @@ export default class AppServer {
     });
 
     this.app.get('/classements', (req, res) => {
+      this.setClientNoCache(res);
       const search = this.extractString(req.query?.search);
       const metadata: SeoPageMetadata = {
         title: `${this.config.siteName} · Classements hype & statistiques en direct`,
