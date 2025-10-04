@@ -1906,17 +1906,6 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
     audio.load();
     setIsLoading(true);
 
-    const attemptPlay = async () => {
-      try {
-        await audio.play();
-      } catch (error) {
-        console.warn('Lecture automatique bloquée', error);
-        setIsLoading(false);
-      }
-    };
-
-    attemptPlay();
-
     return () => {
       audio.pause();
     };
