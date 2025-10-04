@@ -8,6 +8,7 @@ import DiscordAudioBridge from './discord/DiscordAudioBridge';
 import AnonymousSpeechManager from './services/AnonymousSpeechManager';
 import ShopService from './services/ShopService';
 import VoiceActivityRepository from './services/VoiceActivityRepository';
+import ListenerStatsService from './services/ListenerStatsService';
 
 const mixer = new AudioMixer({
   frameBytes: config.audio.frameBytes,
@@ -51,6 +52,8 @@ const sseService = new SseService({
   keepAliveInterval: config.keepAliveInterval,
 });
 
+const listenerStatsService = new ListenerStatsService();
+
 const voiceActivityRepository = new VoiceActivityRepository({
   url: config.database.url,
   ssl: config.database.ssl,
@@ -89,6 +92,7 @@ const appServer = new AppServer({
   discordBridge,
   shopService,
   voiceActivityRepository,
+  listenerStatsService,
 });
 appServer.start();
 
@@ -115,6 +119,12 @@ function shutdown(): void {
     sseService.closeAll();
   } catch (error) {
     console.warn('Error while closing SSE connections', error);
+  }
+
+  try {
+    listenerStatsService.stop();
+  } catch (error) {
+    console.warn('Error while stopping listener stats service', error);
   }
 
   try {

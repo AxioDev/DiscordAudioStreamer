@@ -4,6 +4,7 @@ import {
   Activity,
   ArrowRight,
   Users,
+  Headphones,
 } from '../core/deps.js';
 import {
   StatusBadge,
@@ -13,6 +14,7 @@ import {
   RealTimeTalkChart,
   AnonymousBooth,
   SpeakersSection,
+  ListenerTrendCard,
 } from '../components/index.js';
 
 const HomePage = ({
@@ -27,12 +29,16 @@ const HomePage = ({
   selectedWindowMinutes,
   onWindowChange,
   onViewProfile,
+  listenerStats = { count: 0, history: [] },
 }) => {
   const connectedCount = speakers.length;
   const activeSpeakersCount = speakers.reduce(
     (count, speaker) => count + (speaker?.isSpeaking ? 1 : 0),
     0,
   );
+  const listenerCount = Number.isFinite(listenerStats?.count)
+    ? Math.max(0, Math.round(listenerStats.count))
+    : 0;
 
   return html`
     <${Fragment}>
@@ -77,6 +83,8 @@ const HomePage = ({
     <${AudioPlayer} streamInfo=${streamInfo} audioKey=${audioKey} status=${status} />
   </section>
 
+  <${ListenerTrendCard} stats=${listenerStats} now=${now} />
+
   <${DailyActivityChart}
     history=${speakingHistory}
     now=${now}
@@ -116,6 +124,13 @@ const HomePage = ({
             <span aria-hidden="true" class="text-sm font-semibold tracking-normal">${activeSpeakersCount}</span>
             <span aria-hidden="true" class="text-[0.6rem] font-semibold uppercase tracking-[0.35em] text-indigo-200/80">Actifs</span>
             <span class="sr-only">personnes actives</span>
+          </span>
+          <span aria-hidden="true" class="text-indigo-300">·</span>
+          <span class="flex items-center gap-2">
+            <${Headphones} class="h-3.5 w-3.5" aria-hidden="true" />
+            <span aria-hidden="true" class="text-sm font-semibold tracking-normal">${listenerCount}</span>
+            <span aria-hidden="true" class="text-[0.6rem] font-semibold uppercase tracking-[0.35em] text-indigo-200/80">Flux</span>
+            <span class="sr-only">auditeurs du flux</span>
           </span>
         </div>
       </div>

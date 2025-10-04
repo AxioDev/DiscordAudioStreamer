@@ -7,6 +7,7 @@ export const DEFAULT_WINDOW_MINUTES = TALK_WINDOW_OPTIONS.includes(15)
 export const MINUTE_MS = 60 * 1000;
 export const HOUR_MS = 60 * MINUTE_MS;
 export const DAY_MS = 24 * HOUR_MS;
+export const LISTENER_HISTORY_RETENTION_MS = 24 * HOUR_MS;
 export const HISTORY_RETENTION_MS = Math.max(
   (Math.max(...TALK_WINDOW_OPTIONS) + 5) * 60 * 1000,
   24 * 60 * 60 * 1000,
