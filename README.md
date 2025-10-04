@@ -46,3 +46,7 @@ SHOP_COINGATE_CALLBACK_URL=https://example.com/shop/callback
 ```
 
 Leaving these variables undefined disables the CoinGate (and thus SEPA transfer) option entirely.
+
+## Statistiques et confidentialité
+
+Ces données sont calculées à partir de l’activité vocale et textuelle enregistrée.
