@@ -88,6 +88,17 @@ export interface GuildMembersListResult {
   hasMore: boolean;
 }
 
+export interface DiscordGuildSummary {
+  id: string;
+  name: string | null;
+  description: string | null;
+  iconUrl: string | null;
+  bannerUrl: string | null;
+  memberCount: number | null;
+  approximateMemberCount: number | null;
+  approximatePresenceCount: number | null;
+}
+
 export default class DiscordAudioBridge {
   private readonly config: Config;
 
@@ -394,6 +405,54 @@ export default class DiscordAudioBridge {
       };
     } catch (error) {
       console.warn('Failed to list guild members', (error as Error)?.message ?? error);
+      throw error;
+    }
+  }
+
+  public async getGuildSummary(): Promise<DiscordGuildSummary> {
+    const guildId = this.config.guildId ?? this.currentGuildId;
+    if (!guildId) {
+      const error = new Error('GUILD_NOT_CONFIGURED');
+      error.name = 'GUILD_NOT_CONFIGURED';
+      throw error;
+    }
+
+    try {
+      const resolvedGuild = await this.client.guilds.fetch({ guild: guildId, withCounts: true });
+
+      if (!resolvedGuild) {
+        const unavailableError = new Error('GUILD_UNAVAILABLE');
+        unavailableError.name = 'GUILD_UNAVAILABLE';
+        throw unavailableError;
+      }
+
+      const iconUrl = typeof resolvedGuild.iconURL === 'function' ? resolvedGuild.iconURL({ size: 128 }) : null;
+      const bannerUrl = typeof resolvedGuild.bannerURL === 'function' ? resolvedGuild.bannerURL({ size: 512 }) : null;
+
+      const normalizeCount = (value: unknown): number | null => {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+          return null;
+        }
+        return Math.max(0, Math.round(numeric));
+      };
+
+      return {
+        id: resolvedGuild.id,
+        name: typeof resolvedGuild.name === 'string' ? resolvedGuild.name : null,
+        description: typeof resolvedGuild.description === 'string' ? resolvedGuild.description : null,
+        iconUrl,
+        bannerUrl,
+        memberCount: normalizeCount(resolvedGuild.memberCount),
+        approximateMemberCount: normalizeCount(resolvedGuild.approximateMemberCount),
+        approximatePresenceCount: normalizeCount(resolvedGuild.approximatePresenceCount),
+      };
+    } catch (error) {
+      const errorName = (error as Error)?.name;
+      if (errorName === 'GUILD_NOT_CONFIGURED' || errorName === 'GUILD_UNAVAILABLE') {
+        throw error;
+      }
+      console.warn('Failed to fetch guild summary', (error as Error)?.message ?? error);
       throw error;
     }
   }

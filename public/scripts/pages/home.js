@@ -30,6 +30,7 @@ const HomePage = ({
   onWindowChange,
   onViewProfile,
   listenerStats = { count: 0, history: [] },
+  guildSummary = null,
 }) => {
   const connectedCount = speakers.length;
   const activeSpeakersCount = speakers.reduce(
@@ -39,6 +40,26 @@ const HomePage = ({
   const listenerCount = Number.isFinite(listenerStats?.count)
     ? Math.max(0, Math.round(listenerStats.count))
     : 0;
+
+  const normalizeCount = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return null;
+    }
+    return Math.max(0, Math.round(numeric));
+  };
+
+  const exactMemberCount = normalizeCount(guildSummary?.memberCount);
+  const approximateMemberCount = normalizeCount(guildSummary?.approximateMemberCount);
+  const resolvedMemberCount = exactMemberCount ?? approximateMemberCount;
+  const isApproximateMemberCount = exactMemberCount === null && approximateMemberCount !== null;
+  const memberCountDisplay =
+    resolvedMemberCount !== null
+      ? new Intl.NumberFormat('fr-FR').format(resolvedMemberCount)
+      : null;
+  const memberCountAria = isApproximateMemberCount
+    ? `Environ ${memberCountDisplay ?? 'indisponible'}`
+    : memberCountDisplay ?? 'indisponible';
 
   return html`
     <${Fragment}>
@@ -65,6 +86,18 @@ const HomePage = ({
             Rejoindre le Discord
             <${ArrowRight} class="h-4 w-4" aria-hidden="true" />
           </a>
+          <div class="flex flex-wrap items-center gap-3 text-sm text-slate-200/90">
+            <div class="flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-4 py-1.5">
+              <${Users} class="h-4 w-4 text-amber-300" aria-hidden="true" />
+              <span aria-hidden="true" class="font-semibold text-white">
+                ${memberCountDisplay ? `${isApproximateMemberCount ? '≈ ' : ''}${memberCountDisplay}` : 'Indisponible'}
+              </span>
+              <span aria-hidden="true" class="text-[0.6rem] font-semibold uppercase tracking-[0.35em] text-amber-200/80"
+                >Membres</span
+              >
+              <span class="sr-only">${`Nombre total de membres sur le serveur Discord : ${memberCountAria}`}</span>
+            </div>
+          </div>
         </div>
         <${BeerCanDisplay} />
       </div>

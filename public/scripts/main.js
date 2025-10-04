@@ -202,6 +202,7 @@ const App = () => {
   const [route, setRoute] = useState(() => getRouteFromHash());
   const [anonymousSlot, setAnonymousSlot] = useState(() => normalizeAnonymousSlot());
   const [listenerStats, setListenerStats] = useState(() => ({ count: 0, history: [] }));
+  const [guildSummary, setGuildSummary] = useState(null);
   const sidebarTouchStartRef = useRef(null);
 
   const closeMenu = useCallback(() => {
@@ -301,6 +302,70 @@ const App = () => {
   useEffect(() => {
     participantsRef.current = participantsMap;
   }, [participantsMap]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+
+    const parseCount = (value) => {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) {
+        return null;
+      }
+      return Math.max(0, Math.round(numeric));
+    };
+
+    const loadGuildSummary = async () => {
+      try {
+        const response = await fetch('/api/guild/summary', {
+          method: 'GET',
+          signal: controller ? controller.signal : undefined,
+          headers: {
+            Accept: 'application/json',
+          },
+        });
+        if (!response.ok) {
+          throw new Error(`Guild summary request failed with status ${response.status}`);
+        }
+        const payload = await response.json();
+        if (cancelled) {
+          return;
+        }
+        const summary = payload && typeof payload === 'object' ? payload.guild ?? payload : null;
+        if (!summary || typeof summary !== 'object') {
+          setGuildSummary(null);
+          return;
+        }
+        setGuildSummary({
+          id: typeof summary.id === 'string' ? summary.id : null,
+          name: typeof summary.name === 'string' ? summary.name : null,
+          description: typeof summary.description === 'string' ? summary.description : null,
+          iconUrl: typeof summary.iconUrl === 'string' ? summary.iconUrl : null,
+          bannerUrl: typeof summary.bannerUrl === 'string' ? summary.bannerUrl : null,
+          memberCount: parseCount(summary.memberCount),
+          approximateMemberCount: parseCount(summary.approximateMemberCount),
+          approximatePresenceCount: parseCount(summary.approximatePresenceCount),
+        });
+      } catch (error) {
+        if (error && error.name === 'AbortError') {
+          return;
+        }
+        console.warn('Impossible de récupérer les informations du serveur Discord', error);
+        if (!cancelled) {
+          setGuildSummary(null);
+        }
+      }
+    };
+
+    loadGuildSummary();
+
+    return () => {
+      cancelled = true;
+      if (controller) {
+        controller.abort();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -892,6 +957,7 @@ const App = () => {
                   onWindowChange=${handleWindowChange}
                   onViewProfile=${handleProfileOpen}
                   listenerStats=${listenerStats}
+                  guildSummary=${guildSummary}
                 />`
           }
         </div>
