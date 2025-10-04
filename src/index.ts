@@ -13,6 +13,7 @@ import ListenerStatsService from './services/ListenerStatsService';
 import BlogRepository from './services/BlogRepository';
 import BlogService from './services/BlogService';
 import DailyArticleService from './services/DailyArticleService';
+import KaldiTranscriptionService from './services/KaldiTranscriptionService';
 
 const mixer = new AudioMixer({
   frameBytes: config.audio.frameBytes,
@@ -63,6 +64,22 @@ const voiceActivityRepository = new VoiceActivityRepository({
   ssl: config.database.ssl,
 });
 
+const kaldiTranscriptionService =
+  config.kaldi.enabled && Boolean(config.database.url)
+    ? new KaldiTranscriptionService({
+        host: config.kaldi.host,
+        port: config.kaldi.port,
+        sampleRate: config.kaldi.sampleRate,
+        voiceActivityRepository,
+        inputSampleRate: config.audio.sampleRate,
+        inputChannels: config.audio.channels,
+      })
+    : null;
+
+if (config.kaldi.enabled && !kaldiTranscriptionService) {
+  console.warn('Kaldi transcription service is enabled but no database is configured; disabling transcription.');
+}
+
 const speakerTracker = new SpeakerTracker({
   sseService,
   voiceActivityRepository,
@@ -93,6 +110,7 @@ const discordBridge = new DiscordAudioBridge({
   mixer,
   speakerTracker,
   voiceActivityRepository,
+  transcriptionService: kaldiTranscriptionService,
 });
 
 discordBridge.login().catch((error) => {
