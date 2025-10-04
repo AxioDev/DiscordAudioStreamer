@@ -110,6 +110,14 @@ export interface VoiceTranscriptionRecord {
   timestamp: Date;
 }
 
+export interface VoiceTranscriptionInsertRecord {
+  userId: string;
+  channelId: string | null;
+  guildId: string | null;
+  content: string;
+  timestamp: Date;
+}
+
 export interface VoiceActivityHistoryEntry {
   userId: string;
   channelId: string | null;
@@ -675,6 +683,61 @@ export default class VoiceActivityRepository {
       );
     } catch (error) {
       console.error('Failed to persist voice camera event', error);
+    }
+  }
+
+  public async recordVoiceTranscription(record: VoiceTranscriptionInsertRecord): Promise<void> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return;
+    }
+
+    const normalizedContent = record.content?.trim();
+    if (!normalizedContent) {
+      return;
+    }
+
+    try {
+      await this.ensureSchemaIntrospection(pool);
+
+      const voiceTranscriptionsColumns = this.voiceTranscriptionsColumns ?? new Set<string>();
+      if (voiceTranscriptionsColumns.size === 0) {
+        this.warnAboutMissingColumn('voice_transcriptions', 'user_id');
+        return;
+      }
+
+      const columns = ['user_id', 'timestamp'];
+      const values: Array<string | Date | null> = [record.userId, record.timestamp];
+
+      if (voiceTranscriptionsColumns.has('guild_id')) {
+        columns.push('guild_id');
+        values.push(record.guildId ?? null);
+      } else {
+        this.warnAboutMissingColumn('voice_transcriptions', 'guild_id');
+      }
+
+      if (voiceTranscriptionsColumns.has('channel_id')) {
+        columns.push('channel_id');
+        values.push(record.channelId ?? null);
+      } else {
+        this.warnAboutMissingColumn('voice_transcriptions', 'channel_id');
+      }
+
+      if (voiceTranscriptionsColumns.has('content')) {
+        columns.push('content');
+        values.push(normalizedContent);
+      } else {
+        this.warnAboutMissingColumn('voice_transcriptions', 'content');
+      }
+
+      const placeholders = columns.map((_, index) => `$${index + 1}`);
+
+      await pool.query(
+        `INSERT INTO voice_transcriptions (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`,
+        values,
+      );
+    } catch (error) {
+      console.error('Failed to persist voice transcription', error);
     }
   }
 

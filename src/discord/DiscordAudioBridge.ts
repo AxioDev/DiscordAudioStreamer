@@ -27,6 +27,7 @@ import type AudioMixer from '../audio/AudioMixer';
 import type SpeakerTracker from '../services/SpeakerTracker';
 import type { VoiceStateSnapshot } from '../services/SpeakerTracker';
 import type VoiceActivityRepository from '../services/VoiceActivityRepository';
+import type KaldiTranscriptionService from '../services/KaldiTranscriptionService';
 import type { Config } from '../config';
 
 type DecoderStream = prism.opus.Decoder;
@@ -42,6 +43,7 @@ export interface DiscordAudioBridgeOptions {
   mixer: AudioMixer;
   speakerTracker: SpeakerTracker;
   voiceActivityRepository?: VoiceActivityRepository | null;
+  transcriptionService?: KaldiTranscriptionService | null;
 }
 
 export interface DiscordUserIdentity {
@@ -129,11 +131,20 @@ export default class DiscordAudioBridge {
 
   private readonly voiceActivityRepository: VoiceActivityRepository | null;
 
-  constructor({ config, mixer, speakerTracker, voiceActivityRepository = null }: DiscordAudioBridgeOptions) {
+  private readonly transcriptionService: KaldiTranscriptionService | null;
+
+  constructor({
+    config,
+    mixer,
+    speakerTracker,
+    voiceActivityRepository = null,
+    transcriptionService = null,
+  }: DiscordAudioBridgeOptions) {
     this.config = config;
     this.mixer = mixer;
     this.speakerTracker = speakerTracker;
     this.voiceActivityRepository = voiceActivityRepository;
+    this.transcriptionService = transcriptionService;
 
     this.client = new Client({
       intents: [
@@ -442,6 +453,10 @@ export default class DiscordAudioBridge {
       this.speakerTracker.handleSpeakingStart(userId).catch((error) => {
         console.error('Failed to handle speaking start', error);
       });
+      this.transcriptionService?.startSession(userId, {
+        guildId: this.currentGuildId,
+        channelId: this.currentVoiceChannelId,
+      });
       this.subscribeToUserAudio(userId, receiver);
     });
 
@@ -454,6 +469,9 @@ export default class DiscordAudioBridge {
       console.log('speaking end', userId);
       this.speakerTracker.handleSpeakingEnd(userId);
       this.mixer.removeSource(userId);
+      void this.transcriptionService?.finalizeSession(userId).catch((error) => {
+        console.warn('Failed to finalize transcription session on speaking end', error);
+      });
     });
 
     connection.on('stateChange', (oldState, newState) => {
@@ -503,7 +521,10 @@ export default class DiscordAudioBridge {
       });
 
       opusStream.pipe(decoder);
-      const onData = (chunk: Buffer) => this.mixer.pushToSource(userId, chunk);
+      const onData = (chunk: Buffer) => {
+        this.mixer.pushToSource(userId, chunk);
+        this.transcriptionService?.pushAudio(userId, chunk);
+      };
       decoder.on('data', onData);
 
       const subscription: Subscription = { opusStream, decoder, cleanup: null };
@@ -539,6 +560,9 @@ export default class DiscordAudioBridge {
         }
         this.mixer.removeSource(userId);
         this.speakerTracker.handleSpeakingEnd(userId);
+        void this.transcriptionService?.finalizeSession(userId).catch((error) => {
+          console.warn('Failed to finalize transcription session during cleanup', error);
+        });
         console.log('Cleaned resources for user', userId);
       };
 
@@ -922,11 +946,17 @@ export default class DiscordAudioBridge {
         this.activeSubscriptions.delete(userId);
         this.mixer.removeSource(userId);
         this.speakerTracker.handleSpeakingEnd(userId);
+        void this.transcriptionService?.finalizeSession(userId).catch((error) => {
+          console.warn('Failed to finalize transcription session during manual cleanup', error);
+        });
       }
       return;
     }
 
     this.mixer.removeSource(userId);
     this.speakerTracker.handleSpeakingEnd(userId);
+    void this.transcriptionService?.finalizeSession(userId).catch((error) => {
+      console.warn('Failed to finalize transcription session during passive cleanup', error);
+    });
   }
 }

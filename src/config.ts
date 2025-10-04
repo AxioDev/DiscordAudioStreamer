@@ -75,6 +75,13 @@ export interface OpenAIConfig {
   dailyArticleTags: string[];
 }
 
+export interface KaldiConfig {
+  host: string;
+  port: number;
+  sampleRate: number;
+  enabled: boolean;
+}
+
 export interface Config {
   botToken: string;
   guildId?: string;
@@ -100,6 +107,7 @@ export interface Config {
   siteLanguage: string;
   twitterSite?: string;
   twitterCreator?: string;
+  kaldi: KaldiConfig;
 }
 
 const config: Config = {
@@ -179,6 +187,12 @@ const config: Config = {
   siteLanguage: process.env.SITE_LANGUAGE || 'fr-FR',
   twitterSite: process.env.TWITTER_SITE || '@libreantenne',
   twitterCreator: process.env.TWITTER_CREATOR || process.env.TWITTER_SITE || '@libreantenne',
+  kaldi: {
+    host: process.env.KALDI_HOST || 'kaldiws.internal',
+    port: parseInteger(process.env.KALDI_PORT, 2700),
+    sampleRate: parseInteger(process.env.KALDI_SAMPLE_RATE, 16000),
+    enabled: process.env.KALDI_ENABLED !== 'false',
+  },
 };
 
 config.audio.frameSamples = Math.floor(
