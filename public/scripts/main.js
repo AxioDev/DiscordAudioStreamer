@@ -1043,12 +1043,16 @@ const App = () => {
                     key=${`previous-${transitionState.id}-${buildRouteKey(transitionState.previous)}`}
                     class=${previousLayerClasses.join(' ')}
                   >
-                    ${previousPageTemplate}
+                    <div class="page-transition-layer__content">
+                      ${previousPageTemplate}
+                    </div>
                   </div>`
                 : null
             }
             <div key=${`current-${buildRouteKey(route)}`} class=${currentLayerClasses.join(' ')}>
-              ${currentPageTemplate}
+              <div class="page-transition-layer__content">
+                ${currentPageTemplate}
+              </div>
             </div>
             ${
               transitionState.active
