@@ -331,4 +331,57 @@ export default class BlogRepository {
 
     return rows.length > 0 ? rows[0] : null;
   }
+
+  async upsertPost(input: {
+    slug: string;
+    title: string;
+    excerpt: string | null;
+    contentMarkdown: string;
+    coverImageUrl: string | null;
+    tags: string[];
+    seoDescription: string | null;
+    publishedAt: Date;
+    updatedAt: Date;
+  }): Promise<void> {
+    const pool = await this.getPool();
+    if (!pool) {
+      return;
+    }
+
+    await pool.query(
+      `
+        INSERT INTO blog_posts (
+          slug,
+          title,
+          excerpt,
+          content_markdown,
+          cover_image_url,
+          tags,
+          seo_description,
+          published_at,
+          updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT (slug) DO UPDATE SET
+          title = EXCLUDED.title,
+          excerpt = EXCLUDED.excerpt,
+          content_markdown = EXCLUDED.content_markdown,
+          cover_image_url = EXCLUDED.cover_image_url,
+          tags = EXCLUDED.tags,
+          seo_description = EXCLUDED.seo_description,
+          published_at = EXCLUDED.published_at,
+          updated_at = EXCLUDED.updated_at
+      `,
+      [
+        input.slug,
+        input.title,
+        input.excerpt,
+        input.contentMarkdown,
+        input.coverImageUrl,
+        input.tags,
+        input.seoDescription,
+        input.publishedAt,
+        input.updatedAt,
+      ],
+    );
+  }
 }

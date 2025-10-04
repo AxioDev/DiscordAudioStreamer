@@ -101,6 +101,15 @@ export interface VoiceTranscriptionCursor {
   id: number;
 }
 
+export interface VoiceTranscriptionRecord {
+  id: string;
+  userId: string | null;
+  channelId: string | null;
+  guildId: string | null;
+  content: string | null;
+  timestamp: Date;
+}
+
 export interface VoiceActivityHistoryEntry {
   userId: string;
   channelId: string | null;
@@ -1095,6 +1104,103 @@ export default class VoiceActivityRepository {
       }
       console.error('Failed to load voice transcriptions', error);
       return { entries: [], hasMore: false, nextCursor: null };
+    }
+  }
+
+  public async listVoiceTranscriptionsForRange({
+    since = null,
+    until = null,
+    limit = null,
+  }: {
+    since?: Date | null;
+    until?: Date | null;
+    limit?: number | null;
+  }): Promise<VoiceTranscriptionRecord[]> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return [];
+    }
+
+    try {
+      await this.ensureSchemaIntrospection(pool);
+      if (!this.voiceTranscriptionsColumns || this.voiceTranscriptionsColumns.size === 0) {
+        return [];
+      }
+
+      const conditions: string[] = [];
+      const params: Array<string | number> = [];
+
+      if (since instanceof Date && !Number.isNaN(since.getTime())) {
+        params.push(since.toISOString());
+        conditions.push(`timestamp >= $${params.length}::timestamptz`);
+      }
+
+      if (until instanceof Date && !Number.isNaN(until.getTime())) {
+        params.push(until.toISOString());
+        conditions.push(`timestamp < $${params.length}::timestamptz`);
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      let limitClause = '';
+      if (limit != null && Number.isFinite(limit)) {
+        const numericLimit = Math.max(1, Math.floor(Number(limit)));
+        params.push(numericLimit);
+        limitClause = `LIMIT $${params.length}`;
+      }
+
+      const query = `
+        SELECT id, user_id, channel_id, guild_id, content, timestamp
+        FROM voice_transcriptions
+        ${whereClause}
+        ORDER BY timestamp ASC
+        ${limitClause}
+      `;
+
+      const result = await pool.query(query, params);
+      const rows = result.rows ?? [];
+
+      return rows.map((row) => {
+        const timestampValue = row.timestamp instanceof Date ? row.timestamp : new Date(row.timestamp);
+        const timestamp = Number.isNaN(timestampValue?.getTime()) ? new Date(0) : timestampValue;
+        const rawId = row.id;
+        const id = rawId != null ? String(rawId) : '';
+        return {
+          id,
+          userId:
+            typeof row.user_id === 'string'
+              ? row.user_id
+              : row.user_id == null
+              ? null
+              : String(row.user_id),
+          channelId:
+            typeof row.channel_id === 'string'
+              ? row.channel_id
+              : row.channel_id == null
+              ? null
+              : String(row.channel_id),
+          guildId:
+            typeof row.guild_id === 'string'
+              ? row.guild_id
+              : row.guild_id == null
+              ? null
+              : String(row.guild_id),
+          content:
+            typeof row.content === 'string'
+              ? row.content
+              : row.content == null
+              ? null
+              : String(row.content),
+          timestamp,
+        };
+      });
+    } catch (error) {
+      if ((error as { code?: string })?.code === '42P01') {
+        console.warn('voice_transcriptions table not found; skipping transcription lookup');
+        return [];
+      }
+      console.error('Failed to list voice transcriptions', error);
+      return [];
     }
   }
 

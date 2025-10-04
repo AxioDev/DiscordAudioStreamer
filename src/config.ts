@@ -66,6 +66,15 @@ export interface DatabaseConfig {
   ssl: boolean;
 }
 
+export interface OpenAIConfig {
+  apiKey?: string;
+  articleModel: string;
+  imageModel: string;
+  dailyArticleHourUtc: number;
+  dailyArticleMinuteUtc: number;
+  dailyArticleTags: string[];
+}
+
 export interface Config {
   botToken: string;
   guildId?: string;
@@ -84,6 +93,7 @@ export interface Config {
   excludedUserIds: string[];
   shop: ShopConfig;
   database: DatabaseConfig;
+  openAI: OpenAIConfig;
 }
 
 const config: Config = {
@@ -145,6 +155,17 @@ const config: Config = {
     ssl:
       process.env.DATABASE_SSL === 'true' ||
       (process.env.NODE_ENV === 'production' && process.env.DATABASE_SSL !== 'false'),
+  },
+  openAI: {
+    apiKey: process.env.OPENAI_API_KEY || undefined,
+    articleModel: process.env.OPENAI_ARTICLE_MODEL || 'gpt-4.1-mini',
+    imageModel: process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1',
+    dailyArticleHourUtc: Math.min(Math.max(parseInteger(process.env.OPENAI_DAILY_ARTICLE_HOUR_UTC, 0), 0), 23),
+    dailyArticleMinuteUtc: Math.min(
+      Math.max(parseInteger(process.env.OPENAI_DAILY_ARTICLE_MINUTE_UTC, 30), 0),
+      59,
+    ),
+    dailyArticleTags: parseStringList(process.env.OPENAI_DAILY_ARTICLE_TAGS || 'journal,libre-antenne'),
   },
 };
 
