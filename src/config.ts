@@ -91,6 +91,11 @@ export interface AdminConfig {
   password: string | null;
 }
 
+export interface SecretArticleTriggerConfig {
+  path: string | null;
+  password: string | null;
+}
+
 export interface Config {
   botToken: string;
   guildId?: string;
@@ -118,6 +123,7 @@ export interface Config {
   twitterCreator?: string;
   kaldi: KaldiConfig;
   admin: AdminConfig;
+  secretArticleTrigger: SecretArticleTriggerConfig;
 }
 
 const config: Config = {
@@ -225,6 +231,20 @@ const config: Config = {
     })(),
     password: (() => {
       const value = process.env.ADMIN_PASSWORD ?? '';
+      return value.length > 0 ? value : null;
+    })(),
+  },
+  secretArticleTrigger: {
+    path: (() => {
+      const rawPath = process.env.SECRET_ARTICLE_PATH ?? '';
+      const trimmed = rawPath.trim();
+      if (trimmed.length === 0) {
+        return null;
+      }
+      return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+    })(),
+    password: (() => {
+      const value = process.env.SECRET_ARTICLE_PASSWORD ?? '';
       return value.length > 0 ? value : null;
     })(),
   },
