@@ -392,7 +392,14 @@ export default class KaldiTranscriptionService {
     }
 
     try {
-      ws.send(JSON.stringify({ eof: 1 }));
+      // NOTE: The upstream Vosk websocket server performs a direct string
+      // comparison against the literal value '{"eof" : 1}' to detect the end
+      // of an audio stream instead of parsing the JSON payload. Sending the
+      // compact JSON representation (without spaces) causes the server to treat
+      // the message as an audio frame, triggering a TypeError when Kaldi
+      // attempts to process it. To ensure compatibility we must replicate the
+      // exact spacing expected by the server implementation.
+      ws.send('{"eof" : 1}');
     } catch (error) {
       console.error('Failed to signal Kaldi session EOF', {
         userId: session.userId,
