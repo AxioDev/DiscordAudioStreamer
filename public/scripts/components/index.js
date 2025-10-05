@@ -2338,14 +2338,13 @@ const ProfileIdentityCard = ({ profile, userId }) => {
             ? html`<button
                 type="button"
                 onClick=${handleOpenAvatar}
-                class="group relative flex shrink-0 items-center justify-center rounded-3xl border border-white/10 bg-black/30 p-1 shadow-lg shadow-slate-950/60 transition hover:border-indigo-300/60 hover:shadow-indigo-500/30"
+                class="group relative flex w-full max-w-[10rem] items-center justify-center rounded-3xl border border-white/10 bg-black/30 p-1 shadow-lg shadow-slate-950/60 transition hover:border-indigo-300/60 hover:shadow-indigo-500/30 sm:max-w-[12rem] sm:shrink-0 md:max-w-[14rem] lg:max-w-[16rem]"
                 aria-label="Agrandir l’avatar"
               >
                 <img
                   src=${avatarUrl}
                   alt=${displayName}
-                  style=${{ width: '256px', height: '256px' }}
-                  class="rounded-[1.25rem] object-cover"
+                  class="aspect-square h-full w-full rounded-[1.25rem] object-cover"
                   loading="lazy"
                   decoding="async"
                 />
@@ -2355,7 +2354,7 @@ const ProfileIdentityCard = ({ profile, userId }) => {
                 </span>
               </button>`
             : html`<div
-                class="flex h-32 w-32 items-center justify-center rounded-3xl border border-white/10 bg-white/10 text-3xl font-semibold text-white shadow-inner shadow-slate-950/60 sm:h-40 sm:w-40"
+                class="flex aspect-square w-full max-w-[10rem] items-center justify-center rounded-3xl border border-white/10 bg-white/10 text-3xl font-semibold text-white shadow-inner shadow-slate-950/60 sm:max-w-[12rem] sm:shrink-0 md:max-w-[14rem]"
                 aria-hidden="true"
               >
                 ${initials}
