@@ -325,23 +325,60 @@ export default class KaldiTranscriptionService {
       return;
     }
 
-    const result = (parsed as { result?: { hypotheses?: Array<{ transcript?: string }>; final?: boolean } }).result;
-    if (!result) {
-      return;
+    const compatiblePayload = parsed as {
+      result?: { hypotheses?: Array<{ transcript?: string }>; final?: boolean };
+      text?: string;
+      partial?: string;
+      alternatives?: Array<{ text?: string }>;
+    };
+
+    const finalTextCandidates: string[] = [];
+
+    if (compatiblePayload.result) {
+      const { result } = compatiblePayload;
+      const hypotheses = Array.isArray(result.hypotheses) ? result.hypotheses : [];
+      if (result.final) {
+        const transcriptCandidate = hypotheses.length > 0 ? hypotheses[0]?.transcript : null;
+        if (typeof transcriptCandidate === 'string') {
+          finalTextCandidates.push(transcriptCandidate);
+        }
+      }
     }
 
-    const hypotheses = Array.isArray(result.hypotheses) ? result.hypotheses : [];
-    const transcriptCandidate = hypotheses.length > 0 ? hypotheses[0]?.transcript : null;
+    if (typeof compatiblePayload.text === 'string' && compatiblePayload.text.trim().length > 0) {
+      finalTextCandidates.push(compatiblePayload.text);
+    }
 
-    if (typeof transcriptCandidate === 'string' && result.final) {
-      const normalized = transcriptCandidate.trim();
-      if (normalized.length > 0) {
-        session.transcripts.push(normalized);
-        console.info('Kaldi transcription received', {
+    if (Array.isArray(compatiblePayload.alternatives)) {
+      for (const alternative of compatiblePayload.alternatives) {
+        if (typeof alternative?.text === 'string' && alternative.text.trim().length > 0) {
+          finalTextCandidates.push(alternative.text);
+        }
+      }
+    }
+
+    const normalizedTranscript = finalTextCandidates
+      .map((candidate) => candidate.trim())
+      .find((candidate) => candidate.length > 0);
+
+    if (normalizedTranscript) {
+      session.transcripts.push(normalizedTranscript);
+      console.info('Kaldi transcription received', {
+        userId: session.userId,
+        guildId: session.guildId,
+        channelId: session.channelId,
+        transcript: normalizedTranscript,
+      });
+    }
+
+    if (typeof compatiblePayload.partial === 'string') {
+      const partial = compatiblePayload.partial.trim();
+      if (partial.length > 0) {
+        console.debug('Kaldi partial transcription', {
           userId: session.userId,
           guildId: session.guildId,
           channelId: session.channelId,
-          transcript: normalized,
+          partial,
         });
       }
     }
