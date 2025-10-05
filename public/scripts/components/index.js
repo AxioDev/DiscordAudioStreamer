@@ -2447,7 +2447,7 @@ const ProfileIdentityCard = ({ profile, userId }) => {
                   Pour retirer ta fiche du site, envoie un message privé au bot Discord ou dans le salon dédié avec la phrase suivante :
                 </p>
                 <p class="rounded-2xl border border-indigo-400/40 bg-indigo-500/10 px-4 py-3 text-sm font-semibold text-indigo-100">
-                  «&nbsp;Je veux masquer ma fiche du site internet&nbsp;»
+                  « Je veux masquer ma fiche du site internet »
                 </p>
                 <p class="text-sm text-slate-300">
                   Dès que ce message est reçu, ton profil est automatiquement masqué de l’annuaire public. Tu pourras à tout moment demander la réactivation de ta fiche auprès de l’équipe.
