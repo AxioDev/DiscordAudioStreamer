@@ -3514,20 +3514,81 @@ const DailyBreakdown = ({
       }
     };
 
+    const mergeIntervals = (intervals) => {
+      const normalized = intervals
+        .map((interval) => {
+          if (!interval) {
+            return null;
+          }
+          const [start, end] = interval;
+          if (!Number.isFinite(start) || !Number.isFinite(end)) {
+            return null;
+          }
+          const safeStart = Math.max(start, sinceMs);
+          const safeEnd = Math.min(end, untilMs);
+          if (safeEnd <= safeStart) {
+            return null;
+          }
+          return [safeStart, safeEnd];
+        })
+        .filter(Boolean);
+
+      if (normalized.length === 0) {
+        return normalized;
+      }
+
+      normalized.sort((a, b) => a[0] - b[0]);
+      const merged = [normalized[0].slice()];
+
+      for (let index = 1; index < normalized.length; index += 1) {
+        const [start, end] = normalized[index];
+        const last = merged[merged.length - 1];
+        if (start <= last[1]) {
+          last[1] = Math.max(last[1], end);
+        } else {
+          merged.push([start, end]);
+        }
+      }
+
+      return merged;
+    };
+
+    const addIntervals = (intervals, field) => {
+      intervals.forEach(([start, end]) => {
+        accumulateDuration(start, end, field);
+      });
+    };
+
+    const presenceIntervals = [];
     presenceSegments.forEach((segment) => {
       const start = Number.isFinite(segment?.joinedAtMs) ? segment.joinedAtMs : segment?.startMs;
+      if (!Number.isFinite(start)) {
+        return;
+      }
       const end = clampEnd(segment?.leftAtMs ?? segment?.endMs);
-      accumulateDuration(start, end, 'presenceMs');
+      if (!Number.isFinite(end)) {
+        return;
+      }
+      presenceIntervals.push([start, end]);
     });
+    addIntervals(mergeIntervals(presenceIntervals), 'presenceMs');
 
+    const speakingIntervals = [];
     speakingSegments.forEach((segment) => {
       const start = Number.isFinite(segment?.startedAtMs) ? segment.startedAtMs : segment?.startMs;
+      if (!Number.isFinite(start)) {
+        return;
+      }
       const endCandidate = Number.isFinite(segment?.durationMs)
         ? start + Math.max(0, segment.durationMs)
         : segment?.endedAtMs ?? segment?.endMs;
       const end = clampEnd(endCandidate);
-      accumulateDuration(start, end, 'speakingMs');
+      if (!Number.isFinite(end)) {
+        return;
+      }
+      speakingIntervals.push([start, end]);
     });
+    addIntervals(mergeIntervals(speakingIntervals), 'speakingMs');
 
     messageEvents.forEach((event) => {
       const timestamp = Number.isFinite(event?.timestampMs) ? event.timestampMs : null;
