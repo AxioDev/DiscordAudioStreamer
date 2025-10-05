@@ -509,7 +509,7 @@ const DailyActivityChart = ({ history, now, isHistoryLoading }) => {
           }
           <div class="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-slate-950/80 to-transparent"></div>
           <div ref=${scrollContainerRef} class="overflow-x-auto">
-            <div class="flex min-w-[48rem] items-end gap-2 pb-6 sm:gap-3 md:gap-4">
+            <div class="flex min-w-full items-end gap-2 pb-6 sm:min-w-[48rem] sm:gap-3 md:gap-4">
               ${chart.bins.map((bin) => {
                 const rawPercent = chart.maxDuration > 0 ? (bin.duration / chart.maxDuration) * 100 : 0;
                 const heightPercent = bin.duration > 0 ? Math.max(6, Math.round(rawPercent)) : 0;
