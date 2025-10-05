@@ -392,7 +392,8 @@ const ClassementsPage = ({ params = {} }) => {
     return html`
       <${Fragment}>
         ${leaders.slice(0, 100).map((leader, index) => {
-          const rank = index + 1;
+          const candidateRank = Number(leader?.rank ?? leader?.absoluteRank);
+          const rank = Number.isFinite(candidateRank) && candidateRank > 0 ? Math.floor(candidateRank) : index + 1;
           const style = rank <= 3 ? topThreeStyles[rank - 1] : null;
           const highlight = style ? style.highlight : 'border-white/5 bg-slate-900/50';
           const accent = style ? style.accent : 'from-transparent to-transparent';

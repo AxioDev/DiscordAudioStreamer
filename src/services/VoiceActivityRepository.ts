@@ -237,6 +237,7 @@ export interface HypeLeaderEntry {
   displayName: string;
   username: string | null;
   sessions: number;
+  absoluteRank: number;
   arrivalEffect: number;
   departureEffect: number;
   retentionMinutes: number;
@@ -2088,7 +2089,7 @@ export default class VoiceActivityRepository {
 
     let searchClause = '';
     if (normalizedSearch) {
-      searchClause = `  AND COALESCE(u.nickname, u.username, u.pseudo, 'Inconnu') ILIKE $${parameterIndex} ESCAPE '\\'`;
+      searchClause = `WHERE ranked.display_name ILIKE $${parameterIndex} ESCAPE '\\'`;
       params.push(`%${this.escapeLikePattern(normalizedSearch)}%`);
       parameterIndex += 1;
     }
@@ -2100,6 +2101,8 @@ export default class VoiceActivityRepository {
       parameterIndex += 1;
       limitClause = `LIMIT ${limitParameter}`;
     }
+
+    const orderByClause = `${sortColumn} ${sortDirection}, sch_score_norm DESC, display_name ASC`;
 
     const query = `WITH
     sessions_count AS (
@@ -2202,41 +2205,57 @@ export default class VoiceActivityRepository {
     )
 
 SELECT
-    u.user_id,
-    COALESCE(u.nickname, u.username, u.pseudo, 'Inconnu') AS display_name,
-    u.username,
-    sc.session_count,
-    dp.days_count,
-    COALESCE(a.arrival_effect, 0) AS arrival_effect,
-    COALESCE(d.departure_effect, 0) AS departure_effect,
-    ROUND((COALESCE(r.retention_uplift, 0) / 60.0)::numeric, 2) AS retention_minutes,
-    COALESCE(ac.activity_score, 0) AS activity_score,
-    (
-        0.4 * COALESCE(a.arrival_effect, 0) +
-        0.3 * COALESCE(d.departure_effect, 0) +
-        0.2 * (COALESCE(r.retention_uplift, 0) / 60.0) +
-        0.1 * COALESCE(ac.activity_score, 0)
-    ) AS sch_raw,
-    ROUND((
+    ranked.user_id,
+    ranked.display_name,
+    ranked.username,
+    ranked.session_count,
+    ranked.days_count,
+    ranked.arrival_effect,
+    ranked.departure_effect,
+    ranked.retention_minutes,
+    ranked.activity_score,
+    ranked.sch_raw,
+    ranked.sch_score_norm,
+    ranked.absolute_rank
+FROM (
+    SELECT
+        u.user_id,
+        COALESCE(u.nickname, u.username, u.pseudo, 'Inconnu') AS display_name,
+        u.username,
+        sc.session_count,
+        dp.days_count,
+        COALESCE(a.arrival_effect, 0) AS arrival_effect,
+        COALESCE(d.departure_effect, 0) AS departure_effect,
+        ROUND((COALESCE(r.retention_uplift, 0) / 60.0)::numeric, 2) AS retention_minutes,
+        COALESCE(ac.activity_score, 0) AS activity_score,
         (
             0.4 * COALESCE(a.arrival_effect, 0) +
             0.3 * COALESCE(d.departure_effect, 0) +
             0.2 * (COALESCE(r.retention_uplift, 0) / 60.0) +
             0.1 * COALESCE(ac.activity_score, 0)
-        ) / LOG(1 + sc.session_count)
-    )::numeric, 2) AS sch_score_norm
-FROM users u
-JOIN sessions_count sc ON u.user_id = sc.user_id AND u.guild_id = sc.guild_id
-JOIN days_present dp   ON u.user_id = dp.user_id AND u.guild_id = dp.guild_id
-LEFT JOIN arrival a   ON u.user_id = a.user_id AND u.guild_id = a.guild_id
-LEFT JOIN departure d ON u.user_id = d.user_id AND u.guild_id = d.guild_id
-LEFT JOIN retention r ON u.user_id = r.influencer AND u.guild_id = r.guild_id
-LEFT JOIN activity ac ON u.user_id = ac.user_id AND u.guild_id = ac.guild_id
-WHERE sc.session_count >= 5
-  AND dp.days_count >= 3
-  AND u.user_id NOT IN ('1419381362116268112')
+        ) AS sch_raw,
+        ROUND((
+            (
+                0.4 * COALESCE(a.arrival_effect, 0) +
+                0.3 * COALESCE(d.departure_effect, 0) +
+                0.2 * (COALESCE(r.retention_uplift, 0) / 60.0) +
+                0.1 * COALESCE(ac.activity_score, 0)
+            ) / LOG(1 + sc.session_count)
+        )::numeric, 2) AS sch_score_norm,
+        ROW_NUMBER() OVER (ORDER BY ${orderByClause}) AS absolute_rank
+    FROM users u
+    JOIN sessions_count sc ON u.user_id = sc.user_id AND u.guild_id = sc.guild_id
+    JOIN days_present dp   ON u.user_id = dp.user_id AND u.guild_id = dp.guild_id
+    LEFT JOIN arrival a   ON u.user_id = a.user_id AND u.guild_id = a.guild_id
+    LEFT JOIN departure d ON u.user_id = d.user_id AND u.guild_id = d.guild_id
+    LEFT JOIN retention r ON u.user_id = r.influencer AND u.guild_id = r.guild_id
+    LEFT JOIN activity ac ON u.user_id = ac.user_id AND u.guild_id = ac.guild_id
+    WHERE sc.session_count >= 5
+      AND dp.days_count >= 3
+      AND u.user_id NOT IN ('1419381362116268112')
+) ranked
 ${searchClause}
-ORDER BY ${sortColumn} ${sortDirection}, sch_score_norm DESC, display_name ASC
+ORDER BY ranked.absolute_rank
 ${limitClause}`;
 
     try {
@@ -2259,6 +2278,7 @@ ${limitClause}`;
           displayName,
           username,
           sessions: Number.isFinite(Number(row.session_count)) ? Number(row.session_count) : 0,
+          absoluteRank: Math.max(1, Math.floor(parseNumber(row.absolute_rank))),
           arrivalEffect: parseNumber(row.arrival_effect),
           departureEffect: parseNumber(row.departure_effect),
           retentionMinutes: parseNumber(row.retention_minutes),

@@ -432,22 +432,40 @@ export default class HypeLeaderboardService {
     base: BaseLeaderboardCache,
     options: NormalizedHypeLeaderboardQueryOptions,
   ): Promise<{ ranked: HypeLeaderWithTrend[]; comparedAt: Date | null }> {
-    const filtered = this.applySearch(base.leaders, options.search);
-    const sorted = this.sortLeaders(filtered, options);
-    const limit = Math.min(options.limit, sorted.length);
-    const limited = sorted.slice(0, limit);
+    const sorted = this.sortLeaders(base.leaders, options);
+    const totalLeaders = sorted.length;
+    const absoluteRankMap = new Map<string, number>();
 
-    const ranked = limited.map<HypeLeaderWithTrend>((leader, index) => ({
-      ...leader,
-      rank: index + 1,
-      positionTrend: {
-        rank: index + 1,
-        previousRank: null,
-        delta: null,
-        movement: 'new',
-        comparedAt: null,
-      },
-    }));
+    for (let index = 0; index < totalLeaders; index += 1) {
+      const leader = sorted[index];
+      const normalizedRank = index + 1;
+      absoluteRankMap.set(leader.userId, normalizedRank);
+    }
+
+    const filtered = this.applySearch(sorted, options.search);
+    const limit = Math.min(options.limit, filtered.length);
+    const limited = filtered.slice(0, limit);
+
+    const ranked = limited.map<HypeLeaderWithTrend>((leader) => {
+      const fallbackRank = totalLeaders + 1;
+      const candidate = absoluteRankMap.get(leader.userId);
+      const rank = Number.isFinite(candidate) && Number(candidate) > 0
+        ? Math.floor(Number(candidate))
+        : fallbackRank;
+
+      return {
+        ...leader,
+        absoluteRank: rank,
+        rank,
+        positionTrend: {
+          rank,
+          previousRank: null,
+          delta: null,
+          movement: 'new',
+          comparedAt: null,
+        },
+      };
+    });
 
     const optionsHash = this.buildCacheKey(options);
     const snapshotEntries: HypeLeaderboardSnapshotEntry[] = ranked.map((entry) => ({
