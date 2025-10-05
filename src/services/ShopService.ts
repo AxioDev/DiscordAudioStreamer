@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
 import type { Config } from '../config';
-import { TSHIRT_SIGNAL_BRUT_IMAGE } from './shopImageData';
+import { MUG_LIBRE_ANTENNE_IMAGE, TSHIRT_SIGNAL_BRUT_IMAGE } from './shopImageData';
 
 export type ShopProvider = 'stripe' | 'coingate' | 'paypal';
 
@@ -166,6 +166,9 @@ export default class ShopService {
         accentSoft: 'bg-indigo-500/10',
         emoji: '☕️',
         stripePriceKey: 'mug',
+        imageUrl: MUG_LIBRE_ANTENNE_IMAGE,
+        imageAlt:
+          'Photo du mug blanc Libre Antenne avec mascotte noire faisant un signe de paix et texte « LIBRE ANTENNE »',
       },
       {
         id: 'tshirt-logo',
