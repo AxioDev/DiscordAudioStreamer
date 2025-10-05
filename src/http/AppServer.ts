@@ -57,6 +57,8 @@ type FlushCapableResponse = Response & {
   flush?: () => void;
 };
 
+const MANUAL_BLOG_TRIGGER_PASSWORD = '1234';
+
 interface ProfileSummary {
   rangeDurationMs: number;
   totalPresenceMs: number;
@@ -1028,6 +1030,73 @@ export default class AppServer {
         res.status(500).json({
           error: 'BLOG_PROPOSAL_FAILED',
           message: 'Impossible de transmettre la proposition pour le moment.',
+        });
+      }
+    });
+
+    this.app.post('/api/blog/manual-generate', async (req, res) => {
+      const passwordRaw = (req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>).password : null) as
+        | string
+        | null;
+      const password = typeof passwordRaw === 'string' ? passwordRaw.trim() : '';
+
+      if (password !== MANUAL_BLOG_TRIGGER_PASSWORD) {
+        res.status(401).json({
+          error: 'MANUAL_ARTICLE_UNAUTHORIZED',
+          message: 'Mot de passe requis ou invalide.',
+        });
+        return;
+      }
+
+      if (!this.dailyArticleService) {
+        res.status(503).json({
+          error: 'DAILY_ARTICLE_DISABLED',
+          message: "La génération d'articles automatiques est désactivée.",
+        });
+        return;
+      }
+
+      try {
+        const result = await this.dailyArticleService.triggerManualGeneration();
+        const status = result.status === 'failed' ? 500 : 200;
+
+        let message: string;
+        if (result.status === 'generated') {
+          message = "La rédaction automatique d'un nouvel article vient de démarrer.";
+        } else if (result.status === 'skipped') {
+          switch (result.reason) {
+            case 'ALREADY_RUNNING':
+              message = 'Une génération est déjà en cours, patiente encore un instant.';
+              break;
+            case 'MISSING_DEPENDENCIES':
+              message = 'La génération est momentanément indisponible (dépendances manquantes).';
+              break;
+            case 'DISABLED':
+              message = "La génération automatique est désactivée pour le moment.";
+              break;
+            case 'ALREADY_EXISTS':
+              message = 'Le billet du jour semble déjà publié.';
+              break;
+            case 'NO_TRANSCRIPTS':
+              message = "Aucune retranscription disponible pour rédiger l'article.";
+              break;
+            default:
+              message = "La génération n'a pas pu démarrer.";
+              break;
+          }
+        } else {
+          message =
+            typeof result.error === 'string' && result.error.trim().length > 0
+              ? result.error
+              : "La génération de l'article a échoué.";
+        }
+
+        res.status(status).json({ result, message });
+      } catch (error) {
+        console.error('Failed to trigger manual blog generation', error);
+        res.status(500).json({
+          error: 'MANUAL_ARTICLE_FAILED',
+          message: "Impossible de lancer la génération de l'article.",
         });
       }
     });
