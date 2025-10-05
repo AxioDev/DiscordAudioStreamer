@@ -28,6 +28,7 @@ interface KaldiSession extends SessionMetadata {
   finalizePromise: Promise<void> | null;
   resolveFinalize: (() => void) | null;
   rejectFinalize: ((error: unknown) => void) | null;
+  finalizeRequested: boolean;
 }
 
 const KALDI_DEFAULT_PATH = '/client/ws/speech';
@@ -101,6 +102,7 @@ export default class KaldiTranscriptionService {
       finalizePromise: null,
       resolveFinalize: null,
       rejectFinalize: null,
+      finalizeRequested: false,
     };
 
     const ws = new WebSocket(this.endpoint);
@@ -109,6 +111,12 @@ export default class KaldiTranscriptionService {
     ws.on('open', () => {
       session.ready = true;
       this.sendConfig(ws);
+      if (session.closed || session.finalizeRequested) {
+        this.clearQueue(session);
+        this.attemptGracefulShutdown(session);
+        return;
+      }
+
       this.flushQueue(session);
     });
 
@@ -177,54 +185,15 @@ export default class KaldiTranscriptionService {
     }
 
     session.closed = true;
+    session.finalizeRequested = true;
+    this.clearQueue(session);
 
     session.finalizePromise = new Promise<void>((resolve, reject) => {
       session.resolveFinalize = resolve;
       session.rejectFinalize = reject;
     });
 
-    const ws = session.ws;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      try {
-        ws.send(JSON.stringify({ eof: 1 }));
-      } catch (error) {
-        console.error('Failed to signal Kaldi session EOF', {
-          userId: session.userId,
-          guildId: session.guildId,
-          channelId: session.channelId,
-          error,
-        });
-      }
-      try {
-        ws.close();
-      } catch (error) {
-        console.error('Failed to close Kaldi session', {
-          userId: session.userId,
-          guildId: session.guildId,
-          channelId: session.channelId,
-          error,
-        });
-      }
-    } else if (ws && ws.readyState === WebSocket.CONNECTING) {
-      try {
-        ws.terminate();
-      } catch (error) {
-        console.error('Failed to terminate Kaldi session during finalize', {
-          userId: session.userId,
-          guildId: session.guildId,
-          channelId: session.channelId,
-          error,
-        });
-      }
-    } else {
-      this.removeSession(session);
-      this.persistTranscript(session);
-      if (session.resolveFinalize) {
-        session.resolveFinalize();
-      }
-      session.resolveFinalize = null;
-      session.rejectFinalize = null;
-    }
+    this.attemptGracefulShutdown(session);
 
     return session.finalizePromise;
   }
@@ -239,6 +208,8 @@ export default class KaldiTranscriptionService {
     if (!session.closed) {
       session.closed = true;
     }
+
+    session.finalizeRequested = false;
 
     this.persistTranscript(session);
 
@@ -290,7 +261,7 @@ export default class KaldiTranscriptionService {
   }
 
   private flushQueue(session: KaldiSession): void {
-    if (!session.ready || !session.ws || session.ws.readyState !== WebSocket.OPEN) {
+    if (!session.ready || !session.ws || session.ws.readyState !== WebSocket.OPEN || session.closed) {
       return;
     }
 
@@ -383,6 +354,77 @@ export default class KaldiTranscriptionService {
     } catch (error) {
       console.error('Failed to send Kaldi configuration payload', error);
     }
+  }
+
+  private clearQueue(session: KaldiSession): void {
+    session.queue.length = 0;
+  }
+
+  private attemptGracefulShutdown(session: KaldiSession): void {
+    const ws = session.ws;
+
+    if (!ws) {
+      this.completeSessionFinalize(session);
+      return;
+    }
+
+    switch (ws.readyState) {
+      case WebSocket.CONNECTING:
+        // Wait for the open event to complete the graceful shutdown.
+        break;
+      case WebSocket.OPEN:
+        this.sendFinalizeSignal(session);
+        break;
+      case WebSocket.CLOSING:
+        // The close handshake is already in progress; wait for completion.
+        break;
+      case WebSocket.CLOSED:
+      default:
+        this.completeSessionFinalize(session);
+        break;
+    }
+  }
+
+  private sendFinalizeSignal(session: KaldiSession): void {
+    const ws = session.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    try {
+      ws.send(JSON.stringify({ eof: 1 }));
+    } catch (error) {
+      console.error('Failed to signal Kaldi session EOF', {
+        userId: session.userId,
+        guildId: session.guildId,
+        channelId: session.channelId,
+        error,
+      });
+    }
+
+    try {
+      ws.close(1000, 'Kaldi session finalized');
+    } catch (error) {
+      console.error('Failed to close Kaldi session', {
+        userId: session.userId,
+        guildId: session.guildId,
+        channelId: session.channelId,
+        error,
+      });
+    }
+  }
+
+  private completeSessionFinalize(session: KaldiSession): void {
+    this.removeSession(session);
+    this.persistTranscript(session);
+
+    if (session.resolveFinalize) {
+      session.resolveFinalize();
+    }
+
+    session.finalizeRequested = false;
+    session.resolveFinalize = null;
+    session.rejectFinalize = null;
   }
 
   private prepareBinaryPayload(data: Buffer | ArrayBuffer | ArrayBufferView): Buffer {
