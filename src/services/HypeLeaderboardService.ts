@@ -233,6 +233,10 @@ export default class HypeLeaderboardService {
     const normalized = this.normalizeOptions(options);
     const base = await this.ensureBaseLeaderboard(normalized.periodDays ?? null, now);
     if (!base) {
+      const fallback = await this.rehydrateFromSnapshots(normalized);
+      if (fallback) {
+        return fallback;
+      }
       const bucketStart = this.getBucketStart(now);
       return { leaders: [], snapshot: { bucketStart, comparedTo: null } };
     }
@@ -370,6 +374,98 @@ export default class HypeLeaderboardService {
     }
   }
 
+  private async rehydrateFromSnapshots(
+    normalized: NormalizedHypeLeaderboardQueryOptions,
+  ): Promise<HypeLeaderboardResult | null> {
+    try {
+      const snapshotOptions: NormalizedHypeLeaderboardQueryOptions = {
+        ...normalized,
+        limit: normalized.search ? normalized.limit : this.maxLeaderboardSize,
+      };
+      const optionsHash = this.buildCacheKey(snapshotOptions);
+      const latestSnapshot = await this.repository.loadLatestHypeLeaderboardSnapshot({ optionsHash });
+      if (!latestSnapshot) {
+        return null;
+      }
+
+      const toNumber = (value: number | null | undefined): number => {
+        if (value === null || value === undefined) {
+          return 0;
+        }
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : 0;
+      };
+
+      const baseLeaders: HypeLeaderEntry[] = [];
+      latestSnapshot.leaders.forEach((entry, index) => {
+        if (!entry || typeof entry.userId !== 'string') {
+          return;
+        }
+
+        const parseRank = (value: number | null | undefined): number | null => {
+          if (value === null || value === undefined) {
+            return null;
+          }
+          const numeric = Number(value);
+          return Number.isFinite(numeric) ? numeric : null;
+        };
+
+        const candidateRank = parseRank(entry.absoluteRank) ?? parseRank(entry.rank) ?? index + 1;
+        const absoluteRank = Math.max(1, Math.floor(candidateRank));
+
+        baseLeaders.push({
+          userId: entry.userId,
+          displayName: this.normalizeString(entry.displayName) ?? 'Anonyme',
+          username: this.normalizeString(entry.username),
+          sessions: toNumber(entry.sessions),
+          absoluteRank,
+          arrivalEffect: toNumber(entry.arrivalEffect),
+          departureEffect: toNumber(entry.departureEffect),
+          retentionMinutes: toNumber(entry.retentionMinutes),
+          activityScore: toNumber(entry.activityScore),
+          schRaw: toNumber(entry.schRaw),
+          schScoreNorm: toNumber(entry.schScoreNorm),
+        });
+      });
+
+      const enriched = await this.enrichLeaders(baseLeaders);
+      const periodKey = this.getPeriodKey(normalized.periodDays ?? null);
+      const baseFromSnapshot: BaseLeaderboardCache = {
+        periodKey,
+        periodDays: normalized.periodDays ?? null,
+        bucketStart: latestSnapshot.bucketStart,
+        computedAt: latestSnapshot.updatedAt,
+        leaders: enriched,
+      };
+      this.baseLeaderboards.set(periodKey, baseFromSnapshot);
+
+      const { ranked, comparedAt } = await this.buildRankedLeaders(baseFromSnapshot, snapshotOptions);
+      const result: HypeLeaderboardResult = {
+        leaders: ranked,
+        snapshot: {
+          bucketStart: latestSnapshot.bucketStart,
+          comparedTo: comparedAt,
+        },
+      };
+
+      this.precomputedResults.set(optionsHash, {
+        cacheKey: optionsHash,
+        snapshotOptions,
+        bucketStart: latestSnapshot.bucketStart,
+        computedAt: latestSnapshot.updatedAt,
+        result,
+      });
+
+      return {
+        leaders: this.cloneLeaders(ranked, normalized.limit),
+        snapshot: result.snapshot,
+      };
+    } catch (error) {
+      console.error('Failed to rehydrate hype leaderboard from snapshots', error);
+      return null;
+    }
+  }
+
   private async enrichLeaders(leaders: HypeLeaderEntry[]): Promise<EnrichedLeader[]> {
     if (leaders.length === 0) {
       return [];
@@ -471,8 +567,15 @@ export default class HypeLeaderboardService {
     const snapshotEntries: HypeLeaderboardSnapshotEntry[] = ranked.map((entry) => ({
       userId: entry.userId,
       rank: entry.rank,
+      absoluteRank: entry.absoluteRank,
+      displayName: entry.displayName,
+      username: entry.username,
       sessions: entry.sessions,
+      arrivalEffect: entry.arrivalEffect,
+      departureEffect: entry.departureEffect,
+      retentionMinutes: entry.retentionMinutes,
       activityScore: entry.activityScore,
+      schRaw: entry.schRaw,
       schScoreNorm: entry.schScoreNorm,
     }));
 
