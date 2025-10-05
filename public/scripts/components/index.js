@@ -2402,6 +2402,303 @@ const ProfileIdentityCard = ({ profile, userId }) => {
   `;
 };
 
+const PersonaConfidenceBadge = ({ level }) => {
+  const normalized = typeof level === 'string' ? level.toLowerCase() : 'low';
+  const config = {
+    high: {
+      label: 'Confiance élevée',
+      classes: 'border-emerald-400/40 bg-emerald-500/15 text-emerald-100',
+    },
+    medium: {
+      label: 'Confiance moyenne',
+      classes: 'border-amber-400/40 bg-amber-500/15 text-amber-100',
+    },
+    low: {
+      label: 'Confiance faible',
+      classes: 'border-slate-400/30 bg-slate-500/10 text-slate-200',
+    },
+  }[normalized] ?? {
+    label: 'Confiance faible',
+    classes: 'border-slate-400/30 bg-slate-500/10 text-slate-200',
+  };
+
+  return html`
+    <span
+      class=${`inline-flex items-center rounded-full border px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-[0.25em] ${config.classes}`}
+    >
+      ${config.label}
+    </span>
+  `;
+};
+
+const PersonaInsightList = ({ title, items = [], emptyLabel = 'Aucune information disponible.' }) => {
+  const normalizedItems = Array.isArray(items)
+    ? items.filter((item) => item && typeof item === 'object' && (item.title || item.detail))
+    : [];
+
+  return html`
+    <section class="flex h-full flex-col gap-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+      <div class="flex items-center justify-between gap-3">
+        <h3 class="text-sm font-semibold uppercase tracking-[0.3em] text-slate-300">${title}</h3>
+        ${normalizedItems.length
+          ? html`<span class="text-[0.65rem] uppercase tracking-[0.3em] text-slate-500">${normalizedItems.length}</span>`
+          : null}
+      </div>
+      ${normalizedItems.length === 0
+        ? html`<p class="text-sm text-slate-400">${emptyLabel}</p>`
+        : html`
+            <ul class="space-y-3 text-sm">
+              ${normalizedItems.map((item, index) => {
+                const titleText = typeof item.title === 'string' ? item.title.trim() : '';
+                const detailText = typeof item.detail === 'string' ? item.detail.trim() : '';
+                const evidence = Array.isArray(item.evidence)
+                  ? item.evidence.filter((entry) => typeof entry === 'string' && entry.trim().length > 0)
+                  : [];
+                const level = typeof item.confidence === 'string' ? item.confidence : 'low';
+
+                return html`
+                  <li key=${`${titleText}-${index}`} class="rounded-xl border border-white/5 bg-black/10 p-3">
+                    <div class="flex flex-col gap-2">
+                      <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <p class="text-sm font-semibold text-white">${titleText || detailText || 'Information'}</p>
+                        <${PersonaConfidenceBadge} level=${level} />
+                      </div>
+                      ${detailText
+                        ? html`<p class="text-sm leading-relaxed text-slate-300">${detailText}</p>`
+                        : null}
+                      ${evidence.length
+                        ? html`<ul class="mt-1 list-disc space-y-1 pl-5 text-xs text-slate-400">
+                            ${evidence.map((entry, evidenceIndex) => html`<li key=${evidenceIndex}>${entry}</li>`) }
+                          </ul>`
+                        : null}
+                    </div>
+                  </li>
+                `;
+              })}
+            </ul>
+          `}
+    </section>
+  `;
+};
+
+const PersonaMetaItem = ({ label, value }) => {
+  if (!value) {
+    return null;
+  }
+  return html`
+    <div class="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-300">
+      <p class="uppercase tracking-[0.3em] text-slate-500">${label}</p>
+      <p class="mt-1 font-medium text-slate-100">${value}</p>
+    </div>
+  `;
+};
+
+const ProfilePersonaCard = ({ persona }) => {
+  const hasPersona = persona && typeof persona === 'object' && persona.data && typeof persona.data === 'object';
+
+  if (!hasPersona) {
+    return html`
+      <section class="rounded-3xl border border-dashed border-white/10 bg-white/5 p-6 text-sm text-slate-300">
+        <h2 class="text-lg font-semibold text-white">Portrait synthétique</h2>
+        <p class="mt-2 text-sm text-slate-400">
+          La fiche d’identité détaillée de ce membre n’est pas encore disponible. Reviens un peu plus tard : l’analyse se met à
+          jour automatiquement dès qu’assez de contenu vocal ou textuel est disponible.
+        </p>
+      </section>
+    `;
+  }
+
+  const data = persona.data ?? {};
+  const summary = typeof persona.summary === 'string' && persona.summary.trim().length > 0
+    ? persona.summary.trim()
+    : typeof data.summary === 'string'
+    ? data.summary.trim()
+    : '';
+
+  const generatedMs = typeof persona.generatedAt === 'string' ? Date.parse(persona.generatedAt) : NaN;
+  const updatedMs = typeof persona.updatedAt === 'string' ? Date.parse(persona.updatedAt) : NaN;
+  const lastActivityMs = typeof persona.lastActivityAt === 'string' ? Date.parse(persona.lastActivityAt) : NaN;
+
+  const identity = data.identity ?? {};
+  const personality = data.personality ?? {};
+  const preferences = data.preferences ?? {};
+
+  return html`
+    <section class="rounded-3xl border border-white/10 bg-gradient-to-br from-slate-950 via-slate-950/80 to-indigo-950/40 p-6 shadow-xl shadow-slate-950/40 backdrop-blur">
+      <div class="flex flex-col gap-6">
+        <div class="flex flex-col gap-3">
+          <p class="text-xs uppercase tracking-[0.35em] text-indigo-200/80">Portrait synthétique</p>
+          <h2 class="text-2xl font-semibold text-white">Résumé du profil</h2>
+          ${summary
+            ? html`<p class="text-sm leading-relaxed text-slate-200">${summary}</p>`
+            : html`<p class="text-sm text-slate-400">Pas encore de résumé disponible.</p>`}
+          ${typeof identity.selfDescription === 'string' && identity.selfDescription.trim().length > 0
+            ? html`<blockquote class="rounded-2xl border border-indigo-400/30 bg-indigo-500/10 p-4 text-sm italic text-indigo-100">
+                « ${identity.selfDescription.trim()} »
+              </blockquote>`
+            : null}
+        </div>
+
+        <div class="grid gap-5 lg:grid-cols-2">
+          <${PersonaInsightList}
+            title="Points marquants"
+            items=${data.highlights ?? []}
+            emptyLabel="Pas encore d’éléments marquants identifiés."
+          />
+          <${PersonaInsightList}
+            title="Centres d’intérêt"
+            items=${data.interests ?? []}
+            emptyLabel="Aucun centre d’intérêt distinct n’a été détecté."
+          />
+        </div>
+
+        <div class="grid gap-5 lg:grid-cols-2">
+          <${PersonaInsightList}
+            title="Expertises & compétences"
+            items=${data.expertise ?? []}
+            emptyLabel="Aucune compétence spécifique identifiée pour le moment."
+          />
+          <${PersonaInsightList}
+            title="Traits de personnalité"
+            items=${personality.traits ?? []}
+            emptyLabel="Les traits de personnalité n’ont pas encore été détectés."
+          />
+        </div>
+
+        <div class="grid gap-5 lg:grid-cols-2">
+          <${PersonaInsightList}
+            title="Communication & ton"
+            items=${personality.communication ?? []}
+            emptyLabel="Aucun style de communication particulier identifié."
+          />
+          <${PersonaInsightList}
+            title="Valeurs & motivations"
+            items=${personality.values ?? []}
+            emptyLabel="Aucune valeur saillante n’a émergé pour l’instant."
+          />
+        </div>
+
+        <div class="grid gap-5 lg:grid-cols-2">
+          <${PersonaInsightList}
+            title="Ce qu’iel apprécie"
+            items=${preferences.likes ?? []}
+            emptyLabel="Aucune préférence positive relevée."
+          />
+          <${PersonaInsightList}
+            title="À éviter"
+            items=${preferences.dislikes ?? []}
+            emptyLabel="Aucune aversion particulière identifiée."
+          />
+        </div>
+
+        <div class="grid gap-5 lg:grid-cols-2">
+          <${PersonaInsightList}
+            title="Conseils de collaboration"
+            items=${preferences.collaborationTips ?? []}
+            emptyLabel="Aucun conseil spécifique de collaboration n’a été détecté."
+          />
+          <${PersonaInsightList}
+            title="Formats de contenu favoris"
+            items=${preferences.contentFormats ?? []}
+            emptyLabel="Aucun format de contenu préféré identifié."
+          />
+        </div>
+
+        <div class="grid gap-5 lg:grid-cols-2">
+          <${PersonaInsightList}
+            title="Sujets pour briser la glace"
+            items=${data.conversationStarters ?? []}
+            emptyLabel="Aucune recommandation de sujets pour lancer la discussion n’est disponible pour l’instant."
+          />
+          <${PersonaInsightList}
+            title="Mode de vie & habitudes"
+            items=${data.lifestyle ?? []}
+            emptyLabel="Aucun élément de mode de vie détecté."
+          />
+        </div>
+
+        ${Array.isArray(data.notableQuotes) && data.notableQuotes.length
+          ? html`
+              <section class="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <h3 class="text-sm font-semibold uppercase tracking-[0.3em] text-slate-300">Citations notables</h3>
+                <ul class="mt-3 space-y-4 text-sm text-slate-200">
+                  ${data.notableQuotes.map((quote, index) => {
+                    const timestampMs = typeof quote.timestamp === 'string' ? Date.parse(quote.timestamp) : NaN;
+                    const timestampLabel = Number.isFinite(timestampMs)
+                      ? formatDateTimeLabel(timestampMs, { includeDate: true, includeSeconds: false })
+                      : null;
+                    const sourceLabel = quote.sourceType === 'voice' ? 'Retranscription vocale' : 'Message texte';
+                    return html`
+                      <li key=${index} class="rounded-xl border border-white/5 bg-black/20 p-3">
+                        <p class="text-base font-medium text-white">“${quote.quote}”</p>
+                        ${quote.context
+                          ? html`<p class="mt-2 text-xs text-slate-400">${quote.context}</p>`
+                          : null}
+                        <div class="mt-2 flex flex-wrap gap-2 text-[0.65rem] uppercase tracking-[0.25em] text-slate-500">
+                          <span class="rounded-full border border-white/10 bg-white/5 px-2 py-0.5">${sourceLabel}</span>
+                          ${timestampLabel
+                            ? html`<span class="rounded-full border border-white/10 bg-white/5 px-2 py-0.5">${timestampLabel}</span>`
+                            : null}
+                        </div>
+                      </li>
+                    `;
+                  })}
+                </ul>
+              </section>
+            `
+          : null}
+
+        <${PersonaInsightList}
+          title="Précautions"
+          items=${data.disclaimers ?? []}
+          emptyLabel="Pas de précautions particulières détectées."
+        />
+
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <${PersonaMetaItem}
+            label="Généré le"
+            value=${formatDateTimeLabel(generatedMs, { includeDate: true, includeSeconds: false })}
+          />
+          <${PersonaMetaItem}
+            label="Mise à jour"
+            value=${formatDateTimeLabel(updatedMs, { includeDate: true, includeSeconds: false })}
+          />
+          <${PersonaMetaItem}
+            label="Dernière activité analysée"
+            value=${formatDateTimeLabel(lastActivityMs, { includeDate: true, includeSeconds: false })}
+          />
+          <${PersonaMetaItem}
+            label="Source modèle"
+            value=${persona.model || 'Modèle inconnu'}
+          />
+          <${PersonaMetaItem}
+            label="Version"
+            value=${persona.version || data.version || '—'}
+          />
+          <${PersonaMetaItem}
+            label="Échantillons vocaux"
+            value=${Number.isFinite(persona.voiceSampleCount)
+              ? `${persona.voiceSampleCount} extrait${persona.voiceSampleCount === 1 ? '' : 's'}`
+              : null}
+          />
+          <${PersonaMetaItem}
+            label="Messages analysés"
+            value=${Number.isFinite(persona.messageSampleCount)
+              ? `${persona.messageSampleCount} message${persona.messageSampleCount === 1 ? '' : 's'}`
+              : null}
+          />
+          <${PersonaMetaItem}
+            label="Volume de texte"
+            value=${Number.isFinite(persona.inputCharacterCount)
+              ? `${persona.inputCharacterCount.toLocaleString('fr-FR')} caractères`
+              : null}
+          />
+        </div>
+      </div>
+    </section>
+  `;
+};
+
 const ProfileSummaryCards = ({ stats = {} }) => {
   const presenceDuration = formatDurationLabel(stats?.totalPresenceMs);
   const speakingDuration = formatDurationLabel(stats?.totalSpeakingMs);
@@ -3560,6 +3857,7 @@ export {
   AudioPlayer,
   BeerCanDisplay,
   ProfileIdentityCard,
+  ProfilePersonaCard,
   ProfileSummaryCards,
   ProfileActivityTimeline,
   DailyBreakdown,

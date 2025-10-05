@@ -73,6 +73,10 @@ export interface OpenAIConfig {
   dailyArticleHourUtc: number;
   dailyArticleMinuteUtc: number;
   dailyArticleTags: string[];
+  personaModel: string;
+  personaIntervalMinutes: number;
+  personaMaxUsersPerRun: number;
+  personaLookbackDays: number;
 }
 
 export interface KaldiConfig {
@@ -180,6 +184,20 @@ const config: Config = {
       59,
     ),
     dailyArticleTags: parseStringList(process.env.OPENAI_DAILY_ARTICLE_TAGS || 'journal,libre-antenne'),
+    personaModel:
+      process.env.OPENAI_PERSONA_MODEL || process.env.OPENAI_ARTICLE_MODEL || 'gpt-4.1-mini',
+    personaIntervalMinutes: Math.min(
+      Math.max(parseInteger(process.env.OPENAI_PERSONA_INTERVAL_MINUTES, 30), 5),
+      24 * 60,
+    ),
+    personaMaxUsersPerRun: Math.min(
+      Math.max(parseInteger(process.env.OPENAI_PERSONA_MAX_USERS_PER_RUN, 4), 1),
+      25,
+    ),
+    personaLookbackDays: Math.min(
+      Math.max(parseInteger(process.env.OPENAI_PERSONA_LOOKBACK_DAYS, 45), 1),
+      365,
+    ),
   },
   publicBaseUrl: process.env.PUBLIC_BASE_URL || 'https://libre-antenne.xyz/',
   siteName: process.env.SITE_NAME || 'Libre Antenne',

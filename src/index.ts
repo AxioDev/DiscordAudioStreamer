@@ -15,6 +15,7 @@ import BlogService from './services/BlogService';
 import BlogProposalService from './services/BlogProposalService';
 import DailyArticleService from './services/DailyArticleService';
 import KaldiTranscriptionService from './services/KaldiTranscriptionService';
+import UserPersonaService from './services/UserPersonaService';
 
 const mixer = new AudioMixer({
   frameBytes: config.audio.frameBytes,
@@ -116,6 +117,11 @@ const dailyArticleService = new DailyArticleService({
   voiceActivityRepository,
 });
 
+const userPersonaService = new UserPersonaService({
+  config,
+  voiceActivityRepository,
+});
+
 const discordBridge = new DiscordAudioBridge({
   config,
   mixer,
@@ -181,6 +187,12 @@ function shutdown(): void {
     listenerStatsService.stop();
   } catch (error) {
     console.warn('Error while stopping listener stats service', error);
+  }
+
+  try {
+    userPersonaService.stop();
+  } catch (error) {
+    console.warn('Error while stopping user persona service', error);
   }
 
   try {
