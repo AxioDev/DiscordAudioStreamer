@@ -127,6 +127,8 @@ export default class AppServer {
 
   private readonly adminCredentials: { username: string; password: string } | null;
 
+  private readonly secretArticleTrigger: { path: string; password: string } | null;
+
   constructor({
     config,
     transcoder,
@@ -158,6 +160,12 @@ export default class AppServer {
     this.adminCredentials =
       adminUsername && adminPassword
         ? { username: adminUsername, password: adminPassword }
+        : null;
+    const secretArticlePath = this.config.secretArticleTrigger?.path ?? null;
+    const secretArticlePassword = this.config.secretArticleTrigger?.password ?? null;
+    this.secretArticleTrigger =
+      secretArticlePath && secretArticlePassword
+        ? { path: secretArticlePath, password: secretArticlePassword }
         : null;
     this.hypeLeaderboardService = voiceActivityRepository
       ? new HypeLeaderboardService({
@@ -752,6 +760,48 @@ export default class AppServer {
     });
 
     this.app.use('/admin', adminRouter);
+
+    if (this.secretArticleTrigger) {
+      this.app.post(this.secretArticleTrigger.path, async (req, res) => {
+        const secretConfig = this.secretArticleTrigger;
+        if (!secretConfig) {
+          res.status(404).json({
+            error: 'SECRET_ARTICLE_DISABLED',
+            message: "La génération secrète d'articles est désactivée.",
+          });
+          return;
+        }
+
+        const providedPassword = this.extractSecretArticlePassword(req);
+        if (providedPassword !== secretConfig.password) {
+          res.status(401).json({
+            error: 'SECRET_ARTICLE_UNAUTHORIZED',
+            message: 'Mot de passe requis ou invalide.',
+          });
+          return;
+        }
+
+        if (!this.dailyArticleService) {
+          res.status(503).json({
+            error: 'DAILY_ARTICLE_DISABLED',
+            message: "La génération d'articles automatiques est désactivée.",
+          });
+          return;
+        }
+
+        try {
+          const result = await this.dailyArticleService.triggerManualGeneration();
+          const status = result.status === 'failed' ? 500 : 200;
+          res.status(status).json({ result });
+        } catch (error) {
+          console.error('Failed to trigger secret daily article generation', error);
+          res.status(500).json({
+            error: 'SECRET_ARTICLE_FAILED',
+            message: "Impossible de lancer la génération de l'article.",
+          });
+        }
+      });
+    }
 
     this.app.get('/events', (req, res) => {
       this.sseService.handleRequest(req, res, {
@@ -2666,6 +2716,55 @@ export default class AppServer {
     const normalized = raw.trim().toLowerCase();
     if (normalized === 'stripe' || normalized === 'coingate' || normalized === 'paypal') {
       return normalized;
+    }
+
+    return null;
+  }
+
+  private extractSecretArticlePassword(req: Request): string | null {
+    const authorizationHeader = req.header('authorization') ?? req.header('Authorization');
+    if (authorizationHeader) {
+      const trimmed = authorizationHeader.trim();
+      if (trimmed.length > 0) {
+        const bearerPrefix = 'bearer ';
+        if (trimmed.length > bearerPrefix.length && trimmed.toLowerCase().startsWith(bearerPrefix)) {
+          const token = trimmed.slice(bearerPrefix.length).trim();
+          if (token.length > 0) {
+            return token;
+          }
+        }
+      }
+    }
+
+    const headerPassword = req.header('x-secret-password');
+    if (typeof headerPassword === 'string') {
+      const trimmed = headerPassword.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+
+    const bodyPassword = typeof req.body?.password === 'string' ? req.body.password.trim() : '';
+    if (bodyPassword.length > 0) {
+      return bodyPassword;
+    }
+
+    const queryPassword = (req.query as Record<string, unknown> | undefined)?.password;
+    if (typeof queryPassword === 'string') {
+      const trimmed = queryPassword.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+    if (Array.isArray(queryPassword)) {
+      for (const candidate of queryPassword) {
+        if (typeof candidate === 'string') {
+          const trimmed = candidate.trim();
+          if (trimmed.length > 0) {
+            return trimmed;
+          }
+        }
+      }
     }
 
     return null;
