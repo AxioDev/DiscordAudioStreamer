@@ -29,11 +29,14 @@ interface KaldiSession extends SessionMetadata {
   resolveFinalize: (() => void) | null;
   rejectFinalize: ((error: unknown) => void) | null;
   finalizeRequested: boolean;
+  finalizeTimeout: NodeJS.Timeout | null;
 }
 
 const KALDI_DEFAULT_PATH = '/client/ws/speech';
 
 export default class KaldiTranscriptionService {
+  private static readonly FINALIZE_CLOSE_TIMEOUT_MS = 2000;
+
   private readonly endpoint: string;
 
   private readonly sampleRate: number;
@@ -103,6 +106,7 @@ export default class KaldiTranscriptionService {
       resolveFinalize: null,
       rejectFinalize: null,
       finalizeRequested: false,
+      finalizeTimeout: null,
     };
 
     const ws = new WebSocket(this.endpoint);
@@ -199,6 +203,8 @@ export default class KaldiTranscriptionService {
   }
 
   private terminateSession(session: KaldiSession, error: unknown): void {
+    this.clearFinalizeTimeout(session);
+
     if (!this.sessions.has(session.userId)) {
       return;
     }
@@ -409,19 +415,15 @@ export default class KaldiTranscriptionService {
       });
     }
 
-    try {
-      ws.close(1000, 'Kaldi session finalized');
-    } catch (error) {
-      console.error('Failed to close Kaldi session', {
-        userId: session.userId,
-        guildId: session.guildId,
-        channelId: session.channelId,
-        error,
-      });
-    }
+    this.scheduleFinalizeClose(session);
   }
 
   private completeSessionFinalize(session: KaldiSession): void {
+    if (!this.sessions.has(session.userId)) {
+      return;
+    }
+
+    this.clearFinalizeTimeout(session);
     this.removeSession(session);
     this.persistTranscript(session);
 
@@ -432,6 +434,56 @@ export default class KaldiTranscriptionService {
     session.finalizeRequested = false;
     session.resolveFinalize = null;
     session.rejectFinalize = null;
+  }
+
+  private scheduleFinalizeClose(session: KaldiSession): void {
+    if (session.finalizeTimeout) {
+      return;
+    }
+
+    session.finalizeTimeout = setTimeout(() => {
+      session.finalizeTimeout = null;
+
+      if (!this.sessions.has(session.userId)) {
+        return;
+      }
+
+      const ws = session.ws;
+      if (!ws) {
+        this.completeSessionFinalize(session);
+        return;
+      }
+
+      if (ws.readyState === WebSocket.CLOSING) {
+        return;
+      }
+
+      if (ws.readyState === WebSocket.CLOSED) {
+        this.completeSessionFinalize(session);
+        return;
+      }
+
+      try {
+        ws.close(1000, 'Kaldi session finalized');
+      } catch (error) {
+        console.error('Failed to close Kaldi session', {
+          userId: session.userId,
+          guildId: session.guildId,
+          channelId: session.channelId,
+          error,
+        });
+        this.completeSessionFinalize(session);
+      }
+    }, KaldiTranscriptionService.FINALIZE_CLOSE_TIMEOUT_MS);
+  }
+
+  private clearFinalizeTimeout(session: KaldiSession): void {
+    if (!session.finalizeTimeout) {
+      return;
+    }
+
+    clearTimeout(session.finalizeTimeout);
+    session.finalizeTimeout = null;
   }
 
   private prepareBinaryPayload(data: Buffer | ArrayBuffer | ArrayBufferView): Buffer {
