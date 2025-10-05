@@ -118,6 +118,84 @@ export interface VoiceTranscriptionInsertRecord {
   timestamp: Date;
 }
 
+export interface PersonaInsightItem {
+  title: string;
+  detail: string;
+  confidence: 'low' | 'medium' | 'high';
+  evidence?: string[];
+}
+
+export interface PersonaProfileData {
+  version: string;
+  summary: string;
+  highlights: PersonaInsightItem[];
+  identity: {
+    selfDescription: string | null;
+    roles: PersonaInsightItem[];
+    languages: PersonaInsightItem[];
+    locations: PersonaInsightItem[];
+  };
+  interests: PersonaInsightItem[];
+  expertise: PersonaInsightItem[];
+  personality: {
+    traits: PersonaInsightItem[];
+    communication: PersonaInsightItem[];
+    values: PersonaInsightItem[];
+  };
+  preferences: {
+    likes: PersonaInsightItem[];
+    dislikes: PersonaInsightItem[];
+    collaborationTips: PersonaInsightItem[];
+    contentFormats: PersonaInsightItem[];
+  };
+  conversationStarters: PersonaInsightItem[];
+  lifestyle: PersonaInsightItem[];
+  notableQuotes: Array<{
+    quote: string;
+    context: string | null;
+    sourceType: 'voice' | 'text';
+    timestamp: string | null;
+  }>;
+  disclaimers: PersonaInsightItem[];
+}
+
+export interface UserPersonaProfileRecord {
+  userId: string;
+  guildId: string | null;
+  persona: PersonaProfileData;
+  summary: string;
+  model: string | null;
+  version: string | null;
+  generatedAt: Date | null;
+  updatedAt: Date | null;
+  lastActivityAt: Date | null;
+  voiceSampleCount: number;
+  messageSampleCount: number;
+  inputCharacterCount: number;
+}
+
+export interface UserPersonaProfileInsertRecord {
+  userId: string;
+  guildId: string | null;
+  persona: PersonaProfileData;
+  summary: string;
+  model: string | null;
+  version: string | null;
+  generatedAt: Date;
+  lastActivityAt: Date | null;
+  voiceSampleCount: number;
+  messageSampleCount: number;
+  inputCharacterCount: number;
+}
+
+export interface UserPersonaCandidateRecord {
+  userId: string;
+  guildId: string | null;
+  lastActivityAt: Date | null;
+  personaUpdatedAt: Date | null;
+  personaVersion: string | null;
+}
+
 export interface VoiceActivityHistoryEntry {
   userId: string;
   channelId: string | null;
@@ -235,12 +313,16 @@ export default class VoiceActivityRepository {
   private usersColumns: Set<string> | null;
   private usersColumnTypes: Map<string, SchemaColumnInfo> | null;
 
+  private userPersonasColumns: Set<string> | null;
+
   private readonly missingColumnWarnings: Set<string>;
   private readonly schemaPatchWarnings: Set<string>;
 
   private schemaPatchesPromise: Promise<void> | null;
 
   private leaderboardSnapshotsEnsured: boolean;
+
+  private userPersonasEnsured: boolean;
 
   constructor({ url, ssl, poolConfig }: VoiceActivityRepositoryOptions) {
     this.connectionString = url;
@@ -257,10 +339,12 @@ export default class VoiceActivityRepository {
     this.voiceTranscriptionsColumns = null;
     this.usersColumns = null;
     this.usersColumnTypes = null;
+    this.userPersonasColumns = null;
     this.missingColumnWarnings = new Set();
     this.schemaPatchWarnings = new Set();
     this.schemaPatchesPromise = null;
     this.leaderboardSnapshotsEnsured = false;
+    this.userPersonasEnsured = false;
   }
 
   private ensurePool(): Pool | null {
@@ -296,7 +380,8 @@ export default class VoiceActivityRepository {
       this.textMessagesColumns &&
       this.voiceTranscriptionsColumns &&
       this.usersColumns &&
-      this.usersColumnTypes
+      this.usersColumnTypes &&
+      this.userPersonasColumns
     ) {
       return;
     }
@@ -319,6 +404,7 @@ export default class VoiceActivityRepository {
         'text_messages',
         'voice_transcriptions',
         'users',
+        'user_personas',
       ];
       const result = await pool.query<{
         table_name: string;
@@ -355,6 +441,7 @@ export default class VoiceActivityRepository {
       this.voiceTranscriptionsColumns = map.get('voice_transcriptions') ?? new Set<string>();
       this.usersColumns = map.get('users') ?? new Set<string>();
       this.usersColumnTypes = typeMap.get('users') ?? new Map<string, SchemaColumnInfo>();
+      this.userPersonasColumns = map.get('user_personas') ?? new Set<string>();
     } catch (error) {
       console.error('Failed to introspect voice activity database schema', error);
 
@@ -470,6 +557,46 @@ export default class VoiceActivityRepository {
       this.leaderboardSnapshotsEnsured = true;
     } catch (error) {
       console.error('Failed to ensure hype leaderboard snapshots table', error);
+    }
+  }
+
+  private async ensureUserPersonasTable(pool: Pool): Promise<void> {
+    if (this.userPersonasEnsured) {
+      return;
+    }
+
+    try {
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS user_personas (
+           user_id bigint PRIMARY KEY,
+           guild_id bigint,
+           persona jsonb NOT NULL,
+           summary text NOT NULL,
+           model text,
+           version text,
+           generated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           last_activity_at timestamptz,
+           voice_sample_count integer NOT NULL DEFAULT 0,
+           message_sample_count integer NOT NULL DEFAULT 0,
+           input_character_count integer NOT NULL DEFAULT 0
+         )`,
+      );
+
+      await pool.query(
+        `CREATE INDEX IF NOT EXISTS user_personas_updated_idx
+           ON user_personas (updated_at DESC)`,
+      );
+
+      await pool.query(
+        `CREATE INDEX IF NOT EXISTS user_personas_last_activity_idx
+           ON user_personas (last_activity_at DESC NULLS LAST)`,
+      );
+
+      this.userPersonasColumns = null;
+      this.userPersonasEnsured = true;
+    } catch (error) {
+      console.error('Failed to ensure user personas table', error);
     }
   }
 
@@ -1534,6 +1661,276 @@ export default class VoiceActivityRepository {
         return [];
       }
       console.error('Failed to list voice transcriptions', error);
+      return [];
+    }
+  }
+
+  public async getUserPersonaProfile({ userId }: { userId: string }): Promise<UserPersonaProfileRecord | null> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return null;
+    }
+
+    try {
+      await this.ensureUserPersonasTable(pool);
+      await this.ensureSchemaIntrospection(pool);
+
+      if (!this.userPersonasColumns || this.userPersonasColumns.size === 0) {
+        return null;
+      }
+
+      const result = await pool.query(
+        `SELECT user_id,
+                guild_id,
+                persona,
+                summary,
+                model,
+                version,
+                generated_at,
+                updated_at,
+                last_activity_at,
+                voice_sample_count,
+                message_sample_count,
+                input_character_count
+           FROM user_personas
+          WHERE user_id = $1
+          LIMIT 1`,
+        [userId],
+      );
+
+      const row = result.rows?.[0];
+      if (!row) {
+        return null;
+      }
+
+      const parseDate = (value: unknown): Date | null => {
+        if (value instanceof Date) {
+          return value;
+        }
+        if (typeof value === 'string') {
+          const parsed = new Date(value);
+          return Number.isNaN(parsed.getTime()) ? null : parsed;
+        }
+        return null;
+      };
+
+      const parseInteger = (value: unknown): number => {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? Math.max(0, Math.floor(numeric)) : 0;
+      };
+
+      let persona: PersonaProfileData | null = null;
+      try {
+        if (row.persona && typeof row.persona === 'string') {
+          persona = JSON.parse(row.persona) as PersonaProfileData;
+        } else if (row.persona && typeof row.persona === 'object') {
+          persona = row.persona as PersonaProfileData;
+        }
+      } catch (error) {
+        console.error('Failed to parse stored persona profile', error);
+        persona = null;
+      }
+
+      if (!persona) {
+        return null;
+      }
+
+      const summary = typeof row.summary === 'string' ? row.summary : '';
+
+      return {
+        userId: String(row.user_id ?? userId ?? ''),
+        guildId:
+          typeof row.guild_id === 'string'
+            ? row.guild_id
+            : row.guild_id == null
+            ? null
+            : String(row.guild_id),
+        persona,
+        summary,
+        model: typeof row.model === 'string' ? row.model : null,
+        version: typeof row.version === 'string' ? row.version : null,
+        generatedAt: parseDate(row.generated_at),
+        updatedAt: parseDate(row.updated_at),
+        lastActivityAt: parseDate(row.last_activity_at),
+        voiceSampleCount: parseInteger(row.voice_sample_count),
+        messageSampleCount: parseInteger(row.message_sample_count),
+        inputCharacterCount: parseInteger(row.input_character_count),
+      };
+    } catch (error) {
+      console.error('Failed to load user persona profile', error);
+      return null;
+    }
+  }
+
+  public async upsertUserPersonaProfile(record: UserPersonaProfileInsertRecord): Promise<void> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return;
+    }
+
+    try {
+      await this.ensureUserPersonasTable(pool);
+      await this.ensureSchemaIntrospection(pool);
+
+      if (!this.userPersonasColumns || this.userPersonasColumns.size === 0) {
+        return;
+      }
+
+      const personaJson = JSON.stringify(record.persona ?? {});
+      const generatedAtIso = record.generatedAt instanceof Date && !Number.isNaN(record.generatedAt.getTime())
+        ? record.generatedAt.toISOString()
+        : new Date().toISOString();
+      const lastActivityIso = record.lastActivityAt instanceof Date && !Number.isNaN(record.lastActivityAt.getTime())
+        ? record.lastActivityAt.toISOString()
+        : null;
+
+      const values: Array<string | number | null> = [
+        record.userId,
+        record.guildId ?? null,
+        personaJson,
+        record.summary,
+        record.model,
+        record.version,
+        generatedAtIso,
+        lastActivityIso,
+        Math.max(0, Math.floor(record.voiceSampleCount)),
+        Math.max(0, Math.floor(record.messageSampleCount)),
+        Math.max(0, Math.floor(record.inputCharacterCount)),
+      ];
+
+      await pool.query(
+        `INSERT INTO user_personas (
+           user_id,
+           guild_id,
+           persona,
+           summary,
+           model,
+           version,
+           generated_at,
+           last_activity_at,
+           voice_sample_count,
+           message_sample_count,
+           input_character_count,
+           updated_at
+         )
+         VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7::timestamptz, $8::timestamptz, $9, $10, $11, CURRENT_TIMESTAMP)
+         ON CONFLICT (user_id) DO UPDATE SET
+           guild_id = EXCLUDED.guild_id,
+           persona = EXCLUDED.persona,
+           summary = EXCLUDED.summary,
+           model = EXCLUDED.model,
+           version = EXCLUDED.version,
+           generated_at = EXCLUDED.generated_at,
+           last_activity_at = EXCLUDED.last_activity_at,
+           voice_sample_count = EXCLUDED.voice_sample_count,
+           message_sample_count = EXCLUDED.message_sample_count,
+           input_character_count = EXCLUDED.input_character_count,
+           updated_at = CURRENT_TIMESTAMP`,
+        values,
+      );
+    } catch (error) {
+      console.error('Failed to upsert user persona profile', error);
+    }
+  }
+
+  public async listUserPersonaCandidates({
+    limit = 10,
+    since = null,
+  }: {
+    limit?: number | null;
+    since?: Date | null;
+  } = {}): Promise<UserPersonaCandidateRecord[]> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return [];
+    }
+
+    const normalizedLimit = Number(limit);
+    const boundedLimit = Number.isFinite(normalizedLimit)
+      ? Math.min(Math.max(Math.floor(normalizedLimit), 1), 200)
+      : 10;
+
+    const sinceIso = since instanceof Date && !Number.isNaN(since.getTime()) ? since.toISOString() : null;
+
+    try {
+      await this.ensureUserPersonasTable(pool);
+      await this.ensureSchemaIntrospection(pool);
+
+      const activitySources: string[] = [];
+
+      if (this.voiceTranscriptionsColumns && this.voiceTranscriptionsColumns.size > 0) {
+        activitySources.push(`
+          SELECT user_id::text AS user_id,
+                 guild_id::text AS guild_id,
+                 timestamp
+            FROM voice_transcriptions
+           WHERE user_id IS NOT NULL
+             AND ($1::timestamptz IS NULL OR timestamp >= $1::timestamptz)
+        `);
+      }
+
+      if (this.textMessagesColumns && this.textMessagesColumns.size > 0) {
+        activitySources.push(`
+          SELECT user_id::text AS user_id,
+                 guild_id::text AS guild_id,
+                 timestamp
+            FROM text_messages
+           WHERE user_id IS NOT NULL
+             AND ($1::timestamptz IS NULL OR timestamp >= $1::timestamptz)
+        `);
+      }
+
+      if (activitySources.length === 0) {
+        return [];
+      }
+
+      const query = `
+        WITH activity AS (
+          ${activitySources.join('\n          UNION ALL\n')}
+        ), ranked AS (
+          SELECT
+            user_id,
+            MAX(timestamp) AS last_activity_at,
+            MAX(guild_id) FILTER (WHERE guild_id IS NOT NULL) AS guild_id
+          FROM activity
+          GROUP BY user_id
+        )
+        SELECT
+          ranked.user_id,
+          ranked.guild_id,
+          ranked.last_activity_at,
+          up.updated_at AS persona_updated_at,
+          up.version AS persona_version
+        FROM ranked
+        LEFT JOIN user_personas AS up ON up.user_id::text = ranked.user_id
+        ORDER BY ranked.last_activity_at DESC NULLS LAST
+        LIMIT $2
+      `;
+
+      const result = await pool.query(query, [sinceIso, boundedLimit]);
+
+      return (result.rows ?? []).map((row) => {
+        const parseDate = (value: unknown): Date | null => {
+          if (value instanceof Date) {
+            return value;
+          }
+          if (typeof value === 'string') {
+            const parsed = new Date(value);
+            return Number.isNaN(parsed.getTime()) ? null : parsed;
+          }
+          return null;
+        };
+
+        return {
+          userId: typeof row.user_id === 'string' ? row.user_id : String(row.user_id ?? ''),
+          guildId: typeof row.guild_id === 'string' ? row.guild_id : row.guild_id == null ? null : String(row.guild_id),
+          lastActivityAt: parseDate(row.last_activity_at),
+          personaUpdatedAt: parseDate(row.persona_updated_at),
+          personaVersion: typeof row.persona_version === 'string' ? row.persona_version : null,
+        };
+      });
+    } catch (error) {
+      console.error('Failed to list persona candidates', error);
       return [];
     }
   }

@@ -959,7 +959,7 @@ export default class AppServer {
       }
 
       try {
-        const [profile, presenceSegments, speakingSegments, messageEvents] = await Promise.all([
+        const [profile, presenceSegments, speakingSegments, messageEvents, personaRecord] = await Promise.all([
           this.discordBridge.fetchUserIdentity(rawUserId),
           this.voiceActivityRepository
             ? this.voiceActivityRepository.listUserVoicePresence({
@@ -982,6 +982,9 @@ export default class AppServer {
                 until: untilCandidate,
               })
             : Promise.resolve([] as UserMessageActivityEntry[]),
+          this.voiceActivityRepository
+            ? this.voiceActivityRepository.getUserPersonaProfile({ userId: rawUserId })
+            : Promise.resolve(null),
         ]);
 
         const normalizeString = (value: string | null | undefined): string | null => {
@@ -1026,6 +1029,21 @@ export default class AppServer {
 
         const toMillis = (date: Date | null) => (date instanceof Date ? date.getTime() : null);
 
+        const persona = personaRecord
+          ? {
+              summary: personaRecord.summary,
+              data: personaRecord.persona,
+              model: personaRecord.model,
+              version: personaRecord.version,
+              generatedAt: personaRecord.generatedAt ? personaRecord.generatedAt.toISOString() : null,
+              updatedAt: personaRecord.updatedAt ? personaRecord.updatedAt.toISOString() : null,
+              lastActivityAt: personaRecord.lastActivityAt ? personaRecord.lastActivityAt.toISOString() : null,
+              voiceSampleCount: personaRecord.voiceSampleCount,
+              messageSampleCount: personaRecord.messageSampleCount,
+              inputCharacterCount: personaRecord.inputCharacterCount,
+            }
+          : null;
+
         res.json({
           profile: normalizedProfile,
           range: {
@@ -1066,6 +1084,7 @@ export default class AppServer {
             timestamp: entry.timestamp.toISOString(),
             timestampMs: entry.timestamp.getTime(),
           })),
+          persona,
         });
       } catch (error) {
         console.error('Failed to build user profile analytics', error);

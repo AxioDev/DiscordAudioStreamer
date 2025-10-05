@@ -22,6 +22,7 @@ import {
 } from '../utils/index.js';
 import {
   ProfileIdentityCard,
+  ProfilePersonaCard,
   ProfileSummaryCards,
   ProfileActivityTimeline,
   DailyBreakdown,
@@ -219,6 +220,7 @@ const ProfilePage = ({ params, onNavigateHome, onUpdateRange }) => {
         : html`
             <div class="mt-6 grid grid-cols-1 gap-8">
               <${ProfileIdentityCard} profile=${data?.profile ?? null} userId=${userId} />
+              <${ProfilePersonaCard} persona=${data?.persona ?? null} />
 
               <section class="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-slate-950/40 backdrop-blur-xl">
                 <div class="flex flex-col gap-6">
