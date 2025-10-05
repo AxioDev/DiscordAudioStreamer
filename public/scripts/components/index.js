@@ -2295,9 +2295,10 @@ const ProfileIdentityCard = ({ profile, userId }) => {
     || 'UA';
 
   const [isAvatarOpen, setIsAvatarOpen] = useState(false);
+  const [isHideModalOpen, setIsHideModalOpen] = useState(false);
 
   useEffect(() => {
-    if (!isAvatarOpen || typeof document === 'undefined') {
+    if (!(isAvatarOpen || isHideModalOpen) || typeof document === 'undefined') {
       return undefined;
     }
 
@@ -2308,6 +2309,7 @@ const ProfileIdentityCard = ({ profile, userId }) => {
       if (event.key === 'Escape') {
         event.preventDefault();
         setIsAvatarOpen(false);
+        setIsHideModalOpen(false);
       }
     };
 
@@ -2317,7 +2319,7 @@ const ProfileIdentityCard = ({ profile, userId }) => {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isAvatarOpen]);
+  }, [isAvatarOpen, isHideModalOpen]);
 
   const handleOpenAvatar = useCallback(() => {
     if (!avatarUrl) {
@@ -2328,6 +2330,14 @@ const ProfileIdentityCard = ({ profile, userId }) => {
 
   const handleCloseAvatar = useCallback(() => {
     setIsAvatarOpen(false);
+  }, []);
+
+  const handleOpenHideModal = useCallback(() => {
+    setIsHideModalOpen(true);
+  }, []);
+
+  const handleCloseHideModal = useCallback(() => {
+    setIsHideModalOpen(false);
   }, []);
 
   return html`
@@ -2366,6 +2376,15 @@ const ProfileIdentityCard = ({ profile, userId }) => {
             ${identifier ? html`<p class="text-xs text-slate-500">${identifier}</p>` : null}
           </div>
         </div>
+        <div class="flex justify-center sm:justify-end">
+          <button
+            type="button"
+            onClick=${handleOpenHideModal}
+            class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white"
+          >
+            Masquer ma fiche publique
+          </button>
+        </div>
       </div>
 
       ${isAvatarOpen && avatarUrl
@@ -2396,6 +2415,54 @@ const ProfileIdentityCard = ({ profile, userId }) => {
                 decoding="async"
               />
             </button>
+          </div>`
+        : null}
+
+      ${isHideModalOpen
+        ? html`<div
+            class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 p-4 backdrop-blur"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="profile-hide-modal-title"
+            onClick=${handleCloseHideModal}
+          >
+            <div
+              class="relative w-full max-w-xl rounded-3xl border border-white/10 bg-slate-950/95 p-6 text-left shadow-2xl shadow-slate-950/80"
+              onClick=${(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick=${handleCloseHideModal}
+                class="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-200 transition hover:bg-white/10 hover:text-white"
+                aria-label="Fermer la fenêtre"
+              >
+                <${X} class="h-4 w-4" aria-hidden="true" />
+              </button>
+              <div class="space-y-4 pr-6">
+                <div class="space-y-1">
+                  <p class="text-xs uppercase tracking-[0.35em] text-indigo-200/70">Confidentialité</p>
+                  <h2 id="profile-hide-modal-title" class="text-2xl font-semibold text-white">Masquer ta fiche publique</h2>
+                </div>
+                <p class="text-sm text-slate-300">
+                  Pour retirer ta fiche du site, envoie un message privé au bot Discord ou dans le salon dédié avec la phrase suivante :
+                </p>
+                <p class="rounded-2xl border border-indigo-400/40 bg-indigo-500/10 px-4 py-3 text-sm font-semibold text-indigo-100">
+                  «&nbsp;Je veux masquer ma fiche du site internet&nbsp;»
+                </p>
+                <p class="text-sm text-slate-300">
+                  Dès que ce message est reçu, ton profil est automatiquement masqué de l’annuaire public. Tu pourras à tout moment demander la réactivation de ta fiche auprès de l’équipe.
+                </p>
+                <div class="flex justify-end">
+                  <button
+                    type="button"
+                    onClick=${handleCloseHideModal}
+                    class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white"
+                  >
+                    Compris
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>`
         : null}
     </section>
