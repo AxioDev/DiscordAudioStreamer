@@ -43,7 +43,7 @@ const MAX_MESSAGE_FETCH = 200;
 const PERSONA_ITEM_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['title', 'detail', 'confidence'],
+  required: ['title', 'detail', 'confidence', 'evidence'],
   properties: {
     title: { type: 'string' },
     detail: { type: 'string' },
