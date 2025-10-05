@@ -217,7 +217,7 @@ const ProfilePage = ({ params, onNavigateHome, onUpdateRange }) => {
             </button>
           </section>`
         : html`
-            <div class="mt-6 grid gap-8">
+            <div class="mt-6 grid grid-cols-1 gap-8">
               <${ProfileIdentityCard} profile=${data?.profile ?? null} userId=${userId} />
 
               <section class="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-slate-950/40 backdrop-blur-xl">

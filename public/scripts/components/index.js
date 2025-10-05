@@ -3027,7 +3027,7 @@ const ProfileVoiceTranscriptionsCard = ({ userId }) => {
                 key=${entry.transcriptionId || `${entry.channelId}-${entry.timestamp}`}
                 class="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-slate-200"
               >
-                <p class="font-medium text-white">${content || 'Transcription vide'}</p>
+                <p class="break-words font-medium text-white">${content || 'Transcription vide'}</p>
                 ${timestamp
                   ? html`<p class="text-xs text-slate-400">
                       ${formatDateTimeLabel(timestamp, { includeDate: true, includeSeconds: true })}
@@ -3067,7 +3067,7 @@ const ProfileMessagesCard = ({ messageEvents = [] }) => {
                 key=${event.messageId || `${index}-${event.timestampMs}`}
                 class="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-slate-200"
               >
-                <p class="font-medium text-white">${content || 'Message sans contenu'}</p>
+                <p class="break-words font-medium text-white">${content || 'Message sans contenu'}</p>
                 ${timestamp
                   ? html`<p class="text-xs text-slate-400">
                       ${formatDateTimeLabel(timestamp, { includeDate: true, includeSeconds: true })}
