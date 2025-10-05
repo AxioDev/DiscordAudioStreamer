@@ -26,6 +26,37 @@ interface ArticleGenerationPayload {
   targetDate: Date;
 }
 
+export type DailyArticleGenerationStatus = 'generated' | 'skipped' | 'failed';
+
+export type DailyArticleGenerationReason =
+  | 'DISABLED'
+  | 'ALREADY_RUNNING'
+  | 'MISSING_DEPENDENCIES'
+  | 'ALREADY_EXISTS'
+  | 'NO_TRANSCRIPTS';
+
+export interface DailyArticleGenerationResult {
+  status: DailyArticleGenerationStatus;
+  slug: string | null;
+  title?: string;
+  publishedAt?: string;
+  tags?: string[];
+  reason?: DailyArticleGenerationReason;
+  error?: string;
+}
+
+export interface DailyArticleServiceStatus {
+  enabled: boolean;
+  running: boolean;
+  nextRunAt: string | null;
+  lastResult: DailyArticleGenerationResult | null;
+  dependencies: {
+    openAI: boolean;
+    blogRepository: boolean;
+    voiceActivityRepository: boolean;
+  };
+}
+
 const MIN_SUMMARY_CHAR_LENGTH = 80;
 const MAX_TRANSCRIPT_SNIPPETS = 2000;
 const MAX_TRANSCRIPTS_CHAR_LENGTH = 12_000;
@@ -45,6 +76,12 @@ export default class DailyArticleService {
 
   private running = false;
 
+  private readonly enabled: boolean;
+
+  private nextRunAt: Date | null = null;
+
+  private lastResult: DailyArticleGenerationResult | null = null;
+
   constructor(options: DailyArticleServiceOptions) {
     this.blogRepository = options.blogRepository ?? null;
     this.blogService = options.blogService ?? null;
@@ -53,18 +90,20 @@ export default class DailyArticleService {
     this.openai = this.config.openAI.apiKey
       ? new OpenAI({ apiKey: this.config.openAI.apiKey })
       : null;
+    const reasons: string[] = [];
+    if (!this.config.openAI.apiKey) {
+      reasons.push('clé API OpenAI manquante');
+    }
+    if (!this.blogRepository) {
+      reasons.push('référentiel de blog indisponible');
+    }
+    if (!this.voiceActivityRepository) {
+      reasons.push('référentiel des transcriptions indisponible');
+    }
 
-    if (!this.blogRepository || !this.voiceActivityRepository || !this.openai) {
-      const reasons: string[] = [];
-      if (!this.config.openAI.apiKey) {
-        reasons.push('clé API OpenAI manquante');
-      }
-      if (!this.blogRepository) {
-        reasons.push('référentiel de blog indisponible');
-      }
-      if (!this.voiceActivityRepository) {
-        reasons.push('référentiel des transcriptions indisponible');
-      }
+    this.enabled = reasons.length === 0 && Boolean(this.openai);
+
+    if (!this.enabled) {
       if (reasons.length > 0) {
         console.warn(`DailyArticleService désactivé (${reasons.join(', ')}).`);
       }
@@ -79,20 +118,24 @@ export default class DailyArticleService {
       clearTimeout(this.timer);
       this.timer = null;
     }
+    this.nextRunAt = null;
   }
 
   private scheduleInitialRun(): void {
     if (this.timer) {
       clearTimeout(this.timer);
     }
-    this.timer = setTimeout(() => this.execute(), 30_000);
+    const delay = 30_000;
+    this.timer = setTimeout(() => this.execute(), delay);
+    this.nextRunAt = new Date(Date.now() + delay);
     if (typeof this.timer.unref === 'function') {
       this.timer.unref();
     }
   }
 
   private scheduleNextRun(): void {
-    if (!this.openai || !this.blogRepository || !this.voiceActivityRepository) {
+    if (!this.enabled || !this.openai || !this.blogRepository || !this.voiceActivityRepository) {
+      this.nextRunAt = null;
       return;
     }
 
@@ -104,6 +147,7 @@ export default class DailyArticleService {
     const nextRun = this.computeNextRunTime(now);
     const delay = Math.max(nextRun.getTime() - now.getTime(), 30_000);
 
+    this.nextRunAt = new Date(now.getTime() + delay);
     this.timer = setTimeout(() => this.execute(), delay);
     if (typeof this.timer.unref === 'function') {
       this.timer.unref();
@@ -140,13 +184,73 @@ export default class DailyArticleService {
     this.running = true;
 
     try {
-      await this.generateDailyArticle();
+      const result = await this.performGenerationCycle();
+      this.lastResult = result;
     } catch (error) {
+      const failure: DailyArticleGenerationResult = {
+        status: 'failed',
+        slug: null,
+        error: (error as Error)?.message ?? 'UNKNOWN_ERROR',
+      };
+      this.lastResult = failure;
       console.error('DailyArticleService: génération échouée', error);
     } finally {
       this.running = false;
       this.scheduleNextRun();
     }
+  }
+
+  public async triggerManualGeneration(): Promise<DailyArticleGenerationResult> {
+    if (!this.enabled || !this.openai || !this.blogRepository || !this.voiceActivityRepository) {
+      const result: DailyArticleGenerationResult = {
+        status: 'skipped',
+        slug: null,
+        reason: this.enabled ? 'MISSING_DEPENDENCIES' : 'DISABLED',
+      };
+      this.lastResult = result;
+      return result;
+    }
+
+    if (this.running) {
+      return {
+        status: 'skipped',
+        slug: this.lastResult?.slug ?? null,
+        reason: 'ALREADY_RUNNING',
+      };
+    }
+
+    this.running = true;
+    try {
+      const result = await this.performGenerationCycle();
+      this.lastResult = result;
+      return result;
+    } catch (error) {
+      const failure: DailyArticleGenerationResult = {
+        status: 'failed',
+        slug: null,
+        error: (error as Error)?.message ?? 'UNKNOWN_ERROR',
+      };
+      this.lastResult = failure;
+      console.error('DailyArticleService: génération manuelle échouée', error);
+      return failure;
+    } finally {
+      this.running = false;
+      this.scheduleNextRun();
+    }
+  }
+
+  public getStatus(): DailyArticleServiceStatus {
+    return {
+      enabled: this.enabled,
+      running: this.running,
+      nextRunAt: this.nextRunAt ? this.nextRunAt.toISOString() : null,
+      lastResult: this.lastResult,
+      dependencies: {
+        openAI: Boolean(this.openai),
+        blogRepository: Boolean(this.blogRepository),
+        voiceActivityRepository: Boolean(this.voiceActivityRepository),
+      },
+    };
   }
 
   private buildSlug(targetDate: Date): string {
@@ -166,9 +270,9 @@ export default class DailyArticleService {
     return { targetDate, rangeStart, rangeEnd };
   }
 
-  private async generateDailyArticle(): Promise<void> {
-    if (!this.openai || !this.blogRepository || !this.voiceActivityRepository) {
-      return;
+  private async performGenerationCycle(): Promise<DailyArticleGenerationResult> {
+    if (!this.enabled || !this.openai || !this.blogRepository || !this.voiceActivityRepository) {
+      return { status: 'skipped', slug: null, reason: 'MISSING_DEPENDENCIES' };
     }
 
     const { targetDate, rangeStart, rangeEnd } = this.getDateBounds();
@@ -176,7 +280,7 @@ export default class DailyArticleService {
 
     const existing = await this.blogRepository.getPostBySlug(slug);
     if (existing) {
-      return;
+      return { status: 'skipped', slug, reason: 'ALREADY_EXISTS' };
     }
 
     const transcripts = await this.voiceActivityRepository.listVoiceTranscriptionsForRange({
@@ -188,7 +292,7 @@ export default class DailyArticleService {
     const filteredTranscripts = transcripts.filter((entry) => (entry.content ?? '').trim().length > 0);
     if (filteredTranscripts.length === 0) {
       console.warn('DailyArticleService: aucune transcription disponible pour cette journée, génération annulée.');
-      return;
+      return { status: 'skipped', slug, reason: 'NO_TRANSCRIPTS' };
     }
 
     const payload: ArticleGenerationPayload = {
@@ -199,7 +303,7 @@ export default class DailyArticleService {
     const article = await this.generateArticleWithOpenAI(payload);
     if (!article) {
       console.warn('DailyArticleService: génération du contenu échouée.');
-      return;
+      return { status: 'failed', slug, error: 'ARTICLE_GENERATION_FAILED' };
     }
 
     const coverImageUrl = await this.generateCoverImage(article.coverImagePrompt);
@@ -232,6 +336,14 @@ export default class DailyArticleService {
     }
 
     console.log(`DailyArticleService: article généré et publié pour ${slug}.`);
+
+    return {
+      status: 'generated',
+      slug,
+      title: article.title.trim(),
+      publishedAt: publishedAt.toISOString(),
+      tags: normalizedTags,
+    };
   }
 
   private normalizeExcerpt(raw: string): string | null {
