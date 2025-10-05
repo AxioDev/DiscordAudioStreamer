@@ -184,7 +184,7 @@ export default class DailyArticleService {
     this.running = true;
 
     try {
-      const result = await this.performGenerationCycle();
+      const result = await this.performGenerationCycle({ manual: true });
       this.lastResult = result;
     } catch (error) {
       const failure: DailyArticleGenerationResult = {
@@ -221,7 +221,7 @@ export default class DailyArticleService {
 
     this.running = true;
     try {
-      const result = await this.performGenerationCycle();
+      const result = await this.performGenerationCycle({ manual: true });
       this.lastResult = result;
       return result;
     } catch (error) {
@@ -258,91 +258,149 @@ export default class DailyArticleService {
     return `journal-${isoDate}`;
   }
 
-  private getDateBounds(): { targetDate: Date; rangeStart: Date; rangeEnd: Date } {
+  private getDateBoundsForTarget(targetDate: Date): { targetDate: Date; rangeStart: Date; rangeEnd: Date } {
+    const normalizedTarget = new Date(
+      Date.UTC(
+        targetDate.getUTCFullYear(),
+        targetDate.getUTCMonth(),
+        targetDate.getUTCDate(),
+        0,
+        0,
+        0,
+        0,
+      ),
+    );
+    const rangeStart = new Date(normalizedTarget);
+    const rangeEnd = new Date(normalizedTarget);
+    rangeEnd.setUTCDate(rangeEnd.getUTCDate() + 1);
+
+    return { targetDate: normalizedTarget, rangeStart, rangeEnd };
+  }
+
+  private getAutomaticDateBounds(): { targetDate: Date; rangeStart: Date; rangeEnd: Date } {
     const now = new Date();
     const todayUtcStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
     const targetDate = new Date(todayUtcStart);
     targetDate.setUTCDate(targetDate.getUTCDate() - 1);
-    const rangeStart = new Date(targetDate);
-    const rangeEnd = new Date(rangeStart);
-    rangeEnd.setUTCDate(rangeEnd.getUTCDate() + 1);
-
-    return { targetDate, rangeStart, rangeEnd };
+    return this.getDateBoundsForTarget(targetDate);
   }
 
-  private async performGenerationCycle(): Promise<DailyArticleGenerationResult> {
+  private getManualCandidateBounds(): Array<{ targetDate: Date; rangeStart: Date; rangeEnd: Date }> {
+    const candidates: Array<{ targetDate: Date; rangeStart: Date; rangeEnd: Date }> = [];
+    const automatic = this.getAutomaticDateBounds();
+    candidates.push(automatic);
+
+    const now = new Date();
+    const todayUtcStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+    const todayBounds = this.getDateBoundsForTarget(todayUtcStart);
+
+    // Avoid pushing duplicate bounds if we're exactly at midnight UTC.
+    if (todayBounds.targetDate.getTime() !== automatic.targetDate.getTime()) {
+      candidates.push(todayBounds);
+    }
+
+    return candidates;
+  }
+
+  private async performGenerationCycle(options: { manual?: boolean } = {}): Promise<DailyArticleGenerationResult> {
     if (!this.enabled || !this.openai || !this.blogRepository || !this.voiceActivityRepository) {
       return { status: 'skipped', slug: null, reason: 'MISSING_DEPENDENCIES' };
     }
 
-    const { targetDate, rangeStart, rangeEnd } = this.getDateBounds();
-    const slug = this.buildSlug(targetDate);
+    const manual = options.manual === true;
+    const candidateBounds = manual ? this.getManualCandidateBounds() : [this.getAutomaticDateBounds()];
 
-    const existing = await this.blogRepository.getPostBySlug(slug);
-    if (existing) {
-      return { status: 'skipped', slug, reason: 'ALREADY_EXISTS' };
+    let lastSlug: string | null = null;
+    let lastReason: DailyArticleGenerationReason | undefined;
+
+    for (const { targetDate, rangeStart, rangeEnd } of candidateBounds) {
+      const slug = this.buildSlug(targetDate);
+      lastSlug = slug;
+
+      const existing = await this.blogRepository.getPostBySlug(slug);
+      if (existing) {
+        lastReason = 'ALREADY_EXISTS';
+        if (manual) {
+          // Allow manual generation to fall back to the next candidate date.
+          continue;
+        }
+        return { status: 'skipped', slug, reason: 'ALREADY_EXISTS' };
+      }
+
+      const transcripts = await this.voiceActivityRepository.listVoiceTranscriptionsForRange({
+        since: rangeStart,
+        until: rangeEnd,
+        limit: MAX_TRANSCRIPT_SNIPPETS,
+      });
+
+      const filteredTranscripts = transcripts.filter((entry) => (entry.content ?? '').trim().length > 0);
+      if (filteredTranscripts.length === 0) {
+        lastReason = 'NO_TRANSCRIPTS';
+        console.warn(
+          'DailyArticleService: aucune transcription disponible pour %s, tentative suivante.',
+          targetDate.toISOString().slice(0, 10),
+        );
+        if (manual) {
+          continue;
+        }
+        return { status: 'skipped', slug, reason: 'NO_TRANSCRIPTS' };
+      }
+
+      const payload: ArticleGenerationPayload = {
+        transcripts: filteredTranscripts,
+        targetDate,
+      };
+
+      const article = await this.generateArticleWithOpenAI(payload);
+      if (!article) {
+        console.warn('DailyArticleService: génération du contenu échouée.');
+        return { status: 'failed', slug, error: 'ARTICLE_GENERATION_FAILED' };
+      }
+
+      const coverImageUrl = await this.generateCoverImage(article.coverImagePrompt);
+
+      const normalizedTags = Array.from(
+        new Set([
+          ...this.config.openAI.dailyArticleTags,
+          ...article.tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0),
+        ]),
+      );
+
+      const publishedAt = new Date(rangeEnd.getTime() - 60 * 60 * 1000);
+      const updatedAt = new Date();
+
+      await this.blogRepository.upsertPost({
+        slug,
+        title: article.title.trim(),
+        excerpt: this.normalizeExcerpt(article.excerpt),
+        contentMarkdown: article.contentMarkdown.trim(),
+        coverImageUrl: coverImageUrl ?? null,
+        tags: normalizedTags,
+        seoDescription: article.seoDescription ?? null,
+        publishedAt,
+        updatedAt,
+      });
+
+      if (this.blogService) {
+        // Ensure any cached initialization steps are completed.
+        await this.blogService.initialize();
+      }
+
+      console.log(`DailyArticleService: article généré et publié pour ${slug}.`);
+
+      return {
+        status: 'generated',
+        slug,
+        title: article.title.trim(),
+        publishedAt: publishedAt.toISOString(),
+        tags: normalizedTags,
+      };
     }
-
-    const transcripts = await this.voiceActivityRepository.listVoiceTranscriptionsForRange({
-      since: rangeStart,
-      until: rangeEnd,
-      limit: MAX_TRANSCRIPT_SNIPPETS,
-    });
-
-    const filteredTranscripts = transcripts.filter((entry) => (entry.content ?? '').trim().length > 0);
-    if (filteredTranscripts.length === 0) {
-      console.warn('DailyArticleService: aucune transcription disponible pour cette journée, génération annulée.');
-      return { status: 'skipped', slug, reason: 'NO_TRANSCRIPTS' };
-    }
-
-    const payload: ArticleGenerationPayload = {
-      transcripts: filteredTranscripts,
-      targetDate,
-    };
-
-    const article = await this.generateArticleWithOpenAI(payload);
-    if (!article) {
-      console.warn('DailyArticleService: génération du contenu échouée.');
-      return { status: 'failed', slug, error: 'ARTICLE_GENERATION_FAILED' };
-    }
-
-    const coverImageUrl = await this.generateCoverImage(article.coverImagePrompt);
-
-    const normalizedTags = Array.from(
-      new Set([
-        ...this.config.openAI.dailyArticleTags,
-        ...article.tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0),
-      ]),
-    );
-
-    const publishedAt = new Date(rangeEnd.getTime() - 60 * 60 * 1000);
-    const updatedAt = new Date();
-
-    await this.blogRepository.upsertPost({
-      slug,
-      title: article.title.trim(),
-      excerpt: this.normalizeExcerpt(article.excerpt),
-      contentMarkdown: article.contentMarkdown.trim(),
-      coverImageUrl: coverImageUrl ?? null,
-      tags: normalizedTags,
-      seoDescription: article.seoDescription ?? null,
-      publishedAt,
-      updatedAt,
-    });
-
-    if (this.blogService) {
-      // Ensure any cached initialization steps are completed.
-      await this.blogService.initialize();
-    }
-
-    console.log(`DailyArticleService: article généré et publié pour ${slug}.`);
 
     return {
-      status: 'generated',
-      slug,
-      title: article.title.trim(),
-      publishedAt: publishedAt.toISOString(),
-      tags: normalizedTags,
+      status: 'skipped',
+      slug: lastSlug,
+      reason: lastReason ?? 'NO_TRANSCRIPTS',
     };
   }
 
