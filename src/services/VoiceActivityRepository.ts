@@ -257,8 +257,15 @@ export interface HypeLeaderboardSnapshotOptions {
 export interface HypeLeaderboardSnapshotEntry {
   userId: string;
   rank: number;
+  absoluteRank?: number | null;
+  displayName?: string | null;
+  username?: string | null;
   sessions: number;
+  arrivalEffect?: number | null;
+  departureEffect?: number | null;
+  retentionMinutes?: number | null;
   activityScore: number;
+  schRaw?: number | null;
   schScoreNorm: number;
 }
 
