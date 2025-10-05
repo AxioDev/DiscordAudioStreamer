@@ -11,7 +11,10 @@ import type DiscordAudioBridge from '../discord/DiscordAudioBridge';
 import type ShopService from '../services/ShopService';
 import { ShopError, type ShopProvider } from '../services/ShopService';
 import type VoiceActivityRepository from '../services/VoiceActivityRepository';
-import ListenerStatsService, { type ListenerStatsUpdate } from '../services/ListenerStatsService';
+import ListenerStatsService, {
+  type ListenerStatsEntry,
+  type ListenerStatsUpdate,
+} from '../services/ListenerStatsService';
 import BlogService, { type BlogListOptions } from '../services/BlogService';
 import BlogRepository from '../services/BlogRepository';
 import BlogProposalService, { BlogProposalError } from '../services/BlogProposalService';
@@ -29,6 +32,8 @@ import HypeLeaderboardService, {
   type NormalizedHypeLeaderboardQueryOptions,
 } from '../services/HypeLeaderboardService';
 import SeoRenderer, { type SeoPageMetadata } from './SeoRenderer';
+import AdminService, { type HiddenMemberRecord } from '../services/AdminService';
+import DailyArticleService, { type DailyArticleServiceStatus } from '../services/DailyArticleService';
 
 export interface AppServerOptions {
   config: Config;
@@ -43,6 +48,8 @@ export interface AppServerOptions {
   blogRepository?: BlogRepository | null;
   blogService?: BlogService | null;
   blogProposalService?: BlogProposalService | null;
+  dailyArticleService?: DailyArticleService | null;
+  adminService: AdminService;
 }
 
 type FlushCapableResponse = Response & {
@@ -114,6 +121,12 @@ export default class AppServer {
 
   private readonly seoRenderer: SeoRenderer;
 
+  private readonly dailyArticleService: DailyArticleService | null;
+
+  private readonly adminService: AdminService;
+
+  private readonly adminCredentials: { username: string; password: string } | null;
+
   constructor({
     config,
     transcoder,
@@ -127,6 +140,8 @@ export default class AppServer {
     blogRepository = null,
     blogService = null,
     blogProposalService = null,
+    dailyArticleService = null,
+    adminService,
   }: AppServerOptions) {
     this.config = config;
     this.transcoder = transcoder;
@@ -136,6 +151,14 @@ export default class AppServer {
     this.discordBridge = discordBridge;
     this.shopService = shopService;
     this.voiceActivityRepository = voiceActivityRepository;
+    this.dailyArticleService = dailyArticleService ?? null;
+    this.adminService = adminService;
+    const adminUsername = this.config.admin?.username ?? null;
+    const adminPassword = this.config.admin?.password ?? null;
+    this.adminCredentials =
+      adminUsername && adminPassword
+        ? { username: adminUsername, password: adminPassword }
+        : null;
     this.hypeLeaderboardService = voiceActivityRepository
       ? new HypeLeaderboardService({
           repository: voiceActivityRepository,
@@ -632,6 +655,104 @@ export default class AppServer {
   }
 
   private registerRoutes(): void {
+    const adminRouter = express.Router();
+
+    adminRouter.use((req, res, next) => {
+      if (!this.requireAdminAuth(req, res)) {
+        return;
+      }
+      next();
+    });
+
+    adminRouter.get('/', async (_req, res) => {
+      try {
+        const overview = await this.buildAdminOverview();
+        res.json(overview);
+      } catch (error) {
+        console.error('Failed to build admin overview', error);
+        res.status(500).json({
+          error: 'ADMIN_OVERVIEW_FAILED',
+          message: "Impossible de charger les informations d'administration.",
+        });
+      }
+    });
+
+    adminRouter.post('/members/:userId/hide', async (req, res) => {
+      const rawUserId = typeof req.params.userId === 'string' ? req.params.userId.trim() : '';
+      if (!rawUserId) {
+        res.status(400).json({ error: 'USER_ID_REQUIRED', message: "L'identifiant utilisateur est requis." });
+        return;
+      }
+
+      const idea = typeof req.body?.idea === 'string' ? req.body.idea : null;
+
+      try {
+        const record = await this.adminService.hideMember(rawUserId, idea);
+        res.status(201).json({ member: record });
+      } catch (error) {
+        if ((error as Error)?.message === 'USER_ID_REQUIRED') {
+          res.status(400).json({ error: 'USER_ID_REQUIRED', message: "L'identifiant utilisateur est requis." });
+          return;
+        }
+        console.error('Failed to hide member profile', error);
+        res.status(500).json({
+          error: 'HIDE_MEMBER_FAILED',
+          message: 'Impossible de masquer ce membre.',
+        });
+      }
+    });
+
+    adminRouter.delete('/members/:userId/hide', async (req, res) => {
+      const rawUserId = typeof req.params.userId === 'string' ? req.params.userId.trim() : '';
+      if (!rawUserId) {
+        res.status(400).json({ error: 'USER_ID_REQUIRED', message: "L'identifiant utilisateur est requis." });
+        return;
+      }
+
+      try {
+        const removed = await this.adminService.unhideMember(rawUserId);
+        if (!removed) {
+          res.status(404).json({ error: 'MEMBER_NOT_HIDDEN', message: 'Ce membre est déjà visible.' });
+          return;
+        }
+        res.json({ success: true });
+      } catch (error) {
+        if ((error as Error)?.message === 'USER_ID_REQUIRED') {
+          res.status(400).json({ error: 'USER_ID_REQUIRED', message: "L'identifiant utilisateur est requis." });
+          return;
+        }
+        console.error('Failed to unhide member profile', error);
+        res.status(500).json({
+          error: 'UNHIDE_MEMBER_FAILED',
+          message: 'Impossible de rendre ce membre visible.',
+        });
+      }
+    });
+
+    adminRouter.post('/articles/daily', async (_req, res) => {
+      if (!this.dailyArticleService) {
+        res.status(503).json({
+          error: 'DAILY_ARTICLE_DISABLED',
+          message: "La génération d'articles automatiques est désactivée.",
+        });
+        return;
+      }
+
+      try {
+        const result = await this.dailyArticleService.triggerManualGeneration();
+        const status = result.status === 'failed' ? 500 : 200;
+        res.status(status).json({ result });
+      } catch (error) {
+        console.error('Failed to trigger daily article generation', error);
+        res.status(500).json({
+          error: 'DAILY_ARTICLE_FAILED',
+          message: "Impossible de lancer la génération de l'article.",
+        });
+      }
+    });
+
+    this.app.use('/admin', adminRouter);
+
     this.app.get('/events', (req, res) => {
       this.sseService.handleRequest(req, res, {
         initialState: () => ({
@@ -936,6 +1057,13 @@ export default class AppServer {
         return;
       }
 
+      if (await this.adminService.isMemberHidden(rawUserId)) {
+        res
+          .status(404)
+          .json({ error: 'PROFILE_HIDDEN', message: 'Ce profil est masqué sur demande.' });
+        return;
+      }
+
       const sinceParam = Array.isArray(req.query.since) ? req.query.since[0] : req.query.since;
       const untilParam = Array.isArray(req.query.until) ? req.query.until[0] : req.query.until;
 
@@ -1104,6 +1232,14 @@ export default class AppServer {
         return;
       }
 
+      if (await this.adminService.isMemberHidden(rawUserId)) {
+        res.status(404).json({
+          error: 'PROFILE_HIDDEN',
+          message: 'Les transcriptions de ce profil sont masquées.',
+        });
+        return;
+      }
+
       if (!this.voiceActivityRepository) {
         res.status(503).json({
           error: 'VOICE_TRANSCRIPTIONS_UNAVAILABLE',
@@ -1177,9 +1313,12 @@ export default class AppServer {
           search: search.length > 0 ? search : null,
         });
 
+        const hiddenMemberIds = await this.adminService.getHiddenMemberIds();
+        const visibleMembers = result.members.filter((member) => !hiddenMemberIds.has(member.id));
+
         let recentMessagesByUser: Record<string, UserMessageActivityEntry[]> = {};
         if (this.voiceActivityRepository) {
-          const userIds = result.members
+          const userIds = visibleMembers
             .map((member) => (typeof member?.id === 'string' ? member.id : ''))
             .filter((id): id is string => id.length > 0);
 
@@ -1195,7 +1334,7 @@ export default class AppServer {
           }
         }
 
-        const membersWithMessages = result.members.map((member) => ({
+        const membersWithMessages = visibleMembers.map((member) => ({
           ...member,
           recentMessages: (recentMessagesByUser[member.id] ?? []).map((entry) => ({
             messageId: entry.messageId,
@@ -1658,6 +1797,25 @@ export default class AppServer {
           {
             title: 'Profil introuvable · Libre Antenne',
             description: "Impossible de charger ce profil Libre Antenne.",
+            path: req.path,
+            canonicalUrl: this.toAbsoluteUrl('/membres'),
+            robots: 'noindex,follow',
+            breadcrumbs: [
+              { name: 'Accueil', path: '/' },
+              { name: 'Membres', path: '/membres' },
+            ],
+          },
+          404,
+        );
+        return;
+      }
+
+      if (await this.adminService.isMemberHidden(rawUserId)) {
+        this.respondWithAppShell(
+          res,
+          {
+            title: 'Profil masqué · Libre Antenne',
+            description: 'Ce membre préfère garder son profil confidentiel.',
             path: req.path,
             canonicalUrl: this.toAbsoluteUrl('/membres'),
             robots: 'noindex,follow',
@@ -2511,5 +2669,100 @@ export default class AppServer {
     }
 
     return null;
+  }
+
+  private requireAdminAuth(req: Request, res: Response): boolean {
+    if (!this.adminCredentials) {
+      res.status(404).json({
+        error: 'ADMIN_DISABLED',
+        message: "L'administration n'est pas configurée sur ce serveur.",
+      });
+      return false;
+    }
+
+    const header = req.header('authorization') || req.header('Authorization');
+    if (!header || !header.startsWith('Basic ')) {
+      this.requestAdminCredentials(res);
+      return false;
+    }
+
+    const encoded = header.slice(6).trim();
+    let decoded: string;
+    try {
+      decoded = Buffer.from(encoded, 'base64').toString('utf8');
+    } catch (error) {
+      console.warn('Failed to decode admin credentials', error);
+      this.requestAdminCredentials(res);
+      return false;
+    }
+
+    const separatorIndex = decoded.indexOf(':');
+    const username = separatorIndex >= 0 ? decoded.slice(0, separatorIndex) : decoded;
+    const password = separatorIndex >= 0 ? decoded.slice(separatorIndex + 1) : '';
+
+    if (
+      username !== this.adminCredentials.username ||
+      password !== this.adminCredentials.password
+    ) {
+      this.requestAdminCredentials(res);
+      return false;
+    }
+
+    return true;
+  }
+
+  private requestAdminCredentials(res: Response): void {
+    res.setHeader('WWW-Authenticate', 'Basic realm="Libre Antenne Admin", charset="UTF-8"');
+    res.status(401).json({
+      error: 'ADMIN_AUTH_REQUIRED',
+      message: 'Authentification requise.',
+    });
+  }
+
+  private async buildAdminOverview(): Promise<{
+    timestamp: string;
+    listeners: { count: number; history: ListenerStatsEntry[] };
+    speakers: { count: number; participants: ReturnType<SpeakerTracker['getSpeakers']> };
+    discord: { guildId: string | null; excludedUserIds: string[] };
+    hiddenMembers: HiddenMemberRecord[];
+    dailyArticle: DailyArticleServiceStatus;
+  }> {
+    const [hiddenMembers] = await Promise.all([this.adminService.listHiddenMembers()]);
+
+    return {
+      timestamp: new Date().toISOString(),
+      listeners: {
+        count: this.listenerStatsService.getCurrentCount(),
+        history: this.listenerStatsService.getHistory(),
+      },
+      speakers: {
+        count: this.speakerTracker.getSpeakerCount(),
+        participants: this.speakerTracker.getSpeakers(),
+      },
+      discord: {
+        guildId: this.config.guildId ?? null,
+        excludedUserIds: this.config.excludedUserIds,
+      },
+      hiddenMembers,
+      dailyArticle: this.getDailyArticleStatusSnapshot(),
+    };
+  }
+
+  private getDailyArticleStatusSnapshot(): DailyArticleServiceStatus {
+    if (this.dailyArticleService) {
+      return this.dailyArticleService.getStatus();
+    }
+
+    return {
+      enabled: false,
+      running: false,
+      nextRunAt: null,
+      lastResult: null,
+      dependencies: {
+        openAI: Boolean(this.config.openAI.apiKey),
+        blogRepository: Boolean(this.blogRepository),
+        voiceActivityRepository: Boolean(this.voiceActivityRepository),
+      },
+    };
   }
 }

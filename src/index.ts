@@ -16,6 +16,7 @@ import BlogProposalService from './services/BlogProposalService';
 import DailyArticleService from './services/DailyArticleService';
 import KaldiTranscriptionService from './services/KaldiTranscriptionService';
 import UserPersonaService from './services/UserPersonaService';
+import AdminService from './services/AdminService';
 
 const mixer = new AudioMixer({
   frameBytes: config.audio.frameBytes,
@@ -122,6 +123,14 @@ const userPersonaService = new UserPersonaService({
   voiceActivityRepository,
 });
 
+const adminService = new AdminService({
+  storageDirectory: path.resolve(__dirname, '..', 'content', 'admin'),
+});
+
+void adminService.initialize().catch((error) => {
+  console.error('AdminService initialization failed', error);
+});
+
 const discordBridge = new DiscordAudioBridge({
   config,
   mixer,
@@ -155,6 +164,8 @@ const appServer = new AppServer({
   blogRepository,
   blogService,
   blogProposalService,
+  dailyArticleService,
+  adminService,
 });
 appServer.start();
 

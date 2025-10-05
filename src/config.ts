@@ -86,6 +86,11 @@ export interface KaldiConfig {
   enabled: boolean;
 }
 
+export interface AdminConfig {
+  username: string | null;
+  password: string | null;
+}
+
 export interface Config {
   botToken: string;
   guildId?: string;
@@ -112,6 +117,7 @@ export interface Config {
   twitterSite?: string;
   twitterCreator?: string;
   kaldi: KaldiConfig;
+  admin: AdminConfig;
 }
 
 const config: Config = {
@@ -210,6 +216,17 @@ const config: Config = {
     port: parseInteger(process.env.KALDI_PORT, 2700),
     sampleRate: parseInteger(process.env.KALDI_SAMPLE_RATE, 16000),
     enabled: process.env.KALDI_ENABLED !== 'false',
+  },
+  admin: {
+    username: (() => {
+      const value = process.env.ADMIN_USERNAME ?? '';
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    })(),
+    password: (() => {
+      const value = process.env.ADMIN_PASSWORD ?? '';
+      return value.length > 0 ? value : null;
+    })(),
   },
 };
 
