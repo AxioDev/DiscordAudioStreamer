@@ -1626,6 +1626,17 @@ const readCheckoutFeedbackFromHash = () => {
 };
 
 const ShopProductCard = ({ product, checkoutState, onCheckout }) => {
+  const hasImageObject =
+    product &&
+    typeof product === 'object' &&
+    product.image &&
+    typeof product.image === 'object';
+  const imageUrl = hasImageObject && typeof product.image.url === 'string' ? product.image.url : '';
+  const imageAlt =
+    hasImageObject && typeof product.image.alt === 'string' && product.image.alt.trim().length > 0
+      ? product.image.alt
+      : product.name;
+
   const providerSections = (product.providers || [])
     .map((provider) => {
       const details = PAYMENT_PROVIDERS[provider];
@@ -1677,6 +1688,19 @@ const ShopProductCard = ({ product, checkoutState, onCheckout }) => {
               </span>`
             )}
           </div>`
+        : null}
+      ${imageUrl
+        ? html`<figure
+            class=${`relative mt-6 overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br ${product.accent || ''}`}
+          >
+            <img
+              src=${imageUrl}
+              alt=${imageAlt || product.name || 'Visuel du produit'}
+              class="h-full w-full object-cover object-center"
+              loading="lazy"
+              decoding="async"
+            />
+          </figure>`
         : null}
       <h3 class="mt-5 text-xl font-semibold text-white">${product.name}</h3>
       <p class="mt-2 text-sm leading-relaxed text-slate-300">${product.description}</p>

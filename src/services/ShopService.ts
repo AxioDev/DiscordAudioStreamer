@@ -1,5 +1,6 @@
 import Stripe from 'stripe';
 import type { Config } from '../config';
+import { TSHIRT_SIGNAL_BRUT_IMAGE } from './shopImageData';
 
 export type ShopProvider = 'stripe' | 'coingate' | 'paypal';
 
@@ -17,6 +18,8 @@ interface ProductDefinition {
   emoji: string;
   highlight?: boolean;
   stripePriceKey?: string;
+  imageUrl?: string;
+  imageAlt?: string;
 }
 
 interface InternalProduct extends ProductDefinition {
@@ -40,6 +43,7 @@ export interface PublicProduct {
   emoji: string;
   highlight: boolean;
   providers: ShopProvider[];
+  image: { url: string; alt: string } | null;
 }
 
 export interface CheckoutRequestOptions {
@@ -115,6 +119,12 @@ export default class ShopService {
       emoji: product.emoji,
       highlight: Boolean(product.highlight),
       providers: this.computeAvailableProviders(product),
+      image: product.imageUrl
+        ? {
+            url: product.imageUrl,
+            alt: product.imageAlt?.trim() || product.name,
+          }
+        : null,
     }));
   }
 
@@ -175,6 +185,8 @@ export default class ShopService {
         emoji: '👕',
         highlight: true,
         stripePriceKey: 'tshirt',
+        imageUrl: TSHIRT_SIGNAL_BRUT_IMAGE,
+        imageAlt: 'Visuel du t-shirt noir Libre Antenne "Libre Antenne"',
       },
       {
         id: 'pack-essentiel',
