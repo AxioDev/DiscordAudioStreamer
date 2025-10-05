@@ -135,6 +135,10 @@ export const BlogPage = ({ params = {} }) => {
   const [postError, setPostError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTags, setSelectedTags] = useState([]);
+  const [manualPassword, setManualPassword] = useState('');
+  const [isTriggeringManualArticle, setIsTriggeringManualArticle] = useState(false);
+  const [manualTriggerError, setManualTriggerError] = useState(null);
+  const [manualTriggerSuccess, setManualTriggerSuccess] = useState(null);
   const debouncedSearch = useDebouncedValue(searchTerm, 350);
   const defaultMetaDescription = useRef(null);
 
@@ -311,6 +315,62 @@ export const BlogPage = ({ params = {} }) => {
     }
   }, []);
 
+  const handleManualPasswordChange = useCallback((event) => {
+    setManualPassword(event.target.value);
+  }, []);
+
+  const handleManualGeneration = useCallback(
+    async (event) => {
+      event.preventDefault();
+      const normalizedPassword = manualPassword.trim();
+      if (!normalizedPassword) {
+        setManualTriggerError('Mot de passe requis.');
+        setManualTriggerSuccess(null);
+        return;
+      }
+
+      setIsTriggeringManualArticle(true);
+      setManualTriggerError(null);
+      setManualTriggerSuccess(null);
+
+      try {
+        const response = await fetch('/api/blog/manual-generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: normalizedPassword }),
+        });
+
+        let payload = null;
+        try {
+          payload = await response.json();
+        } catch (parseError) {
+          payload = null;
+        }
+
+        if (!response.ok) {
+          const message =
+            payload && typeof payload.message === 'string' && payload.message.trim().length > 0
+              ? payload.message
+              : "Impossible de lancer la génération de l'article.";
+          throw new Error(message);
+        }
+
+        const successMessage =
+          payload && typeof payload.message === 'string' && payload.message.trim().length > 0
+            ? payload.message
+            : "La génération de l'article a été déclenchée.";
+        setManualTriggerSuccess(successMessage);
+        setManualPassword('');
+      } catch (error) {
+        console.error('Failed to trigger manual blog article', error);
+        setManualTriggerError(error?.message ?? "Impossible de lancer la génération de l'article.");
+      } finally {
+        setIsTriggeringManualArticle(false);
+      }
+    },
+    [manualPassword],
+  );
+
   return html`
     <section class="blog-page space-y-10 px-4 pb-16">
       <header class="mx-auto flex max-w-6xl flex-col gap-6 rounded-3xl border border-slate-800/80 bg-slate-950/70 p-8 shadow-xl">
@@ -398,6 +458,40 @@ export const BlogPage = ({ params = {} }) => {
             ? 'Chargement des articles...'
             : `${posts.length} article${posts.length > 1 ? 's' : ''} visibles`}
         </div>
+        <form
+          class="ml-auto flex items-center gap-2 text-[11px] text-slate-500"
+          onSubmit=${handleManualGeneration}
+          autocomplete="off"
+        >
+          <label class="sr-only" for="blog-manual-password">Mot de passe</label>
+          <input
+            id="blog-manual-password"
+            type="password"
+            value=${manualPassword}
+            onInput=${handleManualPasswordChange}
+            placeholder="••••"
+            class="w-20 rounded-lg border border-transparent bg-transparent px-2 py-1 text-[11px] text-slate-400 focus:border-slate-600 focus:outline-none focus:ring-0"
+          />
+          <button
+            type="submit"
+            class="rounded-md border border-transparent px-2 py-1 text-[10px] font-medium text-slate-500 transition hover:text-amber-200 focus:border-slate-600 focus:outline-none"
+            disabled=${isTriggeringManualArticle}
+            title="Déclencher un nouvel article"
+          >
+            …
+          </button>
+        </form>
+        ${(manualTriggerError || manualTriggerSuccess)
+          ? html`
+              <div class="ml-auto max-w-xs text-right text-[11px]">
+                ${manualTriggerSuccess
+                  ? html`<p class="text-emerald-300">${manualTriggerSuccess}</p>`
+                  : null}
+                ${manualTriggerError
+                  ? html`<p class="text-rose-300">${manualTriggerError}</p>`
+                  : null}
+              </div>`
+          : null}
       </header>
 
       ${slug
