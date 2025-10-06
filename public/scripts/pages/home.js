@@ -17,6 +17,90 @@ import {
   ListenerTrendCard,
 } from '../components/index.js';
 
+const HIGHLIGHTS = [
+  {
+    title: 'Talk-show communautaire en continu',
+    description:
+      'Des animateurs tournants et une modération bienveillante pour offrir un espace libre, mais sécurisé, à toutes les voix nocturnes.',
+  },
+  {
+    title: 'Histoires, jeux et culture web',
+    description:
+      'Débats improvisés, actualités pop et découvertes musicales : chaque soirée propose un nouveau terrain de jeu collectif.',
+  },
+  {
+    title: 'Participation ouverte',
+    description:
+      'Rejoins le salon vocal, propose ton sujet et passe à l’antenne : la communauté décide avec qui et comment la discussion évolue.',
+  },
+];
+
+const WEEKLY_PROGRAMME = [
+  {
+    day: 'Lundi',
+    title: 'Table ronde communauté',
+    time: '21h30',
+    description: 'Revue des moments forts du week-end et ouverture micro pour planifier la semaine.',
+  },
+  {
+    day: 'Mercredi',
+    title: 'Atelier création & audio',
+    time: '22h00',
+    description: 'Montage, musique ou storytelling : chacun peut présenter un projet et récolter des retours.',
+  },
+  {
+    day: 'Vendredi',
+    title: 'Libre antenne nocturne',
+    time: '23h00',
+    description: 'Afterwork décomplexé : débats, jeux improvisés et histoires borderline jusqu’au bout de la nuit.',
+  },
+  {
+    day: 'Dimanche',
+    title: 'Débrief modération & invités',
+    time: '20h30',
+    description: 'Bilan de la semaine, teasing des interviews à venir et sélection des propositions de sujets.',
+  },
+];
+
+const COMMUNITY_QUOTES = [
+  {
+    quote:
+      '« Un mix improbable entre radio pirate et salon Discord : on débarque pour écouter et on finit toujours par prendre le micro. »',
+    author: 'Vega',
+    role: 'Auditrice depuis 2022',
+  },
+  {
+    quote:
+      '« Ici, les débats partent dans tous les sens mais l’équipe garde le cadre. C’est le seul endroit où je peux tester des idées en direct. »',
+    author: 'Nox',
+    role: 'Animateur bénévole',
+  },
+  {
+    quote:
+      '« Les FAQ, les replays et le blog m’aident à suivre l’actu communautaire même quand je rate le live. »',
+    author: 'Lune',
+    role: 'Contributrice blog',
+  },
+];
+
+const FAQ_ITEMS = [
+  {
+    question: 'Comment participer à l’émission ?',
+    answer:
+      'Rejoins le Discord, vérifie le salon #brief pour connaître le sujet du moment puis connecte-toi au vocal « Libre Antenne ». Une équipe de modération t’accompagne avant ton passage à l’antenne.',
+  },
+  {
+    question: 'Puis-je proposer un thème ou un article ?',
+    answer:
+      'Oui ! Utilise le formulaire « Proposer un article » dans la section blog ou poste directement ton idée dans #pitch. Les propositions sont discutées chaque dimanche.',
+  },
+  {
+    question: 'Y a-t-il un replay ?',
+    answer:
+      'Les meilleures séquences sont résumées dans le blog et certaines émissions sont rediffusées lors des pauses. Suis la newsletter Discord pour connaître les prochains replays.',
+  },
+];
+
 const HomePage = ({
   status,
   streamInfo,
@@ -75,17 +159,27 @@ const HomePage = ({
         <div class="space-y-4">
           <h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">Libre Antenne</h1>
           <p class="max-w-xl text-base text-slate-200">
-            Le chaos en direct : un refuge sans filtre pour drogués, marginaux, alcooliques, gamers et esprits libres.
+            Radio communautaire en direct depuis Discord : talk-shows nocturnes, débats improvisés et ateliers créatifs ouverts à
+            toutes et tous.
           </p>
-          <a
-            class="inline-flex items-center gap-2 rounded-full border border-fuchsia-400/60 bg-fuchsia-500/20 px-5 py-2 text-sm font-semibold text-fuchsia-100 shadow-lg shadow-fuchsia-900/40 transition hover:bg-fuchsia-500/30 hover:text-white"
-            href="https://discord.gg/btjTZ5C"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Rejoindre le Discord
-            <${ArrowRight} class="h-4 w-4" aria-hidden="true" />
-          </a>
+          <div class="flex flex-wrap items-center gap-3">
+            <a
+              class="inline-flex items-center gap-2 rounded-full border border-fuchsia-400/60 bg-fuchsia-500/20 px-5 py-2 text-sm font-semibold text-fuchsia-100 shadow-lg shadow-fuchsia-900/40 transition hover:bg-fuchsia-500/30 hover:text-white"
+              href="https://discord.gg/btjTZ5C"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Rejoindre le Discord
+              <${ArrowRight} class="h-4 w-4" aria-hidden="true" />
+            </a>
+            <a
+              class="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-slate-900/40 transition hover:bg-white/20"
+              href="#programme"
+            >
+              Découvrir la programmation
+              <${ArrowRight} class="h-4 w-4" aria-hidden="true" />
+            </a>
+          </div>
           <div class="flex flex-wrap items-center gap-3 text-sm text-slate-200/90">
             <div class="flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-4 py-1.5">
               <${Users} class="h-4 w-4 text-amber-300" aria-hidden="true" />
@@ -100,6 +194,76 @@ const HomePage = ({
           </div>
         </div>
         <${BeerCanDisplay} />
+      </div>
+    </section>
+
+    <section class="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl">
+      <div class="space-y-2">
+        <h2 class="text-2xl font-semibold text-white">Pourquoi écouter Libre Antenne ?</h2>
+        <p class="text-sm text-slate-300">
+          Nous diffusons le flux Discord tel qu’il se vit, avec une équipe qui garantit le cadre et accompagne chaque prise de
+          parole. Voici ce que tu trouveras en rejoignant la communauté.
+        </p>
+      </div>
+      <div class="grid gap-4 md:grid-cols-3">
+        ${HIGHLIGHTS.map(
+          (item) => html`
+            <article class="flex h-full flex-col justify-between rounded-2xl border border-white/10 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40">
+              <div class="space-y-3">
+                <h3 class="text-lg font-semibold text-white">${item.title}</h3>
+                <p class="text-sm text-slate-300">${item.description}</p>
+              </div>
+            </article>
+          `,
+        )}
+      </div>
+    </section>
+
+    <section id="programme" class="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl">
+      <div class="space-y-2">
+        <h2 class="text-2xl font-semibold text-white">Programmation hebdomadaire</h2>
+        <p class="text-sm text-slate-300">
+          Les créneaux sont évolutifs et s’adaptent aux envies du moment. Abonne-toi aux annonces Discord pour être averti des
+          sessions spéciales.
+        </p>
+      </div>
+      <div class="grid gap-4 md:grid-cols-2">
+        ${WEEKLY_PROGRAMME.map(
+          (slot) => html`
+            <article class="rounded-2xl border border-white/10 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40">
+              <p class="text-xs font-semibold uppercase tracking-[0.3em] text-fuchsia-300">${slot.day}</p>
+              <div class="mt-2 flex items-baseline justify-between gap-4">
+                <h3 class="text-lg font-semibold text-white">${slot.title}</h3>
+                <span class="rounded-full border border-fuchsia-400/60 bg-fuchsia-500/10 px-3 py-1 text-xs font-semibold text-fuchsia-100">
+                  ${slot.time}
+                </span>
+              </div>
+              <p class="mt-3 text-sm text-slate-300">${slot.description}</p>
+            </article>
+          `,
+        )}
+      </div>
+    </section>
+
+    <section class="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl">
+      <div class="space-y-2">
+        <h2 class="text-2xl font-semibold text-white">Ils prennent le micro</h2>
+        <p class="text-sm text-slate-300">
+          La radio appartient à celles et ceux qui la font vivre. Quelques retours de la communauté.
+        </p>
+      </div>
+      <div class="grid gap-4 md:grid-cols-3">
+        ${COMMUNITY_QUOTES.map(
+          (entry) => html`
+            <figure class="flex h-full flex-col justify-between rounded-2xl border border-white/10 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40">
+              <blockquote class="text-sm italic text-slate-200">${entry.quote}</blockquote>
+              <figcaption class="mt-4 text-xs uppercase tracking-[0.35em] text-slate-400">
+                <span class="block text-sm font-semibold tracking-normal text-white">${entry.author}</span>
+                <span>${entry.role}</span>
+              </figcaption>
+            </figure>
+          `,
+        )}
       </div>
     </section>
 
@@ -132,6 +296,25 @@ const HomePage = ({
     />
 
     <${AnonymousBooth} slot=${anonymousSlot} now=${now} />
+
+    <section class="space-y-4 rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl">
+      <h2 class="text-2xl font-semibold text-white">Questions fréquentes</h2>
+      <div class="space-y-3">
+        ${FAQ_ITEMS.map(
+          (item) => html`
+            <details class="group rounded-2xl border border-white/10 bg-slate-950/60 p-5 shadow-lg shadow-slate-950/40 transition">
+              <summary class="flex cursor-pointer items-center justify-between gap-4 text-sm font-semibold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-400">
+                ${item.question}
+                <span class="text-xs font-semibold uppercase tracking-[0.3em] text-fuchsia-200 transition group-open:text-fuchsia-100">
+                  Ouvrir
+                </span>
+              </summary>
+              <p class="mt-3 text-sm text-slate-300">${item.answer}</p>
+            </details>
+          `,
+        )}
+      </div>
+    </section>
 
     <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl">
       <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

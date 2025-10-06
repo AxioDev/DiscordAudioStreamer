@@ -1,0 +1,6 @@
+User-agent: *
+Disallow: /bannir
+Disallow: /admin
+Allow: /
+
+Sitemap: /sitemap.xml

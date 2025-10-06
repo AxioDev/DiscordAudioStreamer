@@ -165,6 +165,7 @@ export default class SeoRenderer {
       description,
       canonicalUrl,
       language,
+      keywords,
     });
 
     const structuredData = [
@@ -180,9 +181,6 @@ export default class SeoRenderer {
     const lines: string[] = [];
     lines.push('    <title>' + this.escapeHtml(title) + '</title>');
     lines.push('    <meta name="description" content="' + this.escapeHtml(description) + '" />');
-    if (keywords.length > 0) {
-      lines.push('    <meta name="keywords" content="' + this.escapeHtml(keywords.join(', ')) + '" />');
-    }
     lines.push('    <meta name="robots" content="' + this.escapeHtml(robots) + '" />');
     lines.push('    <meta name="googlebot" content="' + this.escapeHtml(robots) + '" />');
     lines.push('    <meta name="bingbot" content="' + this.escapeHtml(robots) + '" />');
@@ -351,22 +349,27 @@ export default class SeoRenderer {
     description: string;
     canonicalUrl: string;
     language: string;
+    keywords?: string[];
   }): unknown[] {
-    return [
-      {
-        '@context': 'https://schema.org',
-        '@type': 'WebPage',
-        name: options.title,
-        description: options.description,
-        url: options.canonicalUrl,
-        inLanguage: options.language,
-        isPartOf: {
-          '@type': 'WebSite',
-          name: this.siteName,
-          url: this.baseUrl,
-        },
+    const webPage: Record<string, unknown> = {
+      '@context': 'https://schema.org',
+      '@type': 'WebPage',
+      name: options.title,
+      description: options.description,
+      url: options.canonicalUrl,
+      inLanguage: options.language,
+      isPartOf: {
+        '@type': 'WebSite',
+        name: this.siteName,
+        url: this.baseUrl,
       },
-    ];
+    };
+
+    if (Array.isArray(options.keywords) && options.keywords.length > 0) {
+      webPage.keywords = options.keywords;
+    }
+
+    return [webPage];
   }
 
   private buildBreadcrumbStructuredData(items: SeoBreadcrumbItem[]): unknown {
