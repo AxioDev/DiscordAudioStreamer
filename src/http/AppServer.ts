@@ -78,6 +78,13 @@ interface ProfileSummary {
   lastActivityAt: { ms: number; iso: string } | null;
 }
 
+interface SitemapEntry {
+  loc: string;
+  lastMod?: string | null;
+  changeFreq?: string | null;
+  priority?: number | null;
+}
+
 export default class AppServer {
   private readonly config: Config;
 
@@ -510,6 +517,119 @@ export default class AppServer {
     return Array.from(set.values());
   }
 
+  private getStaticSitemapDescriptors(): Array<{
+    path: string;
+    changeFreq?: SitemapEntry['changeFreq'];
+    priority?: SitemapEntry['priority'];
+  }> {
+    return [
+      { path: '/', changeFreq: 'daily', priority: 1 },
+      { path: '/membres', changeFreq: 'daily', priority: 0.8 },
+      { path: '/boutique', changeFreq: 'weekly', priority: 0.6 },
+      { path: '/classements', changeFreq: 'hourly', priority: 0.7 },
+      { path: '/blog', changeFreq: 'daily', priority: 0.7 },
+      { path: '/about', changeFreq: 'monthly', priority: 0.5 },
+      { path: '/bannir', changeFreq: 'monthly', priority: 0.2 },
+    ];
+  }
+
+  private async buildSitemapEntries(): Promise<SitemapEntry[]> {
+    const entries: SitemapEntry[] = this.getStaticSitemapDescriptors().map((descriptor) => ({
+      loc: this.toAbsoluteUrl(descriptor.path),
+      changeFreq: descriptor.changeFreq,
+      priority: descriptor.priority,
+    }));
+
+    const blogEntries = await this.buildBlogSitemapEntries();
+    for (const entry of blogEntries) {
+      entries.push(entry);
+    }
+
+    return entries;
+  }
+
+  private async buildBlogSitemapEntries(): Promise<SitemapEntry[]> {
+    try {
+      const { posts } = await this.blogService.listPosts({
+        limit: 500,
+        sortBy: 'date',
+        sortOrder: 'desc',
+      });
+
+      return posts
+        .filter((post) => typeof post?.slug === 'string' && post.slug.trim().length > 0)
+        .map((post) => {
+          const slug = post.slug.trim();
+          const lastMod = this.formatSitemapDate(post.updatedAt ?? post.date);
+          return {
+            loc: this.toAbsoluteUrl(`/blog/${slug}`),
+            lastMod,
+            changeFreq: 'monthly',
+            priority: 0.6,
+          } satisfies SitemapEntry;
+        });
+    } catch (error) {
+      console.error('Failed to list blog posts for sitemap', error);
+      return [];
+    }
+  }
+
+  private formatSitemapDate(value: string | null | undefined): string | null {
+    if (!value) {
+      return null;
+    }
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return null;
+    }
+    return parsed.toISOString();
+  }
+
+  private renderSitemap(entries: SitemapEntry[]): string {
+    const lines: string[] = [];
+    lines.push('<?xml version="1.0" encoding="UTF-8"?>');
+    lines.push('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">');
+    for (const entry of entries) {
+      if (!entry || typeof entry.loc !== 'string' || entry.loc.length === 0) {
+        continue;
+      }
+      lines.push('  <url>');
+      lines.push(`    <loc>${this.escapeXml(entry.loc)}</loc>`);
+      if (entry.lastMod) {
+        lines.push(`    <lastmod>${this.escapeXml(entry.lastMod)}</lastmod>`);
+      }
+      if (entry.changeFreq) {
+        lines.push(`    <changefreq>${this.escapeXml(entry.changeFreq)}</changefreq>`);
+      }
+      if (typeof entry.priority === 'number' && Number.isFinite(entry.priority)) {
+        const priority = Math.min(Math.max(entry.priority, 0), 1).toFixed(1);
+        lines.push(`    <priority>${priority}</priority>`);
+      }
+      lines.push('  </url>');
+    }
+    lines.push('</urlset>');
+    return lines.join('\n');
+  }
+
+  private escapeXml(value: string): string {
+    return value.replace(/[&<>"]|'/g, (char) => {
+      switch (char) {
+        case '&':
+          return '&amp;';
+        case '<':
+          return '&lt;';
+        case '>':
+          return '&gt;';
+        case '"':
+          return '&quot;';
+        case "'":
+          return '&apos;';
+        default:
+          return char;
+      }
+    });
+  }
+
   private buildProfileSummary(
     range: { since: Date; until: Date },
     presenceSegments: UserVoicePresenceSegment[],
@@ -666,6 +786,18 @@ export default class AppServer {
 
   private registerRoutes(): void {
     const adminRouter = express.Router();
+
+    this.app.get('/sitemap.xml', async (_req, res) => {
+      try {
+        const entries = await this.buildSitemapEntries();
+        const xml = this.renderSitemap(entries);
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.type('application/xml').send(xml);
+      } catch (error) {
+        console.error('Failed to render sitemap', error);
+        res.status(500).type('text/plain').send('SITEMAP_UNAVAILABLE');
+      }
+    });
 
     adminRouter.use((req, res, next) => {
       if (!this.requireAdminAuth(req, res)) {
