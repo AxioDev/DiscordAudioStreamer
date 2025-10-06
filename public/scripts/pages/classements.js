@@ -505,16 +505,6 @@ const ClassementsPage = ({ params = {} }) => {
                 Ce classement mesure l'énergie que chaque voix apporte au serveur : l'impact sur la fréquentation, la durée de parole et la vibe générale.
               </p>
             </div>
-            <div class="flex flex-col items-start gap-3 sm:items-end">
-              <div class="hype-pulse inline-flex items-center gap-3 rounded-full bg-gradient-to-r from-sky-500/25 via-fuchsia-500/25 to-purple-500/25 px-5 py-3 text-sm font-semibold text-sky-200">
-                <span class="inline-flex h-3 w-3 animate-ping rounded-full bg-sky-400"></span>
-                Mise à jour en direct
-              </div>
-              <div class="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs uppercase tracking-widest text-slate-300">
-                <span class="h-2 w-2 rounded-full bg-emerald-400"></span>
-                Data temps réel
-              </div>
-            </div>
           </div>
         </div>
       </section>
