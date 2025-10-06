@@ -1454,6 +1454,97 @@ export default class VoiceActivityRepository {
     }
   }
 
+  public async listActiveUsers({ limit = 100 }: { limit?: number }): Promise<
+    Array<{ userId: string; lastActivityAt: Date | null }>
+  > {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return [];
+    }
+
+    const boundedLimit = (() => {
+      const numeric = Number(limit);
+      if (!Number.isFinite(numeric)) {
+        return 100;
+      }
+      return Math.min(Math.max(Math.floor(numeric), 1), 500);
+    })();
+
+    const activityByUser = new Map<string, Date>();
+
+    const updateActivity = (userId: string | null | undefined, rawTimestamp: unknown): void => {
+      if (!userId || typeof userId !== 'string') {
+        return;
+      }
+
+      let timestamp: Date | null = null;
+      if (rawTimestamp instanceof Date) {
+        timestamp = rawTimestamp;
+      } else if (rawTimestamp) {
+        const parsed = new Date(String(rawTimestamp));
+        if (!Number.isNaN(parsed.getTime())) {
+          timestamp = parsed;
+        }
+      }
+
+      if (!timestamp || Number.isNaN(timestamp.getTime())) {
+        return;
+      }
+
+      const existing = activityByUser.get(userId);
+      if (!existing || timestamp.getTime() > existing.getTime()) {
+        activityByUser.set(userId, timestamp);
+      }
+    };
+
+    const runQuery = async (sql: string, field: string): Promise<void> => {
+      const result = await pool.query(sql);
+      for (const row of result.rows ?? []) {
+        const userId = typeof row?.user_id === 'string' ? row.user_id : String(row?.user_id ?? '').trim();
+        updateActivity(userId, row?.[field]);
+      }
+    };
+
+    try {
+      await runQuery(
+        `SELECT user_id, MAX(timestamp) AS last_activity
+           FROM voice_activity
+          GROUP BY user_id`,
+        'last_activity',
+      );
+    } catch (error) {
+      console.warn('Failed to fetch voice activity for sitemap', error);
+    }
+
+    try {
+      await runQuery(
+        `SELECT user_id, MAX(COALESCE(left_at, joined_at)) AS last_presence
+           FROM voice_presence
+          GROUP BY user_id`,
+        'last_presence',
+      );
+    } catch (error) {
+      console.warn('Failed to fetch voice presence for sitemap', error);
+    }
+
+    try {
+      const sql = `SELECT user_id, MAX(timestamp) AS last_message FROM text_messages GROUP BY user_id`;
+      await runQuery(sql, 'last_message');
+    } catch (error) {
+      if ((error as { code?: string })?.code !== '42P01') {
+        console.warn('Failed to fetch message activity for sitemap', error);
+      }
+    }
+
+    const entries = Array.from(activityByUser.entries())
+      .map(([userId, date]) => ({ userId, lastActivityAt: date }))
+      .filter((entry) => entry.userId.length > 0 && entry.lastActivityAt instanceof Date)
+      .sort((a, b) => (b.lastActivityAt?.getTime() ?? 0) - (a.lastActivityAt?.getTime() ?? 0))
+      .slice(0, boundedLimit);
+
+    return entries;
+  }
+
   public async listUserVoiceTranscriptions({
     userId,
     limit = null,

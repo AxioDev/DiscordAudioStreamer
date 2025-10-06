@@ -8,6 +8,7 @@ import type AnonymousSpeechManager from '../services/AnonymousSpeechManager';
 import type { Config } from '../config';
 import { WebSocketServer } from 'ws';
 import type DiscordAudioBridge from '../discord/DiscordAudioBridge';
+import type { DiscordUserIdentity } from '../discord/DiscordAudioBridge';
 import type ShopService from '../services/ShopService';
 import { ShopError, type ShopProvider } from '../services/ShopService';
 import type VoiceActivityRepository from '../services/VoiceActivityRepository';
@@ -83,6 +84,12 @@ interface SitemapEntry {
   lastMod?: string | null;
   changeFreq?: string | null;
   priority?: number | null;
+}
+
+interface AppShellRenderOptions {
+  status?: number;
+  appHtml?: string | null;
+  preloadState?: unknown;
 }
 
 export default class AppServer {
@@ -438,9 +445,18 @@ export default class AppServer {
     res.setHeader('Expires', '0');
   }
 
-  private respondWithAppShell(res: Response, metadata: SeoPageMetadata, status = 200): void {
+  private respondWithAppShell(
+    res: Response,
+    metadata: SeoPageMetadata,
+    statusOrOptions: number | AppShellRenderOptions = 200,
+  ): void {
     try {
-      const html = this.seoRenderer.render(metadata);
+      const options = typeof statusOrOptions === 'number' ? { status: statusOrOptions } : statusOrOptions ?? {};
+      const html = this.seoRenderer.render(metadata, {
+        appHtml: options.appHtml ?? null,
+        preloadState: options.preloadState,
+      });
+      const status = options.status ?? 200;
       res.status(status);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.send(html);
@@ -528,8 +544,8 @@ export default class AppServer {
       { path: '/boutique', changeFreq: 'weekly', priority: 0.6 },
       { path: '/classements', changeFreq: 'hourly', priority: 0.7 },
       { path: '/blog', changeFreq: 'daily', priority: 0.7 },
+      { path: '/blog/proposer', changeFreq: 'monthly', priority: 0.5 },
       { path: '/about', changeFreq: 'monthly', priority: 0.5 },
-      { path: '/bannir', changeFreq: 'monthly', priority: 0.2 },
     ];
   }
 
@@ -542,6 +558,11 @@ export default class AppServer {
 
     const blogEntries = await this.buildBlogSitemapEntries();
     for (const entry of blogEntries) {
+      entries.push(entry);
+    }
+
+    const profileEntries = await this.buildProfileSitemapEntries();
+    for (const entry of profileEntries) {
       entries.push(entry);
     }
 
@@ -570,6 +591,31 @@ export default class AppServer {
         });
     } catch (error) {
       console.error('Failed to list blog posts for sitemap', error);
+      return [];
+    }
+  }
+
+  private async buildProfileSitemapEntries(): Promise<SitemapEntry[]> {
+    if (!this.voiceActivityRepository) {
+      return [];
+    }
+
+    try {
+      const [activeUsers, hiddenIds] = await Promise.all([
+        this.voiceActivityRepository.listActiveUsers({ limit: 200 }),
+        this.adminService.getHiddenMemberIds(),
+      ]);
+
+      return activeUsers
+        .filter((entry) => entry && typeof entry.userId === 'string' && !hiddenIds.has(entry.userId))
+        .map((entry) => ({
+          loc: this.toAbsoluteUrl(`/profil/${encodeURIComponent(entry.userId)}`),
+          lastMod: entry.lastActivityAt ? this.formatSitemapDate(entry.lastActivityAt.toISOString()) : null,
+          changeFreq: 'weekly',
+          priority: 0.5,
+        }));
+    } catch (error) {
+      console.error('Failed to build profile sitemap entries', error);
       return [];
     }
   }
@@ -628,6 +674,591 @@ export default class AppServer {
           return char;
       }
     });
+  }
+
+  private escapeHtml(value: string): string {
+    return value.replace(/[&<>"]|'/g, (char) => {
+      switch (char) {
+        case '&':
+          return '&amp;';
+        case '<':
+          return '&lt;';
+        case '>':
+          return '&gt;';
+        case '"':
+          return '&quot;';
+        case "'":
+          return '&#39;';
+        default:
+          return char;
+      }
+    });
+  }
+
+  private truncateText(value: string, maxLength = 240): string {
+    const trimmed = value.trim();
+    if (trimmed.length <= maxLength) {
+      return trimmed;
+    }
+    return `${trimmed.slice(0, maxLength - 1).trim()}…`;
+  }
+
+  private formatDateLabel(value: string | Date | null | undefined, options?: Intl.DateTimeFormatOptions): string | null {
+    if (!value) {
+      return null;
+    }
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+    const formatter = new Intl.DateTimeFormat('fr-FR', options ?? { dateStyle: 'long' });
+    return formatter.format(date);
+  }
+
+  private formatNumber(value: number): string {
+    if (!Number.isFinite(value)) {
+      return '0';
+    }
+    return new Intl.NumberFormat('fr-FR').format(Math.max(0, Math.floor(value)));
+  }
+
+  private buildHomePageHtml(data: {
+    listenerCount: number;
+    speakers: Array<{ id: string; displayName: string; avatarUrl: string | null; isSpeaking: boolean; lastSpokeAt: string | null }>;
+    latestPosts: Array<{ title: string; slug: string; excerpt: string | null; date: string | null }>;
+  }): string {
+    const parts: string[] = [];
+    const listenerLabel = data.listenerCount > 0
+      ? `${this.formatNumber(data.listenerCount)} auditeur${data.listenerCount > 1 ? 's' : ''} en direct`
+      : 'Rejoignez les premiers auditeurs ce soir';
+
+    parts.push('<main class="home-prerender mx-auto max-w-6xl space-y-12 px-4 py-16">');
+    parts.push(
+      '<section class="rounded-3xl border border-slate-800/60 bg-slate-950/80 p-8 shadow-xl shadow-slate-900/50">',
+    );
+    parts.push('<p class="text-sm uppercase tracking-[0.2em] text-amber-300">Radio libre communautaire</p>');
+    parts.push(
+      '<h1 class="mt-3 text-3xl font-bold text-white sm:text-4xl">Libre Antenne · Voix nocturnes du Discord</h1>',
+    );
+    parts.push(
+      '<p class="mt-4 text-lg text-slate-300">La communauté Libre Antenne diffuse en continu ses débats, confidences et sessions de jeu. Branche-toi pour suivre le direct, proposer un sujet ou prendre le micro.</p>',
+    );
+    parts.push(
+      `<p class="mt-6 inline-flex items-center gap-2 rounded-full bg-emerald-500/20 px-4 py-2 text-sm font-semibold text-emerald-300"><span class="h-2 w-2 animate-pulse rounded-full bg-emerald-300"></span>${this.escapeHtml(listenerLabel)}</p>`,
+    );
+    parts.push('</section>');
+
+    parts.push('<section class="rounded-3xl border border-slate-800/60 bg-slate-950/60 p-8">');
+    parts.push('<div class="flex items-center justify-between gap-4">');
+    parts.push('<h2 class="text-2xl font-semibold text-white">Au micro en ce moment</h2>');
+    parts.push('<a class="text-sm font-medium text-amber-300 hover:text-amber-200" href="/membres">Explorer les profils →</a>');
+    parts.push('</div>');
+
+    if (data.speakers.length === 0) {
+      parts.push(
+        '<p class="mt-6 text-sm text-slate-400">Le plateau est calme pour le moment. Passe plus tard dans la nuit ou rejoins le salon vocal pour lancer la conversation.</p>',
+      );
+    } else {
+      parts.push('<ul class="mt-6 grid gap-6 md:grid-cols-2">');
+      for (const speaker of data.speakers) {
+        const name = this.escapeHtml(speaker.displayName || 'Auditeur anonyme');
+        const avatar = speaker.avatarUrl ? this.escapeHtml(speaker.avatarUrl) : '/icons/icon-192.svg';
+        const status = speaker.isSpeaking
+          ? 'Au micro en ce moment'
+          : speaker.lastSpokeAt
+            ? `Dernière prise de parole : ${this.escapeHtml(
+                this.formatDateLabel(speaker.lastSpokeAt, { dateStyle: 'medium', timeStyle: 'short' }) ?? '',
+              )}`
+            : 'À l’écoute sur le salon vocal';
+        parts.push('<li class="flex items-center gap-4 rounded-2xl bg-slate-900/70 p-4">');
+        parts.push(
+          `<img alt="Avatar de ${name}" src="${avatar}" loading="lazy" class="h-14 w-14 flex-none rounded-full border border-slate-800 object-cover" />`,
+        );
+        parts.push('<div class="min-w-0 flex-1">');
+        parts.push(`<p class="truncate text-base font-semibold text-white">${name}</p>`);
+        parts.push(`<p class="mt-1 text-sm text-slate-400">${this.escapeHtml(status)}</p>`);
+        parts.push('</div>');
+        parts.push('<div class="flex h-full items-center">');
+        parts.push(
+          `<a class="rounded-full border border-amber-400/60 px-3 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-400/10" href="/profil/${encodeURIComponent(
+            speaker.id,
+          )}">Voir le profil</a>`,
+        );
+        parts.push('</div>');
+        parts.push('</li>');
+      }
+      parts.push('</ul>');
+    }
+    parts.push('</section>');
+
+    parts.push('<section class="rounded-3xl border border-slate-800/60 bg-slate-950/60 p-8">');
+    parts.push('<div class="flex items-center justify-between gap-4">');
+    parts.push('<h2 class="text-2xl font-semibold text-white">Les dernières chroniques</h2>');
+    parts.push('<a class="text-sm font-medium text-amber-300 hover:text-amber-200" href="/blog">Lire le blog →</a>');
+    parts.push('</div>');
+
+    if (data.latestPosts.length === 0) {
+      parts.push('<p class="mt-6 text-sm text-slate-400">Les premières chroniques arrivent bientôt : les membres préparent actuellement leurs histoires de nuit.</p>');
+    } else {
+      parts.push('<div class="mt-6 grid gap-6 md:grid-cols-2 lg:grid-cols-3">');
+      for (const post of data.latestPosts) {
+        const title = this.escapeHtml(post.title);
+        const excerpt = post.excerpt ? this.escapeHtml(this.truncateText(post.excerpt, 180)) : 'Découvre ce qui agite Libre Antenne cette semaine.';
+        const dateLabel = this.formatDateLabel(post.date ?? post.slug) ?? null;
+        parts.push('<article class="flex h-full flex-col justify-between rounded-2xl bg-slate-900/70 p-6">');
+        parts.push('<div>');
+        if (dateLabel) {
+          parts.push(`<p class="text-xs uppercase tracking-[0.15em] text-slate-500">${this.escapeHtml(dateLabel)}</p>`);
+        }
+        parts.push(`<h3 class="mt-3 text-lg font-semibold text-white"><a class="hover:text-amber-200" href="/blog/${encodeURIComponent(post.slug)}">${title}</a></h3>`);
+        parts.push(`<p class="mt-3 text-sm text-slate-400">${excerpt}</p>`);
+        parts.push('</div>');
+        parts.push(`<a class="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-amber-300 hover:text-amber-200" href="/blog/${encodeURIComponent(post.slug)}">Lire l’article →</a>`);
+        parts.push('</article>');
+      }
+      parts.push('</div>');
+    }
+    parts.push('</section>');
+
+    parts.push('</main>');
+    return parts.join('');
+  }
+
+  private buildMembersPageHtml(data: {
+    search: string | null;
+    members: Array<{
+      id: string;
+      displayName: string;
+      username: string | null;
+      avatarUrl: string | null;
+      joinedAt: string | null;
+      highlightMessage: { content: string; timestamp: string | null } | null;
+    }>;
+  }): string {
+    const parts: string[] = [];
+    const searchTerm = data.search ? data.search.trim() : '';
+    parts.push('<main class="members-prerender mx-auto max-w-6xl space-y-12 px-4 py-16">');
+    parts.push('<section class="rounded-3xl border border-slate-800/60 bg-slate-950/70 p-8">');
+    parts.push('<h1 class="text-3xl font-bold text-white">Membres actifs de Libre Antenne</h1>');
+    if (searchTerm) {
+      parts.push(
+        `<p class="mt-4 text-sm text-slate-300">Résultats filtrés pour « ${this.escapeHtml(searchTerm)} ». Explore les profils les plus actifs de ces 90 derniers jours.</p>`,
+      );
+    } else {
+      parts.push(
+        '<p class="mt-4 text-sm text-slate-300">Découvre qui anime la radio libre : temps de présence, prises de parole marquantes et derniers messages publics.</p>',
+      );
+    }
+    parts.push('</section>');
+
+    parts.push('<section class="space-y-6">');
+    if (data.members.length === 0) {
+      parts.push(
+        '<p class="rounded-3xl border border-slate-800/60 bg-slate-950/60 p-6 text-sm text-slate-400">Aucun membre ne correspond à ta recherche pour le moment. Essaye avec un pseudo, un sujet ou reviens après une soirée en direct.</p>',
+      );
+    } else {
+      parts.push('<div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">');
+      for (const member of data.members) {
+        const name = this.escapeHtml(member.displayName || 'Membre Libre Antenne');
+        const username = member.username ? `@${this.escapeHtml(member.username)}` : null;
+        const joinedLabel = this.formatDateLabel(member.joinedAt) ?? null;
+        const avatar = member.avatarUrl ? this.escapeHtml(member.avatarUrl) : '/icons/icon-192.svg';
+        parts.push('<article class="flex h-full flex-col justify-between rounded-2xl border border-slate-800/40 bg-slate-950/60 p-6">');
+        parts.push('<div class="flex items-center gap-4">');
+        parts.push(
+          `<img alt="Avatar de ${name}" src="${avatar}" loading="lazy" class="h-14 w-14 flex-none rounded-full border border-slate-800 object-cover" />`,
+        );
+        parts.push('<div class="min-w-0 flex-1">');
+        parts.push(`<p class="truncate text-base font-semibold text-white">${name}</p>`);
+        if (username) {
+          parts.push(`<p class="truncate text-xs uppercase tracking-[0.2em] text-slate-500">${username}</p>`);
+        }
+        if (joinedLabel) {
+          parts.push(`<p class="mt-1 text-xs text-slate-400">Membre depuis ${this.escapeHtml(joinedLabel)}</p>`);
+        }
+        parts.push('</div>');
+        parts.push('</div>');
+
+        if (member.highlightMessage) {
+          const message = this.escapeHtml(this.truncateText(member.highlightMessage.content, 180));
+          const messageDate = this.formatDateLabel(member.highlightMessage.timestamp, {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+          });
+          parts.push('<div class="mt-5 rounded-2xl bg-slate-900/70 p-4">');
+          parts.push('<p class="text-xs uppercase tracking-[0.18em] text-amber-300">Vu sur le Discord</p>');
+          parts.push(`<p class="mt-2 text-sm text-slate-200">${message}</p>`);
+          if (messageDate) {
+            parts.push(`<p class="mt-2 text-xs text-slate-500">${this.escapeHtml(messageDate)}</p>`);
+          }
+          parts.push('</div>');
+        }
+
+        parts.push(
+          `<a class="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-amber-300 hover:text-amber-200" href="/profil/${encodeURIComponent(
+            member.id,
+          )}">Consulter le profil →</a>`,
+        );
+        parts.push('</article>');
+      }
+      parts.push('</div>');
+    }
+    parts.push('</section>');
+
+    parts.push('</main>');
+    return parts.join('');
+  }
+
+  private buildBlogListingHtml(data: {
+    tags: string[];
+    posts: Array<{ title: string; slug: string; excerpt: string | null; date: string | null; author?: string | null }>;
+    availableTags: string[];
+  }): string {
+    const parts: string[] = [];
+    const activeTags = data.tags.filter((tag) => typeof tag === 'string' && tag.trim().length > 0);
+    const tagDescription = activeTags.length > 0
+      ? `Chroniques consacrées à ${activeTags.map((tag) => `#${tag}`).join(', ')}`
+      : 'Histoires de nuit, coulisses et conseils pour rejoindre Libre Antenne.';
+
+    parts.push('<main class="blog-prerender mx-auto max-w-5xl space-y-12 px-4 py-16">');
+    parts.push('<section class="rounded-3xl border border-slate-800/60 bg-slate-950/70 p-8">');
+    parts.push('<h1 class="text-3xl font-bold text-white">Chroniques Libre Antenne</h1>');
+    parts.push(`<p class="mt-4 text-sm text-slate-300">${this.escapeHtml(tagDescription)}</p>`);
+    if (activeTags.length > 0) {
+      parts.push('<div class="mt-4 flex flex-wrap gap-2">');
+      for (const tag of activeTags) {
+        parts.push(`<span class="rounded-full bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200">#${this.escapeHtml(tag)}</span>`);
+      }
+      parts.push('</div>');
+    }
+    parts.push('</section>');
+
+    if (data.posts.length === 0) {
+      parts.push(
+        '<p class="rounded-3xl border border-slate-800/60 bg-slate-950/60 p-6 text-sm text-slate-400">Aucun article ne correspond à ces filtres pour le moment. N’hésite pas à proposer un sujet ou à explorer d’autres tags.</p>',
+      );
+    } else {
+      parts.push('<section class="space-y-6">');
+      for (const post of data.posts) {
+        const title = this.escapeHtml(post.title);
+        const excerpt = post.excerpt ? this.escapeHtml(this.truncateText(post.excerpt, 240)) : 'Un nouveau récit de la communauté.';
+        const dateLabel = this.formatDateLabel(post.date, { dateStyle: 'long' });
+        const author = post.author ? this.escapeHtml(post.author) : null;
+        parts.push('<article class="rounded-3xl border border-slate-800/40 bg-slate-950/60 p-6">');
+        parts.push(`<h2 class="text-2xl font-semibold text-white"><a class="hover:text-amber-200" href="/blog/${encodeURIComponent(post.slug)}">${title}</a></h2>`);
+        if (dateLabel || author) {
+          parts.push('<p class="mt-2 text-xs uppercase tracking-[0.18em] text-slate-500">');
+          if (dateLabel) {
+            parts.push(this.escapeHtml(dateLabel));
+          }
+          if (author) {
+            parts.push(dateLabel ? ' · ' : '');
+            parts.push(`Par ${author}`);
+          }
+          parts.push('</p>');
+        }
+        parts.push(`<p class="mt-4 text-sm text-slate-300">${excerpt}</p>`);
+        parts.push(`<a class="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-amber-300 hover:text-amber-200" href="/blog/${encodeURIComponent(post.slug)}">Lire l’article →</a>`);
+        parts.push('</article>');
+      }
+      parts.push('</section>');
+    }
+
+    if (data.availableTags.length > 0) {
+      parts.push('<section class="rounded-3xl border border-slate-800/40 bg-slate-950/50 p-6">');
+      parts.push('<h2 class="text-lg font-semibold text-white">Explorer par thème</h2>');
+      parts.push('<div class="mt-4 flex flex-wrap gap-2">');
+      for (const tag of data.availableTags) {
+        parts.push(
+          `<a class="rounded-full border border-amber-400/40 px-3 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-400/10" href="/blog?tag=${encodeURIComponent(tag)}">#${this.escapeHtml(tag)}</a>`,
+        );
+      }
+      parts.push('</div>');
+      parts.push('</section>');
+    }
+
+    parts.push('</main>');
+    return parts.join('');
+  }
+
+  private buildBlogPostHtml(data: {
+    title: string;
+    contentHtml: string;
+    date: string | null;
+    updatedAt: string | null;
+    tags: string[];
+    coverImageUrl: string | null;
+    authorName?: string | null;
+  }): string {
+    const parts: string[] = [];
+    const publishedLabel = this.formatDateLabel(data.date, { dateStyle: 'long' });
+    const updatedLabel = this.formatDateLabel(data.updatedAt, { dateStyle: 'long' });
+    parts.push('<main class="blog-post-prerender mx-auto max-w-3xl space-y-10 px-4 py-16">');
+    parts.push('<header class="space-y-4 text-center">');
+    parts.push(`<p class="text-xs uppercase tracking-[0.18em] text-amber-300">Chronique Libre Antenne</p>`);
+    parts.push(`<h1 class="text-3xl font-bold text-white">${this.escapeHtml(data.title)}</h1>`);
+    if (data.authorName || publishedLabel || updatedLabel) {
+      parts.push('<p class="text-xs uppercase tracking-[0.2em] text-slate-500">');
+      if (publishedLabel) {
+        parts.push(`Publié le ${this.escapeHtml(publishedLabel)}`);
+      }
+      if (updatedLabel && updatedLabel !== publishedLabel) {
+        parts.push(publishedLabel ? ' · ' : '');
+        parts.push(`Mise à jour le ${this.escapeHtml(updatedLabel)}`);
+      }
+      if (data.authorName) {
+        parts.push((publishedLabel || updatedLabel) ? ' · ' : '');
+        parts.push(`Par ${this.escapeHtml(data.authorName)}`);
+      }
+      parts.push('</p>');
+    }
+    if (data.coverImageUrl) {
+      parts.push(
+        `<img alt="Illustration de l’article" src="${this.escapeHtml(data.coverImageUrl)}" loading="lazy" class="mx-auto mt-6 max-h-80 w-full rounded-3xl object-cover" />`,
+      );
+    }
+    if (data.tags.length > 0) {
+      parts.push('<div class="mt-6 flex flex-wrap justify-center gap-2">');
+      for (const tag of data.tags) {
+        parts.push(`<span class="rounded-full bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200">#${this.escapeHtml(tag)}</span>`);
+      }
+      parts.push('</div>');
+    }
+    parts.push('</header>');
+
+    parts.push('<article class="prose prose-invert mx-auto max-w-none prose-headings:text-white prose-a:text-amber-300">');
+    parts.push(data.contentHtml);
+    parts.push('</article>');
+
+    parts.push('<footer class="rounded-3xl border border-slate-800/40 bg-slate-950/60 p-6 text-sm text-slate-300">');
+    parts.push('<p>Envie de participer ? Rejoins la communauté sur Discord et propose ta chronique via l’outil dédié.</p>');
+    parts.push('<a class="mt-3 inline-flex items-center gap-2 font-semibold text-amber-300 hover:text-amber-200" href="/blog/proposer">Proposer un article →</a>');
+    parts.push('</footer>');
+
+    parts.push('</main>');
+    return parts.join('');
+  }
+
+  private buildProfilePageHtml(data: {
+    userId: string;
+    profileName: string;
+    identity: DiscordUserIdentity | null;
+    summary: ProfileSummary;
+    recentMessages: Array<{ content: string; timestamp: string | null }>;
+  }): string {
+    const parts: string[] = [];
+    const avatar = data.identity?.avatarUrl ? this.escapeHtml(data.identity.avatarUrl) : '/icons/icon-192.svg';
+    const username = data.identity?.username || data.identity?.globalName || null;
+    const joinedLabel = this.formatDateLabel(data.identity?.guild?.joinedAt ?? null, { dateStyle: 'long' });
+    const lastActivity = this.formatDateLabel(data.summary.lastActivityAt?.iso ?? null, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
+
+    const metrics: Array<{ label: string; value: string }> = [
+      { label: 'Présence vocale (90 j)', value: this.formatDuration(data.summary.totalPresenceMs) },
+      { label: 'Temps au micro', value: this.formatDuration(data.summary.totalSpeakingMs) },
+      { label: 'Messages publiés', value: this.formatNumber(data.summary.messageCount) },
+      { label: 'Jours actifs', value: this.formatNumber(data.summary.activeDayCount) },
+    ];
+
+    parts.push('<main class="profile-prerender mx-auto max-w-4xl space-y-12 px-4 py-16">');
+    parts.push('<section class="rounded-3xl border border-slate-800/60 bg-slate-950/70 p-8">');
+    parts.push('<div class="flex flex-col items-center gap-6 text-center sm:flex-row sm:text-left">');
+    parts.push(
+      `<img alt="Avatar de ${this.escapeHtml(data.profileName)}" src="${avatar}" loading="lazy" class="h-24 w-24 flex-none rounded-full border border-slate-800 object-cover" />`,
+    );
+    parts.push('<div class="space-y-2">');
+    parts.push(`<h1 class="text-3xl font-bold text-white">${this.escapeHtml(data.profileName)}</h1>`);
+    if (username) {
+      parts.push(`<p class="text-xs uppercase tracking-[0.2em] text-slate-500">@${this.escapeHtml(username)}</p>`);
+    }
+    if (joinedLabel) {
+      parts.push(`<p class="text-sm text-slate-300">Membre depuis ${this.escapeHtml(joinedLabel)}</p>`);
+    }
+    if (lastActivity) {
+      parts.push(`<p class="text-xs text-slate-500">Dernière activité relevée le ${this.escapeHtml(lastActivity)}</p>`);
+    }
+    parts.push('</div>');
+    parts.push('</div>');
+    parts.push('</section>');
+
+    parts.push('<section class="grid gap-4 sm:grid-cols-2">');
+    for (const metric of metrics) {
+      parts.push('<div class="rounded-2xl border border-slate-800/50 bg-slate-950/60 p-5">');
+      parts.push(`<p class="text-xs uppercase tracking-[0.18em] text-slate-500">${this.escapeHtml(metric.label)}</p>`);
+      parts.push(`<p class="mt-2 text-xl font-semibold text-white">${this.escapeHtml(metric.value)}</p>`);
+      parts.push('</div>');
+    }
+    parts.push('</section>');
+
+    if (data.recentMessages.length > 0) {
+      parts.push('<section class="space-y-4">');
+      parts.push('<h2 class="text-lg font-semibold text-white">Derniers messages publics</h2>');
+      const messages = [...data.recentMessages].slice(-5).reverse();
+      parts.push('<ul class="space-y-3">');
+      for (const message of messages) {
+        const content = this.escapeHtml(this.truncateText(message.content, 220));
+        const timestamp = this.formatDateLabel(message.timestamp, { dateStyle: 'medium', timeStyle: 'short' });
+        parts.push('<li class="rounded-2xl border border-slate-800/40 bg-slate-950/60 p-4">');
+        parts.push(`<p class="text-sm text-slate-200">${content}</p>`);
+        if (timestamp) {
+          parts.push(`<p class="mt-2 text-xs text-slate-500">${this.escapeHtml(timestamp)}</p>`);
+        }
+        parts.push('</li>');
+      }
+      parts.push('</ul>');
+      parts.push('</section>');
+    }
+
+    parts.push('<section class="rounded-3xl border border-slate-800/40 bg-slate-950/60 p-6 text-sm text-slate-300">');
+    parts.push('<p>Pour entendre ce membre en direct, connecte-toi au flux audio Libre Antenne ou rejoins le salon vocal Discord. Les statistiques affichées couvrent les 90 derniers jours.</p>');
+    parts.push('<a class="mt-3 inline-flex items-center gap-2 font-semibold text-amber-300 hover:text-amber-200" href="/">Écouter le direct →</a>');
+    parts.push('</section>');
+
+    parts.push('</main>');
+    return parts.join('');
+  }
+
+  private buildBlogProposalHtml(): string {
+    const parts: string[] = [];
+    parts.push('<main class="blog-proposal-prerender mx-auto max-w-3xl space-y-10 px-4 py-16">');
+    parts.push('<section class="rounded-3xl border border-slate-800/60 bg-slate-950/70 p-8 text-center">');
+    parts.push('<p class="text-xs uppercase tracking-[0.2em] text-amber-300">Contribuer</p>');
+    parts.push('<h1 class="mt-3 text-3xl font-bold text-white">Proposer un article pour le blog Libre Antenne</h1>');
+    parts.push('<p class="mt-4 text-sm text-slate-300">Partage une chronique de nuit, un portrait de membre ou un guide pour rejoindre la radio libre. Notre équipe relit et publie les meilleures contributions.</p>');
+    parts.push('</section>');
+
+    parts.push('<section class="space-y-6 rounded-3xl border border-slate-800/40 bg-slate-950/60 p-6 text-sm text-slate-200">');
+    parts.push('<h2 class="text-lg font-semibold text-white">Comment ça marche ?</h2>');
+    parts.push('<ol class="list-decimal space-y-3 pl-6 text-left text-slate-300">');
+    parts.push('<li>Décris ton idée : titre, accroche, tags et visuel éventuel.</li>');
+    parts.push('<li>Rédige ton article en Markdown avec un ton authentique et sourcé.</li>');
+    parts.push('<li>Indique un moyen de contact pour la relecture (Discord ou e-mail).</li>');
+    parts.push('</ol>');
+    parts.push('<p class="text-sm text-slate-400">Un membre de la rédaction vérifie chaque proposition avant publication pour garantir la qualité éditoriale et la conformité aux règles communautaires.</p>');
+    parts.push('</section>');
+
+    parts.push('<section class="rounded-3xl border border-slate-800/40 bg-slate-950/60 p-6 text-sm text-slate-200">');
+    parts.push('<h2 class="text-lg font-semibold text-white">Prépare ton article</h2>');
+    parts.push('<ul class="list-disc space-y-2 pl-6 text-left">');
+    parts.push('<li>Format recommandé : 800 à 1 200 mots.</li>');
+    parts.push('<li>Ajoute des sources ou liens utiles si tu annonces une information.</li>');
+    parts.push('<li>Évite les contenus promotionnels ou générés automatiquement sans relecture humaine.</li>');
+    parts.push('</ul>');
+    parts.push('<a class="mt-4 inline-flex items-center gap-2 font-semibold text-amber-300 hover:text-amber-200" href="/blog">Voir les articles publiés →</a>');
+    parts.push('</section>');
+
+    parts.push('</main>');
+    return parts.join('');
+  }
+
+  private async buildHomePagePrerender(): Promise<string> {
+    const listenerCount = this.listenerStatsService.getCurrentCount();
+    const rawSpeakers = this.speakerTracker.getSpeakers();
+    const speakers = rawSpeakers.slice(0, 6).map((speaker) => {
+      const displayName = speaker.displayName || speaker.username || `Membre ${speaker.id}`;
+      let lastSpokeAt: string | null = null;
+      if (typeof speaker.lastSpokeAt === 'number' && Number.isFinite(speaker.lastSpokeAt)) {
+        lastSpokeAt = new Date(speaker.lastSpokeAt).toISOString();
+      }
+      return {
+        id: speaker.id,
+        displayName,
+        avatarUrl: speaker.avatar ?? null,
+        isSpeaking: Boolean(speaker.isSpeaking),
+        lastSpokeAt,
+      };
+    });
+
+    let latestPosts: Array<{ title: string; slug: string; excerpt: string | null; date: string | null }> = [];
+    try {
+      const { posts } = await this.blogService.listPosts({ limit: 6, sortBy: 'date', sortOrder: 'desc' });
+      latestPosts = posts.map((post) => ({
+        title: post.title,
+        slug: post.slug,
+        excerpt: post.seoDescription ?? post.excerpt,
+        date: post.date,
+      }));
+    } catch (error) {
+      console.warn('Failed to load blog posts for home prerender', error);
+    }
+
+    return this.buildHomePageHtml({ listenerCount, speakers, latestPosts });
+  }
+
+  private async buildMembersPagePrerender(search: string | null): Promise<string> {
+    try {
+      const result = await this.discordBridge.listGuildMembers({
+        limit: 30,
+        search: search && search.trim().length > 0 ? search.trim() : null,
+      });
+      const hiddenIds = await this.adminService.getHiddenMemberIds();
+      const visibleMembers = result.members.filter((member) => !hiddenIds.has(member.id));
+
+      let recentMessagesByUser: Record<string, UserMessageActivityEntry[]> = {};
+      if (this.voiceActivityRepository) {
+        const userIds = visibleMembers
+          .map((member) => member.id)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0);
+        if (userIds.length > 0) {
+          try {
+            recentMessagesByUser = await this.voiceActivityRepository.listRecentUserMessages({
+              userIds,
+              limitPerUser: 3,
+            });
+          } catch (error) {
+            console.warn('Failed to load recent messages for members prerender', error);
+          }
+        }
+      }
+
+      const members = visibleMembers.slice(0, 18).map((member) => {
+        const displayName = member.displayName || member.nickname || member.username || `Membre ${member.id}`;
+        const messages = recentMessagesByUser[member.id] ?? [];
+        const highlight = messages.length > 0 ? messages[messages.length - 1] : null;
+        const highlightTimestamp = highlight?.timestamp instanceof Date
+          ? highlight.timestamp.toISOString()
+          : null;
+        return {
+          id: member.id,
+          displayName,
+          username: member.username ?? null,
+          avatarUrl: member.avatarUrl ?? null,
+          joinedAt: member.joinedAt ?? null,
+          highlightMessage: highlight
+            ? { content: highlight.content ?? '', timestamp: highlightTimestamp }
+            : null,
+        };
+      });
+
+      return this.buildMembersPageHtml({ search, members });
+    } catch (error) {
+      console.error('Failed to build members prerender', error);
+      return this.buildMembersPageHtml({ search, members: [] });
+    }
+  }
+
+  private async buildBlogListingPrerender(tags: string[]): Promise<string> {
+    try {
+      const { posts, availableTags } = await this.blogService.listPosts({
+        tags: tags.length > 0 ? tags : null,
+        sortBy: 'date',
+        sortOrder: 'desc',
+        limit: 24,
+      });
+      const normalizedPosts = posts.map((post) => ({
+        title: post.title,
+        slug: post.slug,
+        excerpt: post.seoDescription ?? post.excerpt,
+        date: post.date,
+        author: this.config.siteName,
+      }));
+      return this.buildBlogListingHtml({ tags, posts: normalizedPosts, availableTags });
+    } catch (error) {
+      console.error('Failed to build blog listing prerender', error);
+      return this.buildBlogListingHtml({ tags, posts: [], availableTags: [] });
+    }
   }
 
   private buildProfileSummary(
@@ -1701,7 +2332,7 @@ export default class AppServer {
       this.respondWithAppShell(res, metadata);
     });
 
-    this.app.get(['/membres', '/members'], (req, res) => {
+    this.app.get(['/membres', '/members'], async (req, res) => {
       const rawSearch = this.extractString(req.query?.search);
       const search = rawSearch ? rawSearch.slice(0, 80) : null;
       const baseDescription =
@@ -1745,7 +2376,13 @@ export default class AppServer {
         ],
       };
 
-      this.respondWithAppShell(res, metadata);
+      try {
+        const appHtml = await this.buildMembersPagePrerender(search);
+        this.respondWithAppShell(res, metadata, { appHtml });
+      } catch (error) {
+        console.error('Failed to prerender members page', error);
+        this.respondWithAppShell(res, metadata);
+      }
     });
 
     this.app.get(['/boutique', '/shop'], (_req, res) => {
@@ -1851,7 +2488,7 @@ export default class AppServer {
       this.respondWithAppShell(res, metadata);
     });
 
-    this.app.get('/blog', (req, res) => {
+    this.app.get('/blog', async (req, res) => {
       const tags = this.extractStringArray(req.query?.tag ?? req.query?.tags ?? null);
       const tagSnippet = tags.length > 0 ? `Focus sur ${tags.join(', ')}.` : '';
       const metadata: SeoPageMetadata = {
@@ -1903,7 +2540,56 @@ export default class AppServer {
           : undefined,
       };
 
-      this.respondWithAppShell(res, metadata);
+      try {
+        const appHtml = await this.buildBlogListingPrerender(tags);
+        this.respondWithAppShell(res, metadata, { appHtml });
+      } catch (error) {
+        console.error('Failed to prerender blog listing', error);
+        this.respondWithAppShell(res, metadata);
+      }
+    });
+
+    this.app.get(['/blog/proposer', '/blog/proposal', '/blog/soumettre'], (_req, res) => {
+      const metadata: SeoPageMetadata = {
+        title: `${this.config.siteName} · Proposer un article`,
+        description:
+          'Soumets une chronique, un portrait ou un guide pour alimenter le blog Libre Antenne. Notre équipe relit chaque proposition avant publication.',
+        path: '/blog/proposer',
+        canonicalUrl: this.toAbsoluteUrl('/blog/proposer'),
+        keywords: this.combineKeywords(
+          this.config.siteName,
+          'proposer article Libre Antenne',
+          'chronique radio libre',
+          'participer blog communauté',
+        ),
+        openGraphType: 'website',
+        breadcrumbs: [
+          { name: 'Accueil', path: '/' },
+          { name: 'Blog', path: '/blog' },
+          { name: 'Proposer un article', path: '/blog/proposer' },
+        ],
+        structuredData: [
+          {
+            '@context': 'https://schema.org',
+            '@type': 'HowTo',
+            name: 'Soumettre un article au blog Libre Antenne',
+            description:
+              'Étapes à suivre pour proposer une chronique validée par la rédaction de Libre Antenne.',
+            step: [
+              { '@type': 'HowToStep', name: 'Définir son sujet', text: 'Prépare un titre, une accroche et quelques tags.' },
+              { '@type': 'HowToStep', name: 'Rédiger en Markdown', text: 'Écris ton article avec un ton authentique et sourcé.' },
+              {
+                '@type': 'HowToStep',
+                name: 'Envoyer la proposition',
+                text: 'Ajoute un moyen de contact pour la relecture éditoriale.',
+              },
+            ],
+          },
+        ],
+      };
+
+      const appHtml = this.buildBlogProposalHtml();
+      this.respondWithAppShell(res, metadata, { appHtml });
     });
 
     this.app.get('/blog/:slug', async (req, res) => {
@@ -2019,7 +2705,17 @@ export default class AppServer {
           ],
         };
 
-        this.respondWithAppShell(res, metadata);
+        const appHtml = this.buildBlogPostHtml({
+          title: post.title,
+          contentHtml: post.contentHtml,
+          date: post.date,
+          updatedAt: post.updatedAt,
+          tags: post.tags ?? [],
+          coverImageUrl: post.coverImageUrl ?? null,
+          authorName: this.config.siteName,
+        });
+
+        this.respondWithAppShell(res, metadata, { appHtml });
       } catch (error) {
         console.error('Failed to render blog post page', error);
         this.respondWithAppShell(
@@ -2245,7 +2941,22 @@ export default class AppServer {
           ],
         };
 
-        this.respondWithAppShell(res, metadata);
+        const recentMessages = messageEvents
+          .filter((event) => typeof event?.content === 'string' && event.content.trim().length > 0)
+          .map((event) => ({
+            content: event.content ?? '',
+            timestamp: event.timestamp instanceof Date ? event.timestamp.toISOString() : null,
+          }));
+
+        const appHtml = this.buildProfilePageHtml({
+          userId: rawUserId,
+          profileName,
+          identity,
+          summary,
+          recentMessages,
+        });
+
+        this.respondWithAppShell(res, metadata, { appHtml });
       } catch (error) {
         console.error('Failed to build profile page SEO', error);
         this.respondWithAppShell(
@@ -2266,7 +2977,7 @@ export default class AppServer {
       }
     });
 
-    this.app.get('/', (_req, res) => {
+    this.app.get('/', async (_req, res) => {
       const metadata: SeoPageMetadata = {
         title: `${this.config.siteName} · Radio libre et streaming communautaire`,
         description:
@@ -2294,7 +3005,13 @@ export default class AppServer {
         ],
       };
 
-      this.respondWithAppShell(res, metadata);
+      try {
+        const appHtml = await this.buildHomePagePrerender();
+        this.respondWithAppShell(res, metadata, { appHtml });
+      } catch (error) {
+        console.error('Failed to prerender home page', error);
+        this.respondWithAppShell(res, metadata);
+      }
     });
 
     this.app.get('/*path', (req, res) => {
