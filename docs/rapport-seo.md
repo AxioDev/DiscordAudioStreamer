@@ -1,47 +1,43 @@
 # Rapport d'optimisation SEO – Libre Antenne
 
 ## Résumé exécutif
-- **Priorité haute – Stabiliser un rendu indexable des pages clés** : malgré une excellente génération de métadonnées côté serveur, tout le contenu principal est rendu via une application Preact côté client. Sans exécution JavaScript, les moteurs ne voient qu'un shell vide, ce qui fragilise l'indexation du direct, des profils et du blog. Mettre en place un rendu pré-généré (SSR, SSG ou prerendering) pour les routes critiques (`/`, `/membres`, `/blog`, `/profil/...`).【F:public/scripts/main.js†L1-L200】【F:src/http/AppServer.ts†L1488-L1993】
-- **Priorité haute – Publier un `robots.txt` et un sitemap XML** : aucun fichier n'est exposé actuellement, ce qui empêche de contrôler le crawl et d'annoncer les URLs importantes (blog, profils, pages statiques). Créer et servir ces deux fichiers depuis `public/` et mettre à jour la Search Console une fois en ligne.【822e67†L1-L1】【7ab7a0†L1-L1】
-- **Priorité haute – Sécuriser les performances (Core Web Vitals)** : les librairies (Preact, Chart.js, Three.js, lucide), Tailwind et les polices sont chargées depuis des CDN externes, ce qui alourdit le temps de chargement initial du SPA. Auto-héberger les dépendances critiques, activer le code splitting et différer les composants coûteux (charts 3D) hors de la vue initiale.【F:public/index.html†L84-L98】【F:public/scripts/core/deps.js†L1-L43】
-- **Priorité moyenne – Enrichir la stratégie de contenus** : la page d'accueil a un ton fort mais peu descriptif du service et des bénéfices. Prévoir des sections éditoriales structurées (FAQ, témoignages, programme) et optimiser les CTA pour capter des requêtes longues traînes liées au streaming communautaire.【F:public/scripts/pages/home.js†L64-L156】
-- **Priorité moyenne – Industrialiser les signaux de données structurées** : l'infrastructure `SeoRenderer` est robuste, mais il faut documenter une check-list pour que chaque nouvel article, membre mis en avant ou page commerciale fournisse systématiquement image dédiée, mots-clés et métadonnées conformes aux schémas utilisés.【F:src/http/SeoRenderer.ts†L1-L240】【F:src/http/AppServer.ts†L1488-L1993】
+- **Priorité haute – Délivrer un HTML indexable pour les pages clés** : l'application reste un SPA Preact monté sur `#app` sans rendu statique. Les moteurs reçoivent uniquement le shell vide de `index.html`, le contenu étant hydraté via `main.js`. Implémenter un SSR/SSG ou un pré-rendu côté serveur pour `/`, `/membres`, `/blog`, `/profil/...`, etc.【F:public/index.html†L12-L101】【F:public/scripts/main.js†L1-L200】
+- **Priorité haute – Consolider le couple robots/sitemap** : un `robots.txt` et un sitemap dynamique sont désormais exposés, mais le sitemap liste encore `/bannir` (route volontairement « disallow ») et ignore les pages dynamiques (profils, propositions). Harmoniser robots et sitemap, et couvrir toutes les URLs indexables avec dates de mise à jour fiables.【F:public/robots.txt†L1-L6】【F:src/http/AppServer.ts†L520-L800】
+- **Priorité haute – Maîtriser le coût de chargement du front** : Tailwind, Preact, Chart.js, Three.js, lucide et les polices sont toujours chargés via des CDN `esm.sh`/Google, ce qui rallonge le TTFB/LCP et dépend du réseau tiers. Mettre en place un bundler (Vite/ESBuild) pour servir des bundles auto-hébergés, activer le code splitting et n'hydrater que les vues critiques au premier rendu.【F:public/index.html†L76-L99】【F:public/scripts/core/deps.js†L1-L101】
+- **Priorité moyenne – Encadrer la production éditoriale automatisée** : la génération quotidienne d'articles via OpenAI publie directement dans le blog. Formaliser une relecture humaine (fact-check, ton) avant mise en ligne et prévoir des gabarits visuels cohérents pour les images générées.【F:src/services/DailyArticleService.ts†L354-L511】【F:src/http/AppServer.ts†L874-L896】
 
 ## Audit technique détaillé
 
 ### Architecture, rendu et crawlabilité
-- L'application repose sur un bundle Preact unique monté sur `#app`. Sans JS, la page reste vide car aucun HTML statique n'est fourni en dehors du shell initial.【F:public/index.html†L100-L104】【F:public/scripts/main.js†L1-L200】
-- `AppServer` fournit des métadonnées personnalisées pour chaque route via `SeoRenderer`, mais la réponse HTML renvoyée demeure le même shell. Mettre en place un moteur de rendu côté serveur (ex : Preact SSR + cache) ou un prerendering programmatique (Puppeteer/Nitro) pour livrer des sections HTML déjà remplies aux bots et aux partages sociaux.【F:src/http/AppServer.ts†L1488-L1993】
-- Les pages de recherche ou de modération sont protégées par `noindex`, ce qui est cohérent. Prévoir une QA régulière pour éviter de propager `noindex` sur des pages stratégiques lors d'ajouts futurs.【F:src/http/AppServer.ts†L1488-L1993】
+- Le site reste entièrement rendu côté client : sans JavaScript, on ne voit que le conteneur vide de `index.html`, même si les métadonnées sont bien générées côté serveur par `SeoRenderer`. La mise en place d'un SSR/SSG (Preact render-to-string, prerendering Puppeteer ou Vite SSR) est indispensable pour rendre les flux, profils et articles crawlables dès la réponse initiale.【F:public/index.html†L12-L101】【F:public/scripts/main.js†L1-L200】
+- `SeoRenderer` fournit un en-tête complet (titres, balises sociales, JSON-LD, breadcrumbs). Conserver cette logique comme source de vérité et la brancher sur un rendu HTML pré-généré afin d'éviter les incohérences métadonnées/contenu.【F:src/http/SeoRenderer.ts†L95-L200】
 
 ### Pilotage du crawl (robots & sitemap)
-- Aucun `robots.txt` ni sitemap n'est distribué depuis `public/`, ce qui limite la maîtrise du budget crawl et la découverte des pages profondes (profils, articles). Créer un `robots.txt` autorisant le crawl des sections publiques et pointant vers un `sitemap.xml` généré automatiquement (ex : depuis les routes Express ou un script CRON).【822e67†L1-L1】【7ab7a0†L1-L1】
-- Une fois le sitemap en place, automatiser sa mise à jour (invalidation après nouveau billet, nouveau produit, profil mis en avant) et notifier Google/Bing pour accélérer l'indexation.
+- `robots.txt` autorise désormais le crawl global et bloque `/admin` et `/bannir`. Veiller à maintenir ce fichier à jour (ex. nouvelles zones privées) et à surveiller la Search Console pour détecter les blocages inattendus.【F:public/robots.txt†L1-L6】
+- Le sitemap dynamique couvre les pages statiques principales et le blog, mais inclut `/bannir` (non indexable) et omet les profils, archives audio et futurs contenus générés. Étendre `buildSitemapEntries()` pour lister les profils publics, retirer les routes « disallow » et injecter des dates `lastmod` fiables (publication / mise à jour réelle).【F:src/http/AppServer.ts†L520-L799】
 
 ### Métadonnées et balisage
-- Le template de base définit correctement titre, description, balises Open Graph/Twitter et données structurées `BroadcastService`, ce qui offre une base solide pour la homepage.【F:public/index.html†L13-L75】
-- `SeoRenderer` ajoute dynamiquement des schémas `WebPage`, `Dataset`, `CollectionPage`, `Article`, `ProfilePage`, etc. Vérifier lors des QA que chaque page possède une image de partage pertinente et que les descriptions générées ne dépassent pas ~160 caractères pour éviter les troncatures.【F:src/http/SeoRenderer.ts†L1-L240】【F:src/http/AppServer.ts†L1488-L1993】
-- Retirer ou actualiser la balise `meta keywords` (obsolète) pour éviter de signaler une optimisation datée et privilégier des FAQ ou HowTo en JSON-LD lorsque c'est pertinent.【F:public/index.html†L19-L23】
+- Les routes serveur injectent des métadonnées adaptées (Open Graph, Twitter, JSON-LD Article/Profile) via `SeoRenderer`. Documenter un guide interne pour garantir image 1200×630, description ≤160 caractères et cohérence des tags à chaque nouvelle page.【F:src/http/SeoRenderer.ts†L95-L200】【F:src/http/AppServer.ts†L1701-L2310】
+- Ajouter des microdonnées spécifiques aux contenus audio (ex. `AudioObject` ou `PodcastSeries`) pour renforcer la compréhension des flux live et des replays lorsque le SSR sera en place.【F:src/http/AppServer.ts†L1701-L2310】
 
 ### Performance & Core Web Vitals
-- Tailwind est chargé via CDN et les polices Google sont préchargées en externe. Auto-héberger les assets critiques, activer `font-display: swap` et intégrer les styles essentiels directement dans le bundle pour réduire le blocking time.【F:public/index.html†L84-L98】
-- Les dépendances lourdes (Chart.js, Three.js, lucide) sont importées à travers `esm.sh`, ce qui provoque plusieurs requêtes tierces et retards de parsing. Mettre en place un bundling côté serveur (esbuild, Vite) pour produire un bundle optimisé et segmenter les features (différer les charts hors viewport).【F:public/scripts/core/deps.js†L1-L43】
-- Auditer les interactions audio/temps réel pour s'assurer que les WebSocket/SSE ne bloquent pas le thread principal et que les statistiques ne sont chargées qu'après LCP.
+- Les dépendances critiques sont chargées depuis des CDN externes (`cdn.tailwindcss.com`, `esm.sh`, Google Fonts). Auto-héberger CSS/polices, générer un bundle JS optimisé et différer Chart.js/Three.js hors de la vue initiale pour réduire le blocage du main thread.【F:public/index.html†L76-L99】【F:public/scripts/core/deps.js†L1-L101】
+- Segmenter le code (lazy loading des pages blog/classements) et exploiter un pré-chauffage serveur pour limiter le coût du SPA lors des transitions. Un audit Lighthouse régulier permettra de suivre LCP/FID/CLS.
 
 ### Contenus & sémantique
-- La page d'accueil possède un `h1` clair mais un slogan très centré sur l'ambiance interne. Ajouter des sections plus descriptives (format d'émission, horaires, participation, bénéfices pour nouveaux venus) et une FAQ structurée pour capter des requêtes informationnelles.【F:public/scripts/pages/home.js†L64-L156】
-- Structurer les pages blog avec des chapeaux, intertitres (`h2`/`h3`) et blocs rich media afin d'améliorer la lisibilité une fois le rendu SSR en place.
+- La page d'accueil gagne à expliciter davantage la proposition de valeur (format d'émission, horaires, bénéfices pour nouveaux auditeurs) avec des sections structurées (`h2/h3`, FAQ) une fois le SSR déployé.【F:public/scripts/pages/home.js†L64-L156】
+- Les articles générés automatiquement doivent être relus, enrichis de visuels réels quand c'est possible et reliés à des contenus internes (profils, archives audio) pour renforcer l'E-E-A-T et réduire les risques de duplications.【F:src/services/DailyArticleService.ts†L354-L511】
 
 ### Données structurées & signaux enrichis
-- Les pages blog génèrent déjà un schéma `Article` avec dates, tags et image de couverture lorsque disponible. Documenter un workflow pour garantir une image 1200×630, une description optimisée et la cohérence des tags lors de chaque publication.【F:src/http/AppServer.ts†L1798-L1872】
-- Les profils membres exposent un schéma `ProfilePage` avec statistiques (InteractionCounter). S'assurer que les données alimentées (présence, messages) sont toujours cohérentes et actualisées pour éviter des signaux contradictoires entre structured data et contenu rendu visuellement.【F:src/http/AppServer.ts†L1914-L2012】
+- Le JSON-LD Article/Profile est en place côté serveur. Ajouter des `BreadcrumbList` et des `SpeakableSpecification` pour les contenus audio/texte lorsque le rendu HTML sera stabilisé, et valider régulièrement via Rich Results Test.【F:src/http/AppServer.ts†L1701-L2310】
+- Publier un flux RSS/Atom pour le blog et les chroniques quotidiennes afin de faciliter la syndication et renforcer la découverte des nouveaux contenus.【F:src/http/AppServer.ts†L1701-L2310】
 
 ### Suivi & gouvernance
-- Mettre en place une checklist SEO dans le pipeline de publication (contrôle du rendu HTML, test Lighthouse, validation Schema.org, vérification robots/sitemap).
-- Préparer des dashboards Search Console/Analytics dédiés aux pages clés (flux audio, blog, profils) pour mesurer l'impact des optimisations et ajuster le contenu éditorial.
+- Intégrer la génération du sitemap et la vérification robots/structured data dans la CI (tests e2e ou scripts) pour détecter les régressions avant mise en production.【F:src/http/AppServer.ts†L520-L799】
+- Mettre en place une revue éditoriale pour les articles IA (workflow dans l'admin) et un tableau de bord Search Console/Analytics dédié aux pages live, profils et blog pour prioriser les optimisations.
 
 ## Feuille de route suggérée
-1. **M-1** : implémenter SSR/prerender, publier `robots.txt` + `sitemap.xml`, auto-héberger les assets critiques.
-2. **M-2** : refonte éditoriale de la homepage, ajout d'une FAQ + sections descriptives, amélioration des images Open Graph.
-3. **M-3** : automatiser la génération du sitemap et des données structurées, intégrer tests Lighthouse/Schema.org dans la CI.
-4. **Continu** : suivi Search Console, production régulière d'articles optimisés, outreach ciblé (partenariats podcasts/communautés) pour renforcer l'autorité.
+1. **M-1** : implémenter SSR/prerender sur les pages publiques critiques, revoir le bundling (auto-hébergement des assets, splitting) et corriger le sitemap (`/bannir`, profils, dates `lastmod`).
+2. **M-2** : enrichir les pages éditoriales (FAQ, sections services, intertitres), formaliser la relecture des articles automatisés et intégrer de nouveaux schémas (`AudioObject`, `Speakable`).
+3. **M-3** : automatiser la génération/validation sitemap & structured data dans la CI, publier un flux RSS et suivre Lighthouse + Search Console dans un rapport mensuel.
+4. **Continu** : monitorer les Core Web Vitals, ajuster la stratégie de contenus, cultiver des partenariats/presse pour booster la notoriété.
