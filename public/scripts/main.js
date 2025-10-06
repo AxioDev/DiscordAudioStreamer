@@ -23,7 +23,9 @@ import {
   LISTENER_HISTORY_RETENTION_MS,
 } from './core/constants.js';
 import {
-  buildProfileHash,
+  buildRoutePath,
+  convertLegacyHashToPath,
+  parseRouteFromLocation,
   normalizeAnonymousSlot,
   ensureOpenSegment,
   closeOpenSegment,
@@ -42,89 +44,53 @@ import { BlogPage } from './pages/blog.js';
 import { BlogProposalPage } from './pages/blog-proposal.js';
 
 const NAV_LINKS = [
-  { label: 'Accueil', route: 'home', hash: '#/', icon: AudioLines },
-  { label: 'Membres', route: 'members', hash: '#/membres', icon: Users },
-  { label: 'Boutique', route: 'shop', hash: '#/boutique', icon: ShoppingBag },
-  {
-    label: 'Classements',
-    route: 'classements',
-    hash: '#/classements',
-    icon: BadgeCheck,
-  },
-  { label: 'Blog', route: 'blog', hash: '#/blog', icon: MessageSquare },
-  { label: 'Modération', route: 'ban', hash: '#/bannir', icon: ShieldCheck },
-  { label: 'À propos', route: 'about', hash: '#/about', icon: Sparkles },
+  { label: 'Accueil', route: 'home', href: '/', icon: AudioLines },
+  { label: 'Membres', route: 'members', href: '/membres', icon: Users },
+  { label: 'Boutique', route: 'shop', href: '/boutique', icon: ShoppingBag },
+  { label: 'Classements', route: 'classements', href: '/classements', icon: BadgeCheck },
+  { label: 'Blog', route: 'blog', href: '/blog', icon: MessageSquare },
+  { label: 'Modération', route: 'ban', href: '/bannir', icon: ShieldCheck },
+  { label: 'À propos', route: 'about', href: '/about', icon: Sparkles },
 ];
 
-const getRouteFromHash = () => {
-  const hash = window.location.hash.replace(/^#/, '');
-  if (!hash || hash === '/') {
-    return { name: 'home', params: {} };
-  }
-
-  const [pathPart, queryString] = hash.split('?');
-  const segments = pathPart
-    .split('/')
-    .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 0);
-  const search = new URLSearchParams(queryString || '');
-
-  if (segments.length === 0) {
-    return { name: 'home', params: {} };
-  }
-
-  const head = segments[0].toLowerCase();
-
-  if (head === 'about') {
-    return { name: 'about', params: {} };
-  }
-  if (head === 'membres' || head === 'members') {
-    return { name: 'members', params: {} };
-  }
-  if (head === 'boutique') {
-    return { name: 'shop', params: {} };
-  }
-  if (head === 'classements') {
-    const params = {
-      search: search.get('search') ?? '',
-      sortBy: search.get('sortBy') ?? null,
-      sortOrder: search.get('sortOrder') ?? null,
-      period: search.get('period') ?? null,
-    };
-    return { name: 'classements', params };
-  }
-  if (head === 'blog') {
-    const second = segments.length > 1 ? segments[1] : null;
-    if (second) {
-      const normalized = second.toLowerCase();
-      if (['proposer', 'proposal', 'soumettre'].includes(normalized)) {
-        return { name: 'blog-proposal', params: {} };
-      }
+const areRouteParamsEqual = (left = {}, right = {}) => {
+  const keys = new Set([
+    ...Object.keys(left ?? {}),
+    ...Object.keys(right ?? {}),
+  ]);
+  for (const key of keys) {
+    const a = left?.[key] ?? null;
+    const b = right?.[key] ?? null;
+    if (a !== b) {
+      return false;
     }
-    return {
-      name: 'blog',
-      params: {
-        slug: second ? decodeURIComponent(second) : null,
-      },
-    };
   }
-  if (head === 'bannir' || head === 'ban') {
-    return { name: 'ban', params: {} };
+  return true;
+};
+
+const normalizeRouteDescriptor = (name, params = {}) => {
+  const path = buildRoutePath(name, params);
+  const [pathname, query = ''] = path.split('?');
+  const descriptor = parseRouteFromLocation({
+    pathname,
+    search: query ? `?${query}` : '',
+  });
+  return { descriptor, path };
+};
+
+const getCurrentPath = () => {
+  if (typeof window === 'undefined') {
+    return '/';
   }
-  if (head === 'profil' || head === 'profile') {
-    const userId = segments.length > 1 ? decodeURIComponent(segments[1]) : null;
-    const since = search.get('since');
-    const until = search.get('until');
-    return {
-      name: 'profile',
-      params: { userId, since, until },
-    };
-  }
-  if (head === 'home') {
+  return `${window.location.pathname}${window.location.search}`;
+};
+
+const initializeRoute = () => {
+  if (typeof window === 'undefined') {
     return { name: 'home', params: {} };
   }
-
-  return { name: 'home', params: {} };
+  convertLegacyHashToPath();
+  return parseRouteFromLocation(window.location);
 };
 
 
@@ -206,7 +172,7 @@ const App = () => {
   const [lastUpdate, setLastUpdate] = useState(null);
   const [now, setNow] = useState(Date.now());
   const [menuOpen, setMenuOpen] = useState(false);
-  const [route, setRoute] = useState(() => getRouteFromHash());
+  const [route, setRoute] = useState(initializeRoute);
   const [anonymousSlot, setAnonymousSlot] = useState(() => normalizeAnonymousSlot());
   const [listenerStats, setListenerStats] = useState(() => ({ count: 0, history: [] }));
   const [guildSummary, setGuildSummary] = useState(null);
@@ -215,6 +181,36 @@ const App = () => {
   const closeMenu = useCallback(() => {
     setMenuOpen(false);
   }, []);
+
+  const navigateToRoute = useCallback(
+    (name, params = {}, { replace = false, scrollToTop = false, behavior = 'smooth' } = {}) => {
+      const { descriptor, path } = normalizeRouteDescriptor(name, params);
+
+      if (typeof window !== 'undefined') {
+        const currentPath = getCurrentPath();
+        const shouldUpdateHistory = currentPath !== path;
+        if (replace) {
+          if (shouldUpdateHistory) {
+            window.history.replaceState({ route: descriptor }, '', path);
+          }
+        } else if (shouldUpdateHistory) {
+          window.history.pushState({ route: descriptor }, '', path);
+        }
+      }
+
+      setRoute((previous) => {
+        if (previous.name === descriptor.name && areRouteParamsEqual(previous.params, descriptor.params)) {
+          return previous;
+        }
+        return descriptor;
+      });
+
+      if (scrollToTop && typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior });
+      }
+    },
+    [setRoute],
+  );
 
   useEffect(() => {
     const body = document.body;
@@ -254,21 +250,6 @@ const App = () => {
     return () => clearInterval(id);
   }, []);
 
-  useEffect(() => {
-    if (!window.location.hash) {
-      if (window.location.pathname === '/classements') {
-        const query = window.location.search?.replace(/^\?/, '');
-        const hashSuffix = query ? `?${query}` : '';
-        const targetHash = `#/classements${hashSuffix}`;
-        window.location.hash = targetHash;
-        setRoute({ name: 'classements', params: getRouteFromHash().params });
-      } else {
-        window.location.hash = '#/';
-        setRoute({ name: 'home', params: {} });
-      }
-    }
-  }, []);
-
   const updateProfileRoute = useCallback(
     (userId, sinceMs, untilMs, options = {}) => {
       if (!userId) {
@@ -276,17 +257,20 @@ const App = () => {
       }
       const sinceParam = Number.isFinite(sinceMs) ? String(Math.floor(sinceMs)) : null;
       const untilParam = Number.isFinite(untilMs) ? String(Math.floor(untilMs)) : null;
-      const nextRoute = { name: 'profile', params: { userId, since: sinceParam, until: untilParam } };
-      const nextHash = buildProfileHash(userId, sinceMs, untilMs);
-      if (window.location.hash !== nextHash) {
-        window.location.hash = nextHash;
+      const params = { userId };
+      if (sinceParam) {
+        params.since = sinceParam;
       }
-      setRoute(nextRoute);
-      if (options.scrollToTop) {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (untilParam) {
+        params.until = untilParam;
       }
+      navigateToRoute('profile', params, {
+        replace: options.replace ?? false,
+        scrollToTop: options.scrollToTop ?? false,
+        behavior: options.behavior ?? 'smooth',
+      });
     },
-    [setRoute],
+    [navigateToRoute],
   );
 
   const handleProfileOpen = useCallback(
@@ -297,9 +281,28 @@ const App = () => {
   );
 
   useEffect(() => {
-    const updateRoute = () => setRoute(getRouteFromHash());
-    window.addEventListener('hashchange', updateRoute);
-    return () => window.removeEventListener('hashchange', updateRoute);
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const handleLocationChange = () => {
+      convertLegacyHashToPath();
+      const nextRoute = parseRouteFromLocation(window.location);
+      setRoute((previous) => {
+        if (previous.name === nextRoute.name && areRouteParamsEqual(previous.params, nextRoute.params)) {
+          return previous;
+        }
+        return nextRoute;
+      });
+    };
+
+    window.addEventListener('popstate', handleLocationChange);
+    window.addEventListener('hashchange', handleLocationChange);
+
+    return () => {
+      window.removeEventListener('popstate', handleLocationChange);
+      window.removeEventListener('hashchange', handleLocationChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -802,13 +805,8 @@ const App = () => {
     if (!link) {
       return;
     }
-    if (window.location.hash !== link.hash) {
-      window.location.hash = link.hash;
-    } else {
-      setRoute({ name: targetRoute, params: {} });
-    }
+    navigateToRoute(targetRoute, {}, { scrollToTop: true });
     closeMenu();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const menuButtonLabel = menuOpen ? 'Fermer le menu de navigation' : 'Ouvrir le menu de navigation';
@@ -828,7 +826,7 @@ const App = () => {
         <div class="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
           <a
             class="flex items-center gap-2 text-lg font-semibold tracking-wide text-white transition hover:text-amber-300"
-            href="#/"
+            href="/"
             onClick=${(event) => handleNavigate(event, 'home')}
           >
             <span class="rounded bg-amber-400 px-2 py-1 text-sm font-bold text-amber-950">LA</span>
@@ -838,21 +836,21 @@ const App = () => {
           ${NAV_LINKS.map((link) => {
             const isActive =
               route.name === link.route || (link.route === 'blog' && route.name === 'blog-proposal');
-            const href = link.external && link.href ? link.href : link.hash;
-              const baseClasses = 'text-sm font-medium transition hover:text-white';
-              const stateClass = isActive ? 'text-white' : 'text-slate-300';
-              return html`
-                <a
-                  key=${link.route}
-                  class=${[baseClasses, stateClass].join(' ')}
-                  href=${href}
-                  onClick=${(event) => handleNavigate(event, link.route)}
-                  aria-current=${isActive ? 'page' : undefined}
-                >
-                  ${link.label}
-                </a>
-              `;
-            })}
+            const href = link.href;
+            const baseClasses = 'text-sm font-medium transition hover:text-white';
+            const stateClass = isActive ? 'text-white' : 'text-slate-300';
+            return html`
+              <a
+                key=${link.route}
+                class=${[baseClasses, stateClass].join(' ')}
+                href=${href}
+                onClick=${(event) => handleNavigate(event, link.route)}
+                aria-current=${isActive ? 'page' : undefined}
+              >
+                ${link.label}
+              </a>
+            `;
+          })}
           </nav>
           <button
             class="flex items-center gap-2 rounded-lg border border-slate-700 p-2 text-slate-200 transition hover:border-slate-500 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 lg:hidden"
@@ -888,7 +886,7 @@ const App = () => {
         <div class="flex items-center justify-between gap-4">
           <a
             class="flex items-center gap-2 text-lg font-semibold tracking-wide text-white transition hover:text-amber-300"
-            href="#/"
+            href="/"
             onClick=${(event) => handleNavigate(event, 'home')}
           >
             <span class="rounded bg-amber-400 px-2 py-1 text-sm font-bold text-amber-950">LA</span>
@@ -907,7 +905,7 @@ const App = () => {
           ${NAV_LINKS.map((link) => {
             const isActive =
               route.name === link.route || (link.route === 'blog' && route.name === 'blog-proposal');
-            const href = link.external && link.href ? link.href : link.hash;
+            const href = link.href;
             const baseClasses = 'flex items-center gap-3 rounded-xl px-3 py-3 text-base font-medium transition';
             const stateClass = isActive
               ? 'bg-white/10 text-white shadow-inner shadow-amber-500/10'
@@ -937,9 +935,17 @@ const App = () => {
               : route.name === 'about'
               ? html`<${AboutPage} />`
               : route.name === 'blog'
-              ? html`<${BlogPage} params=${route.params} />`
+              ? html`<${BlogPage}
+                  params=${route.params}
+                  onNavigateToPost=${(slug) =>
+                    navigateToRoute('blog', { slug }, { scrollToTop: true })}
+                  onNavigateToProposal=${() =>
+                    navigateToRoute('blog-proposal', {}, { scrollToTop: true })}
+                />`
               : route.name === 'blog-proposal'
-              ? html`<${BlogProposalPage} />`
+              ? html`<${BlogProposalPage}
+                  onNavigateToBlog=${() => navigateToRoute('blog', {}, { scrollToTop: true })}
+                />`
               : route.name === 'members'
               ? html`<${MembersPage} onViewProfile=${handleProfileOpen} />`
               : route.name === 'shop'
@@ -947,14 +953,18 @@ const App = () => {
               : route.name === 'profile'
               ? html`<${ProfilePage}
                   params=${route.params}
-                  onNavigateHome=${() => {
-                    window.location.hash = '#/';
-                    setRoute({ name: 'home', params: {} });
-                  }}
+                  onNavigateHome=${() => navigateToRoute('home', {}, { scrollToTop: true })}
                   onUpdateRange=${updateProfileRoute}
                 />`
               : route.name === 'classements'
-              ? html`<${ClassementsPage} params=${route.params} />`
+              ? html`<${ClassementsPage}
+                  params=${route.params}
+                  onSyncRoute=${(nextParams, options = {}) =>
+                    navigateToRoute('classements', nextParams, {
+                      replace: true,
+                      scrollToTop: options.scrollToTop ?? false,
+                    })}
+                />`
               : html`<${HomePage}
                   status=${status}
                   streamInfo=${streamInfo}

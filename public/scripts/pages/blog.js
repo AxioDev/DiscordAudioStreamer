@@ -71,7 +71,7 @@ const BlogCard = ({ post, onOpen, isActive }) => {
       ].join(' ')}
     >
       <a
-        href=${`#/blog/${encodeURIComponent(post.slug)}`}
+        href=${`/blog/${encodeURIComponent(post.slug)}`}
         onClick=${(event) => onOpen(event, post.slug)}
         class="flex h-full flex-col"
       >
@@ -124,7 +124,7 @@ const BlogCard = ({ post, onOpen, isActive }) => {
   `;
 };
 
-export const BlogPage = ({ params = {} }) => {
+export const BlogPage = ({ params = {}, onNavigateToPost, onNavigateToProposal }) => {
   const slug = typeof params?.slug === 'string' && params.slug.trim().length > 0 ? params.slug.trim() : null;
   const [posts, setPosts] = useState([]);
   const [availableTags, setAvailableTags] = useState([]);
@@ -274,17 +274,26 @@ export const BlogPage = ({ params = {} }) => {
 
   const hasActiveFilters = selectedTags.length > 0 || (debouncedSearch && debouncedSearch.trim().length > 0);
 
-  const handleOpenPost = useCallback((event, nextSlug) => {
-    event.preventDefault();
-    if (!nextSlug) {
-      return;
-    }
-    const encoded = encodeURIComponent(nextSlug);
-    const targetHash = `#/blog/${encoded}`;
-    if (window.location.hash !== targetHash) {
-      window.location.hash = targetHash;
-    }
-  }, []);
+  const handleOpenPost = useCallback(
+    (event, nextSlug) => {
+      event.preventDefault();
+      if (!nextSlug) {
+        return;
+      }
+      if (typeof onNavigateToPost === 'function') {
+        onNavigateToPost(nextSlug);
+        return;
+      }
+      if (typeof window !== 'undefined' && typeof window.history?.pushState === 'function') {
+        const encoded = encodeURIComponent(nextSlug);
+        window.history.pushState({ route: { name: 'blog', params: { slug: nextSlug } } }, '', `/blog/${encoded}`);
+        const popEvent =
+          typeof window.PopStateEvent === 'function' ? new PopStateEvent('popstate') : new Event('popstate');
+        window.dispatchEvent(popEvent);
+      }
+    },
+    [onNavigateToPost],
+  );
 
   const handleSearchChange = useCallback((event) => {
     setSearchTerm(event.target.value);
@@ -305,15 +314,17 @@ export const BlogPage = ({ params = {} }) => {
   }, []);
 
   const handleOpenProposal = useCallback(() => {
-    if (typeof window === 'undefined') {
+    if (typeof onNavigateToProposal === 'function') {
+      onNavigateToProposal();
       return;
     }
-    if (window.location.hash !== '#/blog/proposer') {
-      window.location.hash = '#/blog/proposer';
-    } else {
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    if (typeof window !== 'undefined' && typeof window.history?.pushState === 'function') {
+      window.history.pushState({ route: { name: 'blog-proposal', params: {} } }, '', '/blog/proposer');
+      const popEvent =
+        typeof window.PopStateEvent === 'function' ? new PopStateEvent('popstate') : new Event('popstate');
+      window.dispatchEvent(popEvent);
     }
-  }, []);
+  }, [onNavigateToProposal]);
 
   const handleManualPasswordChange = useCallback((event) => {
     setManualPassword(event.target.value);

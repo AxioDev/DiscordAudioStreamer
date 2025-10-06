@@ -4,6 +4,194 @@ import {
   HISTORY_RETENTION_MS,
 } from '../core/constants.js';
 
+const BLOG_PROPOSAL_ALIASES = new Set(['proposer', 'proposal', 'soumettre']);
+const MEMBERS_ALIASES = new Set(['membres', 'members']);
+const SHOP_ALIASES = new Set(['boutique', 'shop']);
+const BAN_ALIASES = new Set(['bannir', 'ban']);
+const PROFILE_ALIASES = new Set(['profil', 'profile']);
+
+const decodePathSegment = (value) => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  try {
+    return decodeURIComponent(value);
+  } catch (error) {
+    console.warn('Impossible de décoder le segment d’URL', value, error);
+    return null;
+  }
+};
+
+const normalizeSearchParams = (search) => {
+  if (typeof search !== 'string') {
+    return '';
+  }
+  return search.startsWith('?') ? search : search ? `?${search}` : '';
+};
+
+export const buildRoutePath = (name, params = {}) => {
+  switch (name) {
+    case 'home':
+      return '/';
+    case 'members':
+      return '/membres';
+    case 'shop':
+      return '/boutique';
+    case 'classements': {
+      const searchParams = new URLSearchParams();
+      const normalizedSortBy = params.sortBy ? String(params.sortBy) : undefined;
+      const normalizedSortOrder = params.sortOrder ? String(params.sortOrder) : undefined;
+      const normalizedSearch = params.search ? String(params.search) : '';
+      const normalizedPeriod = params.period ? String(params.period) : undefined;
+      if (normalizedSortBy) {
+        searchParams.set('sortBy', normalizedSortBy);
+      }
+      if (normalizedSortOrder) {
+        searchParams.set('sortOrder', normalizedSortOrder);
+      }
+      if (normalizedSearch) {
+        searchParams.set('search', normalizedSearch);
+      }
+      if (normalizedPeriod) {
+        searchParams.set('period', normalizedPeriod);
+      }
+      const query = searchParams.toString();
+      return query ? `/classements?${query}` : '/classements';
+    }
+    case 'blog': {
+      const slug = params.slug ? String(params.slug).trim() : '';
+      if (slug) {
+        return `/blog/${encodeURIComponent(slug)}`;
+      }
+      return '/blog';
+    }
+    case 'blog-proposal':
+      return '/blog/proposer';
+    case 'ban':
+      return '/bannir';
+    case 'about':
+      return '/about';
+    case 'profile': {
+      const userId = params.userId ? String(params.userId).trim() : '';
+      const base = userId ? `/profil/${encodeURIComponent(userId)}` : '/profil';
+      const searchParams = new URLSearchParams();
+      if (params.since) {
+        searchParams.set('since', String(params.since));
+      }
+      if (params.until) {
+        searchParams.set('until', String(params.until));
+      }
+      const query = searchParams.toString();
+      return query ? `${base}?${query}` : base;
+    }
+    default:
+      return '/';
+  }
+};
+
+export const parseRouteFromLocation = (location) => {
+  const safeLocation = location ?? (typeof window !== 'undefined' ? window.location : null);
+  if (!safeLocation) {
+    return { name: 'home', params: {} };
+  }
+
+  const pathname = typeof safeLocation.pathname === 'string' ? safeLocation.pathname : '/';
+  const search = typeof safeLocation.search === 'string' ? safeLocation.search : '';
+  const segments = pathname
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+  const searchParams = new URLSearchParams(normalizeSearchParams(search));
+
+  if (segments.length === 0) {
+    return { name: 'home', params: {} };
+  }
+
+  const head = segments[0].toLowerCase();
+
+  if (head === 'about') {
+    return { name: 'about', params: {} };
+  }
+  if (MEMBERS_ALIASES.has(head)) {
+    return { name: 'members', params: {} };
+  }
+  if (SHOP_ALIASES.has(head)) {
+    return { name: 'shop', params: {} };
+  }
+  if (head === 'classements') {
+    return {
+      name: 'classements',
+      params: {
+        search: searchParams.get('search') ?? '',
+        sortBy: searchParams.get('sortBy') ?? null,
+        sortOrder: searchParams.get('sortOrder') ?? null,
+        period: searchParams.get('period') ?? null,
+      },
+    };
+  }
+  if (head === 'blog') {
+    const second = segments.length > 1 ? segments[1] : null;
+    if (second && BLOG_PROPOSAL_ALIASES.has(second.toLowerCase())) {
+      return { name: 'blog-proposal', params: {} };
+    }
+    return {
+      name: 'blog',
+      params: {
+        slug: decodePathSegment(second),
+      },
+    };
+  }
+  if (BAN_ALIASES.has(head)) {
+    return { name: 'ban', params: {} };
+  }
+  if (PROFILE_ALIASES.has(head)) {
+    const userId = decodePathSegment(segments[1]);
+    const since = searchParams.get('since');
+    const until = searchParams.get('until');
+    return {
+      name: 'profile',
+      params: {
+        userId,
+        since,
+        until,
+      },
+    };
+  }
+  if (head === 'home') {
+    return { name: 'home', params: {} };
+  }
+
+  return { name: 'home', params: {} };
+};
+
+export const convertLegacyHashToPath = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  const { location } = window;
+  if (!location || typeof location.hash !== 'string') {
+    return false;
+  }
+
+  const hash = location.hash;
+  if (!hash.startsWith('#/')) {
+    return false;
+  }
+
+  const [rawPath = '', rawQuery = ''] = hash.slice(1).split('?');
+  const pathname = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+  const search = normalizeSearchParams(rawQuery);
+  const nextRoute = parseRouteFromLocation({ pathname, search });
+  const nextPath = buildRoutePath(nextRoute.name, nextRoute.params);
+  const currentPath = `${location.pathname}${location.search}`;
+
+  if (currentPath !== nextPath) {
+    window.history.replaceState(window.history.state, '', nextPath);
+  }
+
+  return true;
+};
+
 export const formatDuration = (ms) => {
   if (!ms || Number.isNaN(ms)) return '';
   const totalSeconds = Math.max(0, Math.round(ms / 1000));
@@ -54,11 +242,10 @@ export const parseRangeValue = (value) => {
   return null;
 };
 
-export const buildProfileHash = (userId, sinceMs, untilMs) => {
+export const buildProfilePath = (userId, sinceMs, untilMs) => {
   if (!userId) {
-    return '#/profil';
+    return buildRoutePath('profile', {});
   }
-  const base = `#/profil/${encodeURIComponent(userId)}`;
   const params = new URLSearchParams();
   if (Number.isFinite(sinceMs)) {
     params.set('since', String(Math.floor(sinceMs)));
@@ -67,6 +254,7 @@ export const buildProfileHash = (userId, sinceMs, untilMs) => {
     params.set('until', String(Math.floor(untilMs)));
   }
   const query = params.toString();
+  const base = `/profil/${encodeURIComponent(userId)}`;
   return query ? `${base}?${query}` : base;
 };
 

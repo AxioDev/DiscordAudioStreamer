@@ -107,7 +107,7 @@ const inputClasses = (hasError) =>
       : 'border-slate-700 focus:border-amber-400 focus:ring-amber-300',
   ].join(' ');
 
-export const BlogProposalPage = () => {
+export const BlogProposalPage = ({ onNavigateToBlog }) => {
   const [form, setForm] = useState(initialFormState);
   const [formErrors, setFormErrors] = useState({});
   const [status, setStatus] = useState({ submitting: false, success: false, message: '', reference: null });
@@ -227,14 +227,22 @@ export const BlogProposalPage = () => {
     [form, tagList],
   );
 
-  const handleBackToBlog = useCallback((event) => {
-    event.preventDefault();
-    if (window.location.hash !== '#/blog') {
-      window.location.hash = '#/blog';
-    } else {
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
-    }
-  }, []);
+  const handleBackToBlog = useCallback(
+    (event) => {
+      event.preventDefault();
+      if (typeof onNavigateToBlog === 'function') {
+        onNavigateToBlog();
+        return;
+      }
+      if (typeof window !== 'undefined' && typeof window.history?.pushState === 'function') {
+        window.history.pushState({ route: { name: 'blog', params: {} } }, '', '/blog');
+        const popEvent =
+          typeof window.PopStateEvent === 'function' ? new PopStateEvent('popstate') : new Event('popstate');
+        window.dispatchEvent(popEvent);
+      }
+    },
+    [onNavigateToBlog],
+  );
 
   const submitButtonLabel = status.submitting ? 'Envoi en cours…' : 'Envoyer ma proposition';
 
@@ -243,7 +251,7 @@ export const BlogProposalPage = () => {
       <div class="mx-auto flex w-full max-w-5xl flex-col gap-6">
         <div class="flex items-center gap-3 text-sm">
           <a
-            href="#/blog"
+            href="/blog"
             onClick=${handleBackToBlog}
             class="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/70 px-4 py-2 text-slate-200 transition hover:border-amber-400/60 hover:text-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
           >

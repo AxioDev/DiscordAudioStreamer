@@ -27,13 +27,13 @@ const parseCheckoutFeedback = () => {
   }
 
   try {
-    const hash = window.location.hash || '';
-    const [path = '', query = ''] = hash.split('?');
-    if (!path.toLowerCase().includes('boutique')) {
+    const { pathname, search } = window.location;
+    const normalizedPath = typeof pathname === 'string' ? pathname.toLowerCase() : '';
+    if (!['/boutique', '/shop'].includes(normalizedPath)) {
       return null;
     }
 
-    const params = new URLSearchParams(query);
+    const params = new URLSearchParams(search || '');
     const status = (params.get('checkout') || '').toLowerCase();
     if (!status) {
       return null;
@@ -53,7 +53,7 @@ const parseCheckoutFeedback = () => {
     }
 
     if (typeof window.history?.replaceState === 'function') {
-      window.history.replaceState(null, '', '#/boutique');
+      window.history.replaceState({ route: { name: 'shop', params: {} } }, '', '/boutique');
     }
 
     return { type, message };
@@ -110,10 +110,10 @@ export const ShopPage = () => {
     if (typeof window === 'undefined') {
       return { success: '', cancel: '' };
     }
-    const base = `${window.location.origin}${window.location.pathname}${window.location.search}`;
+    const base = new URL('/boutique', window.location.origin);
     return {
-      success: `${base}#/boutique?checkout=success`,
-      cancel: `${base}#/boutique?checkout=cancelled`,
+      success: `${base.href}?checkout=success`,
+      cancel: `${base.href}?checkout=cancelled`,
     };
   }, []);
 
