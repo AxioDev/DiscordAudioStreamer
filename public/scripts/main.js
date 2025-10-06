@@ -823,9 +823,19 @@ const App = () => {
   return html`
     <div class="flex min-h-screen flex-col bg-slate-950 text-slate-100">
       <header class="sticky top-0 z-20 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
-        <div class="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
+        <div class="mx-auto flex max-w-5xl items-center gap-3 px-4 py-4">
+          <button
+            class="flex items-center gap-2 rounded-lg border border-slate-700 p-2 text-slate-200 transition hover:border-slate-500 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 lg:hidden"
+            aria-controls=${mobileNavId}
+            aria-expanded=${menuOpen}
+            aria-label=${menuButtonLabel}
+            type="button"
+            onClick=${() => setMenuOpen((prev) => !prev)}
+          >
+            ${menuOpen ? html`<${X} class="h-5 w-5" />` : html`<${Menu} class="h-5 w-5" />`}
+          </button>
           <a
-            class="flex items-center gap-2 text-lg font-semibold tracking-wide text-white transition hover:text-amber-300"
+            class="flex items-center gap-2 text-lg font-semibold tracking-wide text-white transition hover:text-amber-300 lg:mr-auto"
             href="/"
             onClick=${(event) => handleNavigate(event, 'home')}
           >
@@ -852,16 +862,6 @@ const App = () => {
             `;
           })}
           </nav>
-          <button
-            class="flex items-center gap-2 rounded-lg border border-slate-700 p-2 text-slate-200 transition hover:border-slate-500 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 lg:hidden"
-            aria-controls=${mobileNavId}
-            aria-expanded=${menuOpen}
-            aria-label=${menuButtonLabel}
-            type="button"
-            onClick=${() => setMenuOpen((prev) => !prev)}
-          >
-            ${menuOpen ? html`<${X} class="h-5 w-5" />` : html`<${Menu} class="h-5 w-5" />`}
-          </button>
         </div>
       </header>
       <div
