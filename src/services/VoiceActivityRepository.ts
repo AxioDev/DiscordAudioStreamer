@@ -1233,12 +1233,41 @@ export default class VoiceActivityRepository {
 
     try {
       const result = await pool.query(
-        `SELECT channel_id, guild_id, joined_at, left_at
-           FROM voice_presence
-          WHERE user_id = $1
-            AND ($2::timestamptz IS NULL OR joined_at <= $2::timestamptz)
-            AND ($3::timestamptz IS NULL OR COALESCE(left_at, CURRENT_TIMESTAMP) >= $3::timestamptz)
-          ORDER BY joined_at ASC`,
+        `WITH ordered_presence AS (
+           SELECT
+             vp.id,
+             vp.channel_id,
+             vp.guild_id,
+             vp.joined_at,
+             vp.left_at,
+             LEAD(vp.joined_at) OVER (
+               PARTITION BY vp.user_id
+               ORDER BY vp.joined_at ASC, vp.id ASC
+             ) AS next_joined_at
+           FROM voice_presence vp
+          WHERE vp.user_id = $1
+        ),
+        normalized_presence AS (
+          SELECT
+            channel_id,
+            guild_id,
+            joined_at,
+            CASE
+              WHEN left_at IS NOT NULL THEN left_at
+              WHEN next_joined_at IS NOT NULL AND next_joined_at > joined_at THEN next_joined_at
+              ELSE CURRENT_TIMESTAMP
+            END AS effective_left_at
+          FROM ordered_presence
+        )
+        SELECT
+          channel_id,
+          guild_id,
+          joined_at,
+          effective_left_at AS left_at
+          FROM normalized_presence
+         WHERE ($2::timestamptz IS NULL OR joined_at <= $2::timestamptz)
+           AND ($3::timestamptz IS NULL OR effective_left_at >= $3::timestamptz)
+         ORDER BY joined_at ASC`,
         [userId, untilIso, sinceIso],
       );
 
