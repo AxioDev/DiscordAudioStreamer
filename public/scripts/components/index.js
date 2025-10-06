@@ -62,6 +62,7 @@ import {
   formatRangeLabel,
   formatDayLabel,
   mergeProfiles,
+  parseRouteFromLocation,
 } from '../utils/index.js';
 
 Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
@@ -1589,13 +1590,13 @@ const MODERATION_SERVICES = [
 
 const readCheckoutFeedbackFromHash = () => {
   try {
-    const hash = window.location.hash || '';
-    const [path = '', query = ''] = hash.split('?');
-    if (!path.toLowerCase().includes('boutique')) {
+    const { pathname, search } = window.location;
+    const normalizedPath = typeof pathname === 'string' ? pathname.toLowerCase() : '';
+    if (!['/boutique', '/shop'].includes(normalizedPath)) {
       return null;
     }
 
-    const params = new URLSearchParams(query);
+    const params = new URLSearchParams(search || '');
     const status = (params.get('checkout') || '').toLowerCase();
     if (!status) {
       return null;
@@ -1615,7 +1616,7 @@ const readCheckoutFeedbackFromHash = () => {
     }
 
     if (typeof window.history?.replaceState === 'function') {
-      window.history.replaceState(null, '', '#/boutique');
+      window.history.replaceState({ route: { name: 'shop', params: {} } }, '', '/boutique');
     }
 
     return { type, message };
@@ -1771,65 +1772,19 @@ const MEMBERS_PAGE_SIZE = 24;
 
 
 const NAV_LINKS = [
-  { label: 'Accueil', route: 'home', hash: '#/' },
-  { label: 'Membres', route: 'members', hash: '#/membres' },
-  { label: 'Boutique', route: 'shop', hash: '#/boutique' },
-  {
-    label: 'Classements',
-    route: 'classements',
-    hash: '#/classements',
-    href: '/classements',
-    external: true,
-  },
-  { label: 'Modération', route: 'ban', hash: '#/bannir' },
-  { label: 'À propos', route: 'about', hash: '#/about' },
+  { label: 'Accueil', route: 'home', href: '/' },
+  { label: 'Membres', route: 'members', href: '/membres' },
+  { label: 'Boutique', route: 'shop', href: '/boutique' },
+  { label: 'Classements', route: 'classements', href: '/classements' },
+  { label: 'Modération', route: 'ban', href: '/bannir' },
+  { label: 'À propos', route: 'about', href: '/about' },
 ];
 
 const getRouteFromHash = () => {
-  const hash = window.location.hash.replace(/^#/, '');
-  if (!hash || hash === '/') {
+  if (typeof window === 'undefined') {
     return { name: 'home', params: {} };
   }
-
-  const [pathPart, queryString] = hash.split('?');
-  const segments = pathPart
-    .split('/')
-    .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 0);
-  const search = new URLSearchParams(queryString || '');
-
-  if (segments.length === 0) {
-    return { name: 'home', params: {} };
-  }
-
-  const head = segments[0].toLowerCase();
-
-  if (head === 'about') {
-    return { name: 'about', params: {} };
-  }
-  if (head === 'membres' || head === 'members') {
-    return { name: 'members', params: {} };
-  }
-  if (head === 'boutique') {
-    return { name: 'shop', params: {} };
-  }
-  if (head === 'bannir' || head === 'ban') {
-    return { name: 'ban', params: {} };
-  }
-  if (head === 'profil' || head === 'profile') {
-    const userId = segments.length > 1 ? decodeURIComponent(segments[1]) : null;
-    const since = search.get('since');
-    const until = search.get('until');
-    return {
-      name: 'profile',
-      params: { userId, since, until },
-    };
-  }
-  if (head === 'home') {
-    return { name: 'home', params: {} };
-  }
-
-  return { name: 'home', params: {} };
+  return parseRouteFromLocation(window.location);
 };
 
 const AudioPlayer = ({ streamInfo, audioKey, status }) => {

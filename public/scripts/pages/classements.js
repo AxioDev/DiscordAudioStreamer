@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from '../core/deps.js';
+import { buildRoutePath } from '../utils/index.js';
 
 const SORTABLE_COLUMNS = new Set([
   'schScoreNorm',
@@ -165,7 +166,7 @@ const getTrendPresentation = (positionTrend) => {
   }
 };
 
-const ClassementsPage = ({ params = {} }) => {
+const ClassementsPage = ({ params = {}, onSyncRoute }) => {
   const initialState = useMemo(() => deriveInitialState(params), [params.search, params.sortBy, params.sortOrder, params.period]);
   const [search, setSearch] = useState(initialState.search);
   const [debouncedSearch, setDebouncedSearch] = useState(initialState.search.trim());
@@ -314,22 +315,26 @@ const ClassementsPage = ({ params = {} }) => {
   }, [debouncedSearch, sortBy, sortOrder, period, refreshTick]);
 
   useEffect(() => {
-    const params = new URLSearchParams();
-    params.set('sortBy', sortBy);
-    params.set('sortOrder', sortOrder);
-    if (debouncedSearch) {
-      params.set('search', debouncedSearch);
+    const nextParams = {
+      sortBy,
+      sortOrder,
+      period,
+      search: debouncedSearch,
+    };
+
+    if (typeof onSyncRoute === 'function') {
+      onSyncRoute(nextParams);
+      return;
     }
-    if (period) {
-      params.set('period', period);
+
+    if (typeof window !== 'undefined' && typeof window.history?.replaceState === 'function') {
+      const path = buildRoutePath('classements', nextParams);
+      window.history.replaceState({ route: { name: 'classements', params: nextParams } }, '', path);
+      const popEvent =
+        typeof window.PopStateEvent === 'function' ? new PopStateEvent('popstate') : new Event('popstate');
+      window.dispatchEvent(popEvent);
     }
-    const queryString = params.toString();
-    const hashBase = '#/classements';
-    const nextHash = queryString ? `${hashBase}?${queryString}` : hashBase;
-    if (window.location.hash !== nextHash) {
-      window.history.replaceState(null, '', nextHash);
-    }
-  }, [debouncedSearch, sortBy, sortOrder, period]);
+  }, [debouncedSearch, onSyncRoute, period, sortBy, sortOrder]);
 
   const metaLabel = useMemo(() => {
     const count = Math.min(leaders.length, 100);
