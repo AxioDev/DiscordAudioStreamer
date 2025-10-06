@@ -69,6 +69,11 @@ export interface SeoRendererOptions {
   defaultStructuredData?: unknown[];
 }
 
+export interface RenderOptions {
+  appHtml?: string | null;
+  preloadState?: unknown;
+}
+
 export default class SeoRenderer {
   private readonly templatePrefix: string;
 
@@ -129,7 +134,7 @@ export default class SeoRenderer {
       : [];
   }
 
-  public render(metadata: SeoPageMetadata): string {
+  public render(metadata: SeoPageMetadata, options: RenderOptions = {}): string {
     const title = metadata.title.trim();
     const description = metadata.description.trim();
     const canonicalUrl = this.normalizeUrl(metadata.canonicalUrl ?? metadata.path);
@@ -314,7 +319,44 @@ export default class SeoRenderer {
     }
 
     const headContent = lines.join('\n');
-    return `${this.templatePrefix}\n${headContent}\n${this.templateSuffix}`;
+    const suffix = this.injectAppShell(this.templateSuffix, options);
+    return `${this.templatePrefix}\n${headContent}\n${suffix}`;
+  }
+
+  private injectAppShell(template: string, options: RenderOptions): string {
+    const appPlaceholder = '<!--APP_HTML-->';
+    const statePlaceholder = '<!--APP_STATE-->';
+
+    let result = template;
+
+    if (result.includes(appPlaceholder)) {
+      const appHtml = typeof options.appHtml === 'string' ? options.appHtml : '';
+      result = result.replace(appPlaceholder, appHtml);
+    }
+
+    if (result.includes(statePlaceholder)) {
+      const stateScript = this.buildStateBootstrap(options.preloadState);
+      result = result.replace(statePlaceholder, stateScript);
+    }
+
+    return result;
+  }
+
+  private buildStateBootstrap(state: unknown): string {
+    if (state === undefined) {
+      return '';
+    }
+
+    try {
+      const json = JSON.stringify(state ?? null)?.replace(/</g, '\\u003C');
+      if (!json) {
+        return '';
+      }
+      return `    <script>window.__PRERENDER_STATE__ = ${json};</script>`;
+    } catch (error) {
+      console.warn('Failed to serialize pre-render state', error);
+      return '';
+    }
   }
 
   private buildAlternateLanguages(
