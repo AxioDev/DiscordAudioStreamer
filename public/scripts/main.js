@@ -1,4 +1,5 @@
 import {
+  hydrate,
   render,
   html,
   useCallback,
@@ -52,6 +53,92 @@ const NAV_LINKS = [
   { label: 'Modération', route: 'ban', href: '/bannir', icon: ShieldCheck },
   { label: 'À propos', route: 'about', href: '/about', icon: Sparkles },
 ];
+
+const readBootstrapState = () => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const state = window.__PRERENDER_STATE__ ?? null;
+  if (state) {
+    try {
+      delete window.__PRERENDER_STATE__;
+    } catch (error) {
+      window.__PRERENDER_STATE__ = undefined;
+    }
+  }
+  return state && typeof state === 'object' ? state : null;
+};
+
+const cloneRouteDescriptor = (descriptor) => {
+  if (!descriptor || typeof descriptor !== 'object') {
+    return null;
+  }
+  const name = typeof descriptor.name === 'string' ? descriptor.name : null;
+  if (!name) {
+    return null;
+  }
+  const paramsSource = descriptor.params;
+  const params = paramsSource && typeof paramsSource === 'object' ? { ...paramsSource } : {};
+  return { name, params };
+};
+
+const normalizeBootstrapParticipants = (value) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((participant) => {
+      if (!participant || typeof participant !== 'object') {
+        return null;
+      }
+      const id = typeof participant.id === 'string'
+        ? participant.id
+        : participant.id != null
+          ? String(participant.id)
+          : null;
+      if (!id) {
+        return null;
+      }
+      const voiceState = participant.voiceState && typeof participant.voiceState === 'object'
+        ? { ...participant.voiceState }
+        : {};
+      return { ...participant, id, voiceState };
+    })
+    .filter(Boolean);
+};
+
+const normalizeBootstrapListenerStats = (value) => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const countValue = Number(value.count);
+  const safeCount = Number.isFinite(countValue) ? Math.max(0, Math.round(countValue)) : 0;
+  const history = Array.isArray(value.history)
+    ? value.history
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') {
+            return null;
+          }
+          const timestamp = Number(entry.timestamp);
+          const count = Number(entry.count);
+          if (!Number.isFinite(timestamp) || !Number.isFinite(count)) {
+            return null;
+          }
+          return { timestamp, count: Math.max(0, Math.round(count)) };
+        })
+        .filter(Boolean)
+    : [];
+  return { count: safeCount, history };
+};
+
+const RAW_BOOTSTRAP_STATE = readBootstrapState();
+const BOOTSTRAP_ROUTE = cloneRouteDescriptor(RAW_BOOTSTRAP_STATE?.route);
+const BOOTSTRAP_PARTICIPANTS = normalizeBootstrapParticipants(RAW_BOOTSTRAP_STATE?.participants);
+const BOOTSTRAP_LISTENER_STATS = normalizeBootstrapListenerStats(RAW_BOOTSTRAP_STATE?.listenerStats);
+const BOOTSTRAP_PAGES =
+  RAW_BOOTSTRAP_STATE?.pages && typeof RAW_BOOTSTRAP_STATE.pages === 'object' && RAW_BOOTSTRAP_STATE.pages !== null
+    ? RAW_BOOTSTRAP_STATE.pages
+    : {};
 
 const areRouteParamsEqual = (left = {}, right = {}) => {
   const keys = new Set([
@@ -163,7 +250,13 @@ const trimListenerHistory = (history, nowTs) => {
 
 const App = () => {
   const [status, setStatus] = useState('connecting');
-  const [participantsMap, setParticipantsMap] = useState(() => new Map());
+  const [participantsMap, setParticipantsMap] = useState(() => {
+    const map = new Map();
+    for (const participant of BOOTSTRAP_PARTICIPANTS) {
+      map.set(participant.id, { ...participant });
+    }
+    return map;
+  });
   const [speakingHistory, setSpeakingHistory] = useState(() => []);
   const [isHistoryLoading, setIsHistoryLoading] = useState(true);
   const [selectedWindowMinutes, setSelectedWindowMinutes] = useState(DEFAULT_WINDOW_MINUTES);
@@ -172,9 +265,11 @@ const App = () => {
   const [lastUpdate, setLastUpdate] = useState(null);
   const [now, setNow] = useState(Date.now());
   const [menuOpen, setMenuOpen] = useState(false);
-  const [route, setRoute] = useState(initializeRoute);
+  const [route, setRoute] = useState(() => BOOTSTRAP_ROUTE ?? initializeRoute());
   const [anonymousSlot, setAnonymousSlot] = useState(() => normalizeAnonymousSlot());
-  const [listenerStats, setListenerStats] = useState(() => ({ count: 0, history: [] }));
+  const [listenerStats, setListenerStats] = useState(() => (
+    BOOTSTRAP_LISTENER_STATS ? { count: BOOTSTRAP_LISTENER_STATS.count, history: BOOTSTRAP_LISTENER_STATS.history.slice() } : { count: 0, history: [] }
+  ));
   const [guildSummary, setGuildSummary] = useState(null);
   const sidebarTouchStartRef = useRef(null);
 
@@ -937,6 +1032,7 @@ const App = () => {
               : route.name === 'blog'
               ? html`<${BlogPage}
                   params=${route.params}
+                  bootstrap=${BOOTSTRAP_PAGES.blog ?? null}
                   onNavigateToPost=${(slug) =>
                     navigateToRoute('blog', { slug }, { scrollToTop: true })}
                   onNavigateToProposal=${() =>
@@ -990,7 +1086,15 @@ const App = () => {
     </div>
   `;
 };
-render(html`<${App} />`, document.getElementById('app'));
+
+const mountNode = document.getElementById('app');
+if (mountNode) {
+  if (mountNode.childNodes && mountNode.childNodes.length > 0) {
+    hydrate(html`<${App} />`, mountNode);
+  } else {
+    render(html`<${App} />`, mountNode);
+  }
+}
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker

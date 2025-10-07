@@ -3,6 +3,7 @@ import path from 'path';
 import type { Server } from 'http';
 import type FfmpegTranscoder from '../audio/FfmpegTranscoder';
 import type SpeakerTracker from '../services/SpeakerTracker';
+import type { Participant } from '../services/SpeakerTracker';
 import type SseService from '../services/SseService';
 import type AnonymousSpeechManager from '../services/AnonymousSpeechManager';
 import type { Config } from '../config';
@@ -16,7 +17,11 @@ import ListenerStatsService, {
   type ListenerStatsEntry,
   type ListenerStatsUpdate,
 } from '../services/ListenerStatsService';
-import BlogService, { type BlogListOptions } from '../services/BlogService';
+import BlogService, {
+  type BlogListOptions,
+  type BlogPostDetail,
+  type BlogPostSummary,
+} from '../services/BlogService';
 import BlogRepository from '../services/BlogRepository';
 import BlogProposalService, { BlogProposalError } from '../services/BlogProposalService';
 import type {
@@ -90,6 +95,50 @@ interface AppShellRenderOptions {
   status?: number;
   appHtml?: string | null;
   preloadState?: unknown;
+}
+
+interface AppRouteDescriptor {
+  name: string;
+  params?: Record<string, unknown>;
+}
+
+interface ListenerStatsBootstrap {
+  count: number;
+  history: ListenerStatsEntry[];
+}
+
+interface HomePageBootstrap {
+  listenerCount: number;
+  latestPosts: Array<{
+    title: string;
+    slug: string;
+    excerpt: string | null;
+    date: string | null;
+  }>;
+  speakers: Array<{
+    id: string;
+    displayName: string;
+    avatarUrl: string | null;
+    isSpeaking: boolean;
+    lastSpokeAt: string | null;
+  }>;
+}
+
+interface BlogPageBootstrap {
+  posts?: BlogPostSummary[];
+  availableTags?: string[];
+  selectedTags?: string[];
+  activePost?: BlogPostDetail | null;
+}
+
+interface AppPreloadState {
+  route?: AppRouteDescriptor;
+  participants?: Participant[];
+  listenerStats?: ListenerStatsBootstrap;
+  pages?: {
+    home?: HomePageBootstrap;
+    blog?: BlogPageBootstrap;
+  };
 }
 
 export default class AppServer {
@@ -1153,7 +1202,14 @@ export default class AppServer {
     return parts.join('');
   }
 
-  private async buildHomePagePrerender(): Promise<string> {
+  private async buildHomePagePrerender(): Promise<{
+    html: string;
+    listenerCount: number;
+    latestPosts: Array<{ title: string; slug: string; excerpt: string | null; date: string | null }>;
+    speakers: Array<{ id: string; displayName: string; avatarUrl: string | null; isSpeaking: boolean; lastSpokeAt: string | null }>;
+    participants: Participant[];
+    listenerHistory: ListenerStatsEntry[];
+  }> {
     const listenerCount = this.listenerStatsService.getCurrentCount();
     const rawSpeakers = this.speakerTracker.getSpeakers();
     const speakers = rawSpeakers.slice(0, 6).map((speaker) => {
@@ -1184,7 +1240,10 @@ export default class AppServer {
       console.warn('Failed to load blog posts for home prerender', error);
     }
 
-    return this.buildHomePageHtml({ listenerCount, speakers, latestPosts });
+    const participants = this.speakerTracker.getInitialState()?.speakers ?? [];
+    const listenerHistory = this.listenerStatsService.getHistory();
+    const html = this.buildHomePageHtml({ listenerCount, speakers, latestPosts });
+    return { html, listenerCount, latestPosts, speakers, participants, listenerHistory };
   }
 
   private async buildMembersPagePrerender(search: string | null): Promise<string> {
@@ -1239,26 +1298,38 @@ export default class AppServer {
     }
   }
 
-  private async buildBlogListingPrerender(tags: string[]): Promise<string> {
+  private async buildBlogListingPrerender(tags: string[]): Promise<{
+    html: string;
+    posts: BlogPostSummary[];
+    availableTags: string[];
+    selectedTags: string[];
+  }> {
+    let posts: BlogPostSummary[] = [];
+    let availableTags: string[] = [];
     try {
-      const { posts, availableTags } = await this.blogService.listPosts({
+      const result = await this.blogService.listPosts({
         tags: tags.length > 0 ? tags : null,
         sortBy: 'date',
         sortOrder: 'desc',
         limit: 24,
       });
-      const normalizedPosts = posts.map((post) => ({
-        title: post.title,
-        slug: post.slug,
-        excerpt: post.seoDescription ?? post.excerpt,
-        date: post.date,
-        author: this.config.siteName,
-      }));
-      return this.buildBlogListingHtml({ tags, posts: normalizedPosts, availableTags });
+      posts = result.posts;
+      availableTags = result.availableTags;
     } catch (error) {
       console.error('Failed to build blog listing prerender', error);
-      return this.buildBlogListingHtml({ tags, posts: [], availableTags: [] });
+      posts = [];
+      availableTags = [];
     }
+
+    const normalizedPosts = posts.map((post) => ({
+      title: post.title,
+      slug: post.slug,
+      excerpt: post.seoDescription ?? post.excerpt,
+      date: post.date,
+      author: this.config.siteName,
+    }));
+    const html = this.buildBlogListingHtml({ tags, posts: normalizedPosts, availableTags });
+    return { html, posts, availableTags, selectedTags: tags };
   }
 
   private buildProfileSummary(
@@ -2541,8 +2612,18 @@ export default class AppServer {
       };
 
       try {
-        const appHtml = await this.buildBlogListingPrerender(tags);
-        this.respondWithAppShell(res, metadata, { appHtml });
+        const prerender = await this.buildBlogListingPrerender(tags);
+        const preloadState: AppPreloadState = {
+          route: { name: 'blog', params: { slug: null } },
+          pages: {
+            blog: {
+              posts: prerender.posts,
+              availableTags: prerender.availableTags,
+              selectedTags: prerender.selectedTags,
+            },
+          },
+        };
+        this.respondWithAppShell(res, metadata, { appHtml: prerender.html, preloadState });
       } catch (error) {
         console.error('Failed to prerender blog listing', error);
         this.respondWithAppShell(res, metadata);
@@ -2715,7 +2796,16 @@ export default class AppServer {
           authorName: this.config.siteName,
         });
 
-        this.respondWithAppShell(res, metadata, { appHtml });
+        const preloadState: AppPreloadState = {
+          route: { name: 'blog', params: { slug: post.slug } },
+          pages: {
+            blog: {
+              activePost: post,
+            },
+          },
+        };
+
+        this.respondWithAppShell(res, metadata, { appHtml, preloadState });
       } catch (error) {
         console.error('Failed to render blog post page', error);
         this.respondWithAppShell(
@@ -3006,8 +3096,23 @@ export default class AppServer {
       };
 
       try {
-        const appHtml = await this.buildHomePagePrerender();
-        this.respondWithAppShell(res, metadata, { appHtml });
+        const prerender = await this.buildHomePagePrerender();
+        const preloadState: AppPreloadState = {
+          route: { name: 'home', params: {} },
+          participants: prerender.participants,
+          listenerStats: {
+            count: prerender.listenerCount,
+            history: prerender.listenerHistory,
+          },
+          pages: {
+            home: {
+              listenerCount: prerender.listenerCount,
+              latestPosts: prerender.latestPosts,
+              speakers: prerender.speakers,
+            },
+          },
+        };
+        this.respondWithAppShell(res, metadata, { appHtml: prerender.html, preloadState });
       } catch (error) {
         console.error('Failed to prerender home page', error);
         this.respondWithAppShell(res, metadata);

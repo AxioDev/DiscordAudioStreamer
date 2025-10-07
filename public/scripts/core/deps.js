@@ -1,4 +1,4 @@
-import { h, render, Fragment } from 'https://esm.sh/preact@10.19.2';
+import { h, render, hydrate, Fragment } from 'https://esm.sh/preact@10.19.2';
 import {
   useCallback,
   useEffect,
@@ -53,6 +53,7 @@ const html = htm.bind(h);
 export {
   h,
   render,
+  hydrate,
   Fragment,
   html,
   useCallback,
