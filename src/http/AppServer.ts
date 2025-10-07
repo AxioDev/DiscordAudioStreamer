@@ -1,6 +1,8 @@
 import express, { type Request, type Response } from 'express';
+import fs from 'fs';
 import path from 'path';
 import type { Server } from 'http';
+import { icons as lucideIcons, type IconNode } from 'lucide';
 import type FfmpegTranscoder from '../audio/FfmpegTranscoder';
 import type SpeakerTracker from '../services/SpeakerTracker';
 import type { Participant } from '../services/SpeakerTracker';
@@ -11,7 +13,7 @@ import { WebSocketServer } from 'ws';
 import type DiscordAudioBridge from '../discord/DiscordAudioBridge';
 import type { DiscordUserIdentity } from '../discord/DiscordAudioBridge';
 import type ShopService from '../services/ShopService';
-import { ShopError, type ShopProvider } from '../services/ShopService';
+import { ShopError, type ShopProvider, type PublicProduct } from '../services/ShopService';
 import type VoiceActivityRepository from '../services/VoiceActivityRepository';
 import ListenerStatsService, {
   type ListenerStatsEntry,
@@ -34,10 +36,11 @@ import type {
   VoiceTranscriptionCursor,
 } from '../services/VoiceActivityRepository';
 import HypeLeaderboardService, {
+  type HypeLeaderWithTrend,
   type HypeLeaderboardResult,
   type NormalizedHypeLeaderboardQueryOptions,
 } from '../services/HypeLeaderboardService';
-import SeoRenderer, { type SeoPageMetadata } from './SeoRenderer';
+import SeoRenderer, { type AssetManifest, type SeoPageMetadata } from './SeoRenderer';
 import AdminService, { type HiddenMemberRecord } from '../services/AdminService';
 import DailyArticleService, { type DailyArticleServiceStatus } from '../services/DailyArticleService';
 
@@ -131,6 +134,43 @@ interface BlogPageBootstrap {
   activePost?: BlogPostDetail | null;
 }
 
+interface ClassementLeaderBootstrap {
+  userId: string;
+  displayName: string | null;
+  username: string | null;
+  rank: number;
+  absoluteRank: number | null;
+  avatar: string | null;
+  avatarUrl: string | null;
+  profileAvatar: string | null;
+  activityScore: number;
+  arrivalEffect: number;
+  departureEffect: number;
+  schScoreNorm: number;
+  retentionMinutes: number;
+  sessions: number;
+  positionTrend: {
+    movement: string;
+    delta: number | null;
+    comparedAt: string | null;
+  } | null;
+}
+
+interface ClassementsPageBootstrap {
+  query: {
+    search: string;
+    sortBy: HypeLeaderboardSortBy;
+    sortOrder: HypeLeaderboardSortOrder;
+    period: string;
+  };
+  leaders: ClassementLeaderBootstrap[];
+  snapshot: { bucketStart: string | null; comparedTo: string | null } | null;
+}
+
+interface ShopPageBootstrap {
+  products: PublicProduct[];
+}
+
 interface AppPreloadState {
   route?: AppRouteDescriptor;
   participants?: Participant[];
@@ -138,6 +178,8 @@ interface AppPreloadState {
   pages?: {
     home?: HomePageBootstrap;
     blog?: BlogPageBootstrap;
+    classements?: ClassementsPageBootstrap;
+    shop?: ShopPageBootstrap;
   };
 }
 
@@ -314,6 +356,13 @@ export default class AppServer {
         },
       ],
     });
+
+    const assetManifestPath = path.resolve(__dirname, '..', '..', 'public', 'assets', 'manifest.json');
+    const assetManifest = this.loadAssetManifest(assetManifestPath);
+    if (!assetManifest) {
+      console.warn(`Asset manifest not found or invalid at ${assetManifestPath}.`);
+    }
+    this.seoRenderer.updateAssetManifest(assetManifest);
 
     void this.blogService.initialize().catch((error) => {
       console.error('Failed to initialize blog service', error);
@@ -706,6 +755,20 @@ export default class AppServer {
     return lines.join('\n');
   }
 
+  private loadAssetManifest(manifestPath: string): AssetManifest | null {
+    try {
+      if (!fs.existsSync(manifestPath)) {
+        return null;
+      }
+      const raw = fs.readFileSync(manifestPath, 'utf8');
+      const data = JSON.parse(raw) as AssetManifest;
+      return data;
+    } catch (error) {
+      console.warn(`Failed to load asset manifest at ${manifestPath}`, error);
+      return null;
+    }
+  }
+
   private escapeXml(value: string): string {
     return value.replace(/[&<>"]|'/g, (char) => {
       switch (char) {
@@ -742,6 +805,157 @@ export default class AppServer {
           return char;
       }
     });
+  }
+
+  private renderLucideIcon(name: string, className: string, options: { strokeWidth?: number } = {}): string {
+    try {
+      const iconDefinition = (lucideIcons as Record<string, IconNode | undefined> | undefined)?.[name];
+      if (!Array.isArray(iconDefinition)) {
+        return `<span class="${this.escapeHtml(className)}" aria-hidden="true"></span>`;
+      }
+
+      const strokeWidth = Number.isFinite(options.strokeWidth) ? Number(options.strokeWidth) : 2;
+      const svgAttributes: Record<string, string | number | undefined> = {
+        xmlns: 'http://www.w3.org/2000/svg',
+        width: 24,
+        height: 24,
+        viewBox: '0 0 24 24',
+        fill: 'none',
+        stroke: 'currentColor',
+        'stroke-width': strokeWidth,
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+        class: className || undefined,
+        'aria-hidden': 'true',
+      };
+
+      const attrString = Object.entries(svgAttributes)
+        .filter(([, value]) => value !== undefined && value !== null && `${value}`.length > 0)
+        .map(([key, value]) => `${key}="${this.escapeHtml(String(value))}"`)
+        .join(' ');
+
+      const childContent = (iconDefinition as IconNode)
+        .map(([tag, attrs]) => {
+          const childAttr = Object.entries(attrs ?? {})
+            .filter(([, value]) => value !== undefined && value !== null && `${value}`.length > 0)
+            .map(([key, value]) => `${key}="${this.escapeHtml(String(value))}"`)
+            .join(' ');
+          return `<${tag}${childAttr ? ' ' + childAttr : ''} />`;
+        })
+        .join('');
+
+      return `<svg ${attrString}>${childContent}</svg>`;
+    } catch (error) {
+      return `<span class="${this.escapeHtml(className)}" aria-hidden="true"></span>`;
+    }
+  }
+
+  private selectClassementsAvatar(leader: ClassementLeaderBootstrap): string | null {
+    const candidates = [leader.avatarUrl, leader.avatar, leader.profileAvatar];
+    for (const candidate of candidates) {
+      if (candidate && typeof candidate === 'string' && candidate.trim().length > 0) {
+        return candidate.trim();
+      }
+    }
+    return null;
+  }
+
+  private computeClassementAvatarSeed(leader: ClassementLeaderBootstrap, rank: number): number {
+    if (leader.userId && leader.userId.length > 0) {
+      return Array.from(leader.userId).reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    }
+    return Math.max(1, rank);
+  }
+
+  private getClassementLeaderInitials(leader: ClassementLeaderBootstrap): string {
+    const displayName = leader.displayName?.trim() ?? '';
+    const username = leader.username?.trim().replace(/^@/, '') ?? '';
+    const source = displayName || username;
+    if (!source) {
+      return '∅';
+    }
+    const parts = source.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) {
+      return parts[0].slice(0, 2).toUpperCase();
+    }
+    const first = parts[0]?.[0] ?? '';
+    const last = parts[parts.length - 1]?.[0] ?? '';
+    const initials = `${first}${last}`.trim();
+    return initials ? initials.toUpperCase() : source.slice(0, 2).toUpperCase();
+  }
+
+  private describeClassementTrend(trend: ClassementLeaderBootstrap['positionTrend']): {
+    icon: string;
+    label: string;
+    className: string;
+    delta: string;
+  } {
+    const movement = trend?.movement ?? 'same';
+    const deltaValue = Number.isFinite(trend?.delta ?? null) ? Number(trend?.delta ?? 0) : null;
+    switch (movement) {
+      case 'up':
+        return {
+          icon: '↑',
+          label: 'Monte',
+          className: 'text-emerald-300',
+          delta: deltaValue !== null && deltaValue !== 0 ? `+${deltaValue}` : '+0',
+        };
+      case 'down':
+        return {
+          icon: '↓',
+          label: 'Descend',
+          className: 'text-rose-300',
+          delta: deltaValue !== null && deltaValue !== 0 ? `${deltaValue}` : '0',
+        };
+      case 'new':
+        return {
+          icon: '★',
+          label: 'Nouveau',
+          className: 'text-amber-300',
+          delta: '—',
+        };
+      default:
+        return {
+          icon: '→',
+          label: 'Stable',
+          className: 'text-slate-300',
+          delta: '0',
+        };
+    }
+  }
+
+  private buildClassementsMetaLabel(
+    leaderCount: number,
+    snapshot: { bucketStart: string | null; comparedTo: string | null } | null,
+  ): string {
+    const count = Math.min(Math.max(leaderCount, 0), 100);
+    const bucketDate = snapshot?.bucketStart ? new Date(snapshot.bucketStart) : new Date();
+    const formatter = new Intl.DateTimeFormat('fr-FR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      day: '2-digit',
+      month: 'long',
+    });
+    const formattedDate = formatter.format(bucketDate);
+
+    let comparisonSegment = '';
+    if (snapshot?.comparedTo) {
+      const comparedDate = new Date(snapshot.comparedTo);
+      if (!Number.isNaN(comparedDate.getTime())) {
+        const diffMs = bucketDate.getTime() - comparedDate.getTime();
+        const diffHours = diffMs / 3_600_000;
+        if (Number.isFinite(diffHours)) {
+          const relativeFormatter = new Intl.RelativeTimeFormat('fr-FR', { numeric: 'auto' });
+          const rounded = Math.round(diffHours);
+          comparisonSegment =
+            rounded === 0
+              ? ' · Variations sur l’heure en cours'
+              : ` · Variations ${relativeFormatter.format(-rounded, 'hour')}`;
+        }
+      }
+    }
+
+    return `${count} profils · Mise à jour ${formattedDate}${comparisonSegment}`;
   }
 
   private truncateText(value: string, maxLength = 240): string {
@@ -1332,6 +1546,621 @@ export default class AppServer {
     return { html, posts, availableTags, selectedTags: tags };
   }
 
+  private async buildClassementsPagePrerender(
+    options: NormalizedHypeLeaderboardQueryOptions,
+  ): Promise<{ html: string; bootstrap: ClassementsPageBootstrap }> {
+    const normalizedOptions: NormalizedHypeLeaderboardQueryOptions = {
+      ...options,
+      limit: Math.min(Math.max(options.limit ?? 100, 1), 100),
+    };
+
+    let result: HypeLeaderboardResult | null = null;
+    try {
+      result = await this.getCachedHypeLeaders(normalizedOptions);
+    } catch (error) {
+      console.error('Failed to build classements prerender', error);
+      result = null;
+    }
+
+    const leaders = (result?.leaders ?? []).slice(0, 100).map((leader, index) => this.normalizeClassementLeader(leader, index));
+    const snapshot = result
+      ? {
+          bucketStart: result.snapshot.bucketStart.toISOString(),
+          comparedTo: result.snapshot.comparedTo ? result.snapshot.comparedTo.toISOString() : null,
+        }
+      : { bucketStart: null, comparedTo: null };
+
+    const query = {
+      search: options.search ?? '',
+      sortBy: options.sortBy,
+      sortOrder: options.sortOrder,
+      period: options.periodDays === null ? 'all' : String(options.periodDays ?? '30'),
+    };
+
+    const html = this.buildClassementsPageHtml({ leaders, snapshot, query });
+    return { html, bootstrap: { query, leaders, snapshot } };
+  }
+
+  private buildClassementsPageHtml(data: {
+    leaders: ClassementLeaderBootstrap[];
+    snapshot: { bucketStart: string | null; comparedTo: string | null } | null;
+    query: { search: string; sortBy: HypeLeaderboardSortBy; sortOrder: HypeLeaderboardSortOrder; period: string };
+  }): string {
+    const parts: string[] = [];
+    const numberFormatter = new Intl.NumberFormat('fr-FR', {
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 0,
+    });
+
+    const formatScore = (value: unknown): string => {
+      const numericValue = Number(value);
+      if (!Number.isFinite(numericValue)) {
+        return '0';
+      }
+      if (Math.abs(numericValue) >= 1000) {
+        return numberFormatter.format(Math.round(numericValue));
+      }
+      return numberFormatter.format(numericValue);
+    };
+
+    const formatSigned = (value: unknown): string => {
+      const numericValue = Number(value);
+      if (!Number.isFinite(numericValue)) {
+        return '0';
+      }
+      const formatted = formatScore(Math.abs(numericValue));
+      if (numericValue > 0) {
+        return `+${formatted}`;
+      }
+      if (numericValue < 0) {
+        return `-${formatted}`;
+      }
+      return formatted;
+    };
+
+    const padRank = (value: number): string => String(Math.max(1, value)).padStart(2, '0');
+
+    const searchValue = data.query.search ?? '';
+    const sortBy = data.query.sortBy;
+    const sortOrder = data.query.sortOrder;
+    const allowedPeriods = new Set(['all', '7', '30', '90', '365']);
+    const period = allowedPeriods.has(data.query.period) ? data.query.period : '30';
+    const metaLabel = this.buildClassementsMetaLabel(data.leaders.length, data.snapshot);
+
+    parts.push('<div class="classements-page flex flex-col gap-10">');
+    parts.push('<section class="rounded-3xl bg-white/5 p-[1px]">');
+    parts.push('<div class="relative overflow-hidden rounded-[1.45rem] bg-slate-950/80 p-8 shadow-neon">');
+    parts.push('<div class="pointer-events-none absolute inset-0 bg-gradient-to-br from-sky-500/15 via-fuchsia-500/10 to-purple-500/20"></div>');
+    parts.push('<div class="relative flex flex-col gap-8 sm:flex-row sm:items-center sm:justify-between">');
+    parts.push('<div class="max-w-2xl space-y-6">');
+    parts.push('<p class="text-xs uppercase tracking-[0.35em] text-slate-400">Classement officiel</p>');
+    parts.push('<h1 class="text-3xl font-black leading-tight text-white sm:text-4xl">Top 100 des personnes les plus hype & cool</h1>');
+    parts.push(
+      '<p class="text-base text-slate-300 sm:text-lg">Ce classement mesure l’énergie que chaque voix apporte au serveur : l’impact sur la fréquentation, la durée de parole et la vibe générale.</p>',
+    );
+    parts.push('</div>');
+    parts.push('</div>');
+    parts.push('</div>');
+    parts.push('</section>');
+
+    parts.push('<section class="space-y-6">');
+    parts.push('<div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">');
+    parts.push('<h2 class="text-2xl font-bold text-white">Classement Hype</h2>');
+    parts.push(`<span class="text-sm text-slate-400">${this.escapeHtml(metaLabel)}</span>`);
+    parts.push('</div>');
+
+    parts.push('<div class="grid gap-4 rounded-3xl border border-white/10 bg-slate-950/70 p-6 md:grid-cols-4 xl:grid-cols-5">');
+    parts.push('<label class="flex flex-col gap-2 md:col-span-2">');
+    parts.push('<span class="text-xs uppercase tracking-[0.3em] text-slate-400">Recherche</span>');
+    parts.push(
+      `<input type="search" inputmode="search" autocomplete="off" spellcheck="false" placeholder="Rechercher un pseudo" class="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-2 text-sm text-white placeholder-slate-500 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40" value="${this.escapeHtml(searchValue)}" />`,
+    );
+    parts.push('</label>');
+
+    const sortOptions: Array<{ value: HypeLeaderboardSortBy; label: string }> = [
+      { value: 'schScoreNorm', label: 'Score hype' },
+      { value: 'arrivalEffect', label: "Effet d'arrivée" },
+      { value: 'departureEffect', label: 'Effet de départ' },
+      { value: 'activityScore', label: "Score d'activité" },
+      { value: 'displayName', label: 'Pseudo' },
+    ];
+
+    parts.push('<label class="flex flex-col gap-2">');
+    parts.push('<span class="text-xs uppercase tracking-[0.3em] text-slate-400">Trier par</span>');
+    parts.push('<select class="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-2 text-sm text-white transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40">');
+    for (const option of sortOptions) {
+      const selected = option.value === sortBy ? ' selected' : '';
+      parts.push(`<option value="${option.value}"${selected}>${this.escapeHtml(option.label)}</option>`);
+    }
+    parts.push('</select>');
+    parts.push('</label>');
+
+    const sortOrderLabel = sortOrder === 'asc' ? 'Ordre ascendant' : 'Ordre descendant';
+    const sortOrderIcon = sortOrder === 'asc' ? '↑' : '↓';
+    const sortOrderPressed = sortOrder === 'asc' ? 'true' : 'false';
+    parts.push('<div class="flex flex-col gap-2">');
+    parts.push('<span class="text-xs uppercase tracking-[0.3em] text-slate-400">Ordre</span>');
+    parts.push(
+      `<button type="button" class="flex items-center justify-between gap-2 rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-2 text-sm font-medium text-white transition hover:border-sky-500/60 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40" aria-pressed="${sortOrderPressed}">`,
+    );
+    parts.push(`<span class="pointer-events-none select-none">${this.escapeHtml(sortOrderLabel)}</span>`);
+    parts.push(`<span aria-hidden="true" class="text-base leading-none">${sortOrderIcon}</span>`);
+    parts.push('</button>');
+    parts.push('</div>');
+
+    const periodOptions = [
+      { value: 'all', label: 'Toujours' },
+      { value: '7', label: '7 jours' },
+      { value: '30', label: '30 jours' },
+      { value: '90', label: '90 jours' },
+      { value: '365', label: '365 jours' },
+    ];
+    parts.push('<label class="flex flex-col gap-2">');
+    parts.push('<span class="text-xs uppercase tracking-[0.3em] text-slate-400">Période</span>');
+    parts.push('<select class="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-2 text-sm text-white transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40">');
+    for (const option of periodOptions) {
+      const selected = option.value === period ? ' selected' : '';
+      parts.push(`<option value="${option.value}"${selected}>${option.label}</option>`);
+    }
+    parts.push('</select>');
+    parts.push('</label>');
+    parts.push('</div>');
+
+    if (data.leaders.length === 0) {
+      parts.push('<div class="grid gap-6">');
+      parts.push(
+        '<div class="rounded-3xl border border-dashed border-white/10 bg-slate-950/60 px-10 py-16 text-center">',
+      );
+      parts.push('<div class="mx-auto h-14 w-14 rounded-full border border-white/10 bg-white/5"></div>');
+      parts.push('<p class="mt-6 text-lg font-semibold text-white">Pas encore de hype mesurée</p>');
+      parts.push(
+        '<p class="mt-2 text-sm text-slate-400">Connecte-toi au salon vocal pour lancer les festivités.</p>',
+      );
+      parts.push('</div>');
+      parts.push('</div>');
+      parts.push('</section>');
+      parts.push('</div>');
+      return parts.join('');
+    }
+
+    parts.push('<div class="grid gap-6">');
+    for (const [index, leader] of data.leaders.entries()) {
+      const rank = leader.rank || index + 1;
+      const style = rank <= 3 ? AppServer.classementsTopThreeStyles[rank - 1] : null;
+      const highlight = style?.highlight ?? 'border-white/5 bg-slate-900/50';
+      const accent = style?.accent ?? 'from-transparent to-transparent';
+      const ring = style?.ring ?? 'ring-2 ring-white/10';
+      const badgeClass = style?.badge ?? 'bg-slate-900/90 text-white border border-white/20';
+      const trend = this.describeClassementTrend(leader.positionTrend);
+      const normalizedUsername = leader.username
+        ? leader.username.startsWith('@')
+          ? leader.username
+          : `@${leader.username}`
+        : null;
+      const activityScore = formatScore(leader.activityScore);
+      const avatarUrl = this.selectClassementsAvatar(leader);
+      const hasAvatar = typeof avatarUrl === 'string' && avatarUrl.length > 0;
+      const seed = this.computeClassementAvatarSeed(leader, rank);
+      const fallbackBackground = AppServer.classementsFallbackBackgrounds[Math.abs(seed) % AppServer.classementsFallbackBackgrounds.length];
+      const altName = (() => {
+        const name = leader.displayName?.trim();
+        if (name) {
+          return name;
+        }
+        const username = normalizedUsername ? normalizedUsername.replace(/^@/, '') : '';
+        return username || `profil ${padRank(rank)}`;
+      })();
+
+      parts.push(
+        `<article data-rank="${rank}" class="leader-card relative overflow-hidden rounded-3xl border ${highlight}">`,
+      );
+      parts.push(`<div class="absolute inset-0 bg-gradient-to-r ${accent} opacity-[0.22]"></div>`);
+      parts.push('<div class="relative flex flex-col gap-6 p-6">');
+      parts.push('<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">');
+      parts.push('<div class="flex items-center gap-4">');
+      parts.push('<div class="relative">');
+      parts.push(
+        `<div class="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-950/70 ${ring} ring-offset-2 ring-offset-slate-950">`,
+      );
+      if (hasAvatar && avatarUrl) {
+        parts.push(
+          `<img src="${this.escapeHtml(avatarUrl)}" alt="Avatar de ${this.escapeHtml(altName)}" loading="lazy" class="h-full w-full object-cover" />`,
+        );
+      } else {
+        parts.push(
+          `<span class="flex h-full w-full items-center justify-center bg-gradient-to-br ${fallbackBackground} text-lg font-semibold text-white/90">${this.escapeHtml(this.getClassementLeaderInitials(leader))}</span>`,
+        );
+      }
+      parts.push('</div>');
+      parts.push(
+        `<span class="absolute -bottom-1 -right-1 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-xs font-bold shadow-lg shadow-black/50 ${badgeClass}">#${padRank(rank)}</span>`,
+      );
+      parts.push('</div>');
+      parts.push('<div class="space-y-1.5">');
+      parts.push(`<h3 class="text-lg font-semibold text-white">${this.escapeHtml(leader.displayName ?? 'Inconnu·e')}</h3>`);
+      if (normalizedUsername) {
+        parts.push(`<p class="text-xs font-medium text-slate-400/80">${this.escapeHtml(normalizedUsername)}</p>`);
+      }
+      parts.push(
+        `<p class="text-[0.65rem] uppercase tracking-[0.3em] text-slate-400/70">Activité ${this.escapeHtml(activityScore)}</p>`,
+      );
+      parts.push('</div>');
+      parts.push('</div>');
+      parts.push(
+        `<div class="flex flex-col items-start gap-1 rounded-full border border-white/10 bg-slate-950/60 px-4 py-2 text-[0.65rem] font-semibold leading-tight text-white/80 sm:items-end sm:self-start sm:text-right">`,
+      );
+      parts.push(
+        `<span class="flex items-center gap-1 ${trend.className}"><span aria-hidden="true">${trend.icon}</span><span>${this.escapeHtml(trend.delta)}</span></span>`,
+      );
+      parts.push(
+        `<span class="text-[0.55rem] uppercase tracking-[0.25em] text-slate-400/70">${this.escapeHtml(trend.label)}</span>`,
+      );
+      parts.push('</div>');
+      parts.push('</div>');
+      parts.push('<dl class="grid grid-cols-2 gap-5 text-sm sm:grid-cols-4">');
+      parts.push('<div>');
+      parts.push('<dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Score hype</dt>');
+      parts.push(`<dd class="mt-1 text-base font-semibold text-sky-300">${this.escapeHtml(formatScore(leader.schScoreNorm))}</dd>`);
+      parts.push('</div>');
+      parts.push('<div>');
+      parts.push('<dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Effet arrivée</dt>');
+      parts.push(`<dd class="mt-1 text-base font-semibold text-purple-200">${this.escapeHtml(formatSigned(leader.arrivalEffect))}</dd>`);
+      parts.push('</div>');
+      parts.push('<div>');
+      parts.push('<dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Effet départ</dt>');
+      parts.push(`<dd class="mt-1 text-base font-semibold text-emerald-200">${this.escapeHtml(formatSigned(leader.departureEffect))}</dd>`);
+      parts.push('</div>');
+      parts.push('<div>');
+      parts.push('<dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Indice d&#39;activité</dt>');
+      parts.push(`<dd class="mt-1 text-base font-semibold text-fuchsia-300">${this.escapeHtml(activityScore)}</dd>`);
+      parts.push('</div>');
+      parts.push('</dl>');
+      parts.push('</div>');
+      parts.push('</article>');
+    }
+    parts.push('</div>');
+    parts.push('</section>');
+    parts.push('</div>');
+    return parts.join('');
+  }
+
+  private parseShopCheckoutFeedback(
+    status: string | null | undefined,
+  ): { type: 'success' | 'info' | 'error'; message: string } | null {
+    if (!status) {
+      return null;
+    }
+
+    const normalized = status.trim().toLowerCase();
+    if (!normalized) {
+      return null;
+    }
+
+    if (normalized === 'success') {
+      return {
+        type: 'success',
+        message: 'Merci pour ton soutien ! La commande est bien prise en compte.',
+      };
+    }
+
+    if (normalized === 'cancelled') {
+      return {
+        type: 'info',
+        message: 'Paiement annulé. Tu peux réessayer quand tu veux.',
+      };
+    }
+
+    return {
+      type: 'error',
+      message: 'Une erreur est survenue lors du paiement. Aucun débit n’a été effectué.',
+    };
+  }
+
+  private buildShopPagePrerender(options: { checkoutStatus?: string | null } = {}): {
+    html: string;
+    bootstrap: ShopPageBootstrap;
+  } {
+    const products = this.shopService.getProducts();
+    const feedback = this.parseShopCheckoutFeedback(options.checkoutStatus);
+    const html = this.buildShopPageHtml({ products, feedback });
+    return { html, bootstrap: { products } };
+  }
+
+  private buildShopPageHtml(data: {
+    products: PublicProduct[];
+    feedback: { type: 'success' | 'info' | 'error'; message: string } | null;
+  }): string {
+    const parts: string[] = [];
+    const sortedProducts = data.products
+      .slice()
+      .sort((a, b) => Number(Boolean(b.highlight)) - Number(Boolean(a.highlight)));
+
+    parts.push('<div class="shop-page flex flex-col gap-10">');
+    parts.push(
+      '<section class="space-y-6 rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/40 backdrop-blur-xl">',
+    );
+    parts.push('<p class="text-xs uppercase tracking-[0.35em] text-slate-300">Boutique officielle</p>');
+    parts.push('<div class="grid gap-8 lg:grid-cols-[1.1fr_1fr] lg:items-center">');
+    parts.push('<div class="space-y-4">');
+    parts.push('<h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">La Boutique Libre Antenne</h1>');
+    parts.push(
+      '<p class="text-base leading-relaxed text-slate-200">Soutiens la libre antenne et repars avec des pièces conçues pour les noctambules, les gamers et les voix libres. Paiement sécurisé via Stripe, PayPal ou CoinGate.</p>',
+    );
+    parts.push('<div class="flex flex-wrap gap-3 text-xs text-slate-200">');
+    parts.push(
+      `<span class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-1.5">${this.renderLucideIcon('ShoppingBag', 'h-4 w-4')}Stripe, PayPal & CoinGate</span>`,
+    );
+    parts.push(
+      `<span class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-1.5">${this.renderLucideIcon('Truck', 'h-4 w-4')}Livraison France & Europe</span>`,
+    );
+    parts.push(
+      `<span class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-1.5">${this.renderLucideIcon('Coffee', 'h-4 w-4')}Production à la demande</span>`,
+    );
+    parts.push('</div>');
+    parts.push('</div>');
+    parts.push(
+      '<div class="rounded-3xl border border-fuchsia-400/40 bg-fuchsia-500/10 px-6 py-6 text-sm text-fuchsia-100 shadow-lg shadow-fuchsia-900/30">',
+    );
+    parts.push('<p class="text-xs uppercase tracking-[0.35em] text-fuchsia-200/80">Libre antenne</p>');
+    parts.push(
+      '<p class="mt-3 leading-relaxed">Chaque achat finance l’hébergement du bot, le mixage audio et la préparation de nouvelles émissions en roue libre. Merci de faire tourner la radio indépendante.</p>',
+    );
+    parts.push('</div>');
+    parts.push('</div>');
+    parts.push('</section>');
+
+    if (data.feedback) {
+      const styles: Record<string, string> = {
+        success: 'border-emerald-400/40 bg-emerald-500/10 text-emerald-100',
+        info: 'border-sky-400/40 bg-sky-500/10 text-sky-100',
+        error: 'border-rose-400/40 bg-rose-500/10 text-rose-100',
+      };
+      const icon =
+        data.feedback.type === 'success'
+          ? 'ShieldCheck'
+          : data.feedback.type === 'error'
+          ? 'AlertCircle'
+          : 'RefreshCcw';
+      const style = styles[data.feedback.type] ?? styles.info;
+      parts.push(
+        `<div class="rounded-2xl border px-5 py-4 text-sm shadow-lg shadow-slate-950/40 backdrop-blur ${style}">`,
+      );
+      parts.push('<div class="flex items-center gap-3">');
+      parts.push(this.renderLucideIcon(icon, 'h-4 w-4'));
+      parts.push(`<span>${this.escapeHtml(data.feedback.message)}</span>`);
+      parts.push('</div>');
+      parts.push('</div>');
+    }
+
+    parts.push('<section class="space-y-6">');
+    if (sortedProducts.length === 0) {
+      parts.push(
+        '<div class="rounded-3xl border border-white/10 bg-black/30 px-6 py-10 text-center text-sm text-slate-300">Catalogue en cours de réapprovisionnement. Reviens bientôt !</div>',
+      );
+    } else {
+      parts.push('<div class="grid gap-6 md:grid-cols-2 xl:grid-cols-3">');
+      for (const product of sortedProducts) {
+        parts.push(this.buildShopProductCard(product));
+      }
+      parts.push('</div>');
+    }
+    parts.push('</section>');
+
+    parts.push('<section class="grid gap-6 lg:grid-cols-2">');
+    parts.push(
+      '<div class="rounded-3xl border border-white/10 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">',
+    );
+    parts.push('<h3 class="flex items-center gap-2 text-lg font-semibold text-white">');
+    parts.push(`${this.renderLucideIcon('ShieldCheck', 'h-5 w-5 text-emerald-300')}Paiements vérifiés`);
+    parts.push('</h3>');
+    parts.push(
+      '<p class="mt-3 text-sm leading-relaxed text-slate-300">Stripe chiffre chaque transaction et accepte la plupart des cartes, Apple Pay et Google Pay. Aucun numéro sensible n’est stocké sur nos serveurs.</p>',
+    );
+    parts.push('</div>');
+    parts.push(
+      '<div class="rounded-3xl border border-white/10 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">',
+    );
+    parts.push('<h3 class="flex items-center gap-2 text-lg font-semibold text-white">');
+    parts.push(`${this.renderLucideIcon('Coins', 'h-5 w-5 text-emerald-300')}Crypto friendly`);
+    parts.push('</h3>');
+    parts.push(
+      '<p class="mt-3 text-sm leading-relaxed text-slate-300">CoinGate permet de régler en Bitcoin, Lightning Network et plus de 70 altcoins, avec conversion instantanée en euros ou conservation en crypto.</p>',
+    );
+    parts.push('</div>');
+    parts.push('</section>');
+    parts.push('</div>');
+
+    return parts.join('');
+  }
+
+  private buildShopProductCard(product: PublicProduct): string {
+    const parts: string[] = [];
+    const emoji = this.escapeHtml(product.emoji ?? '🛒');
+    const highlightBadge = product.highlight
+      ? `<span class="inline-flex items-center gap-1 rounded-full border border-fuchsia-400/40 bg-fuchsia-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-fuchsia-100">${this.renderLucideIcon('Sparkles', 'h-3 w-3 text-fuchsia-200')}<span class="tracking-normal">Coup de cœur</span></span>`
+      : '';
+    const badges = Array.isArray(product.badges) ? product.badges : [];
+    const includes = Array.isArray(product.includes) ? product.includes : [];
+    const providers = Array.isArray(product.providers) ? product.providers : [];
+    const image = product.image ?? null;
+
+    parts.push(
+      '<article class="flex h-full flex-col rounded-3xl border border-white/10 bg-white/5 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">',
+    );
+    parts.push('<div class="flex items-center justify-between">');
+    parts.push(`<span class="text-4xl" aria-hidden="true">${emoji}</span>`);
+    if (highlightBadge) {
+      parts.push(highlightBadge);
+    }
+    parts.push('</div>');
+
+    if (badges.length > 0) {
+      parts.push('<div class="mt-4 flex flex-wrap gap-2">');
+      badges.forEach((badge) => {
+        parts.push(
+          `<span class="inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/30 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-slate-200/90">${this.renderLucideIcon('BadgeCheck', 'h-3 w-3 text-emerald-300')}<span class="tracking-normal">${this.escapeHtml(badge)}</span></span>`,
+        );
+      });
+      parts.push('</div>');
+    }
+
+    if (image && image.url) {
+      const url = this.escapeHtml(image.url);
+      const alt = this.escapeHtml(image.alt ?? product.name ?? 'Visuel du produit');
+      const accent = product.accent ? ` ${this.escapeHtml(product.accent)}` : '';
+      parts.push(`<figure class="relative mt-6 overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br${accent}">`);
+      parts.push(
+        `<img src="${url}" alt="${alt}" class="h-full w-full object-cover object-center" loading="lazy" decoding="async" />`,
+      );
+      parts.push('</figure>');
+    }
+
+    parts.push(`<h3 class="mt-5 text-xl font-semibold text-white">${this.escapeHtml(product.name)}</h3>`);
+    parts.push(`<p class="mt-2 text-sm leading-relaxed text-slate-300">${this.escapeHtml(product.description)}</p>`);
+
+    const accentSoft = product.accentSoft ? this.escapeHtml(product.accentSoft) : 'bg-white/10';
+    const price = product.price?.formatted ? this.escapeHtml(product.price.formatted) : '—';
+    parts.push(`<div class="mt-4 rounded-3xl border border-white/10 px-5 py-4 ${accentSoft}">`);
+    parts.push(`<p class="text-3xl font-bold text-white">${price}</p>`);
+    parts.push('<p class="text-xs uppercase tracking-[0.35em] text-slate-300">TTC</p>');
+    parts.push('</div>');
+
+    if (includes.length > 0) {
+      parts.push('<ul class="mt-5 space-y-2 text-sm text-slate-200">');
+      includes.forEach((item) => {
+        parts.push('<li class="flex items-start gap-2">');
+        parts.push(this.renderLucideIcon('ShieldCheck', 'mt-0.5 h-4 w-4 text-indigo-300'));
+        parts.push(`<span>${this.escapeHtml(item)}</span>`);
+        parts.push('</li>');
+      });
+      parts.push('</ul>');
+    }
+
+    const shipping = product.shippingEstimate
+      ? this.escapeHtml(product.shippingEstimate)
+      : 'Livraison estimée communiquée après commande';
+    parts.push('<p class="mt-4 flex items-center gap-2 text-xs text-slate-400">');
+    parts.push(this.renderLucideIcon('Truck', 'h-4 w-4'));
+    parts.push(`<span>${shipping}</span>`);
+    parts.push('</p>');
+
+    parts.push('<div class="mt-6 flex flex-col gap-3">');
+    if (providers.length > 0) {
+      for (const provider of providers) {
+        const config = AppServer.shopProviderRenderConfig[provider];
+        if (!config) {
+          continue;
+        }
+        const accent = this.escapeHtml(config.accentClass);
+        parts.push('<div class="flex flex-col gap-1">');
+        parts.push(
+          `<button type="button" class="flex w-full items-center justify-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold text-white transition focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-50 ${accent}">Payer avec ${this.escapeHtml(config.label)}${this.renderLucideIcon(config.icon, 'h-4 w-4')}</button>`,
+        );
+        parts.push(`<span class="text-xs text-slate-400">${this.escapeHtml(config.helper)}</span>`);
+        parts.push('</div>');
+      }
+    } else {
+      parts.push(
+        '<div class="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-center text-sm text-slate-300">Paiements bientôt disponibles pour ce produit.</div>',
+      );
+    }
+    parts.push('</div>');
+
+    parts.push('</article>');
+    return parts.join('');
+  }
+
+  private buildAboutPageHtml(): string {
+    const parts: string[] = [];
+    parts.push('<div class="about-page flex flex-col gap-10">');
+    parts.push(
+      '<section class="space-y-6 rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/40 backdrop-blur-xl">',
+    );
+    parts.push('<p class="text-xs uppercase tracking-[0.35em] text-slate-300">Libre Antenne</p>');
+    parts.push('<h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">À propos de Libre Antenne</h1>');
+    parts.push(
+      '<p class="text-base leading-relaxed text-slate-200">Libre Antenne est une zone franche où les voix prennent le pouvoir. Le flux est volontairement brut, capté en direct sur notre serveur Discord pour amplifier les histoires, les confidences et les improvisations qui naissent.</p>',
+    );
+    parts.push(
+      '<p class="text-base leading-relaxed text-slate-200">Notre équipe façonne un espace accueillant pour les marginaux créatifs, les gamers insomniaques et toutes les personnes qui ont besoin d’un micro ouvert. Ici, aucune intervention n’est scriptée : la seule règle est de respecter la vibe collective et de laisser la spontanéité guider la conversation.</p>',
+    );
+    parts.push(
+      `<a class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/20 hover:text-white" href="https://discord.gg/" target="_blank" rel="noreferrer">Rejoindre la communauté${this.renderLucideIcon('ArrowRight', 'h-4 w-4')}</a>`,
+    );
+    parts.push('</section>');
+
+    parts.push('<section class="grid gap-6 md:grid-cols-2">');
+    const highlights: Array<{ title: string; body: string }> = [
+      {
+        title: 'Un laboratoire créatif',
+        body:
+          'Sessions freestyle, confessions lunaires, débats improvisés : chaque passage est un moment unique façonné par la communauté. Le direct nous permet de capturer cette énergie sans filtre.',
+      },
+      {
+        title: 'Technologie artisanale',
+        body:
+          'Notre mixeur audio fait circuler chaque voix avec finesse. Les outils open source et les contributions des membres permettent d’améliorer constamment la qualité du flux.',
+      },
+      {
+        title: 'Communauté inclusive',
+        body:
+          'Peu importe ton accent, ton parcours ou ton rythme de vie : tu es accueilli·e tant que tu joues collectif et que tu respectes celles et ceux qui partagent le micro.',
+      },
+      {
+        title: 'Un projet vivant',
+        body:
+          'Les bénévoles, auditeurs et créateurs participent à l’évolution de Libre Antenne. Chaque nouvelle voix façonne la suite de l’aventure et inspire les fonctionnalités à venir.',
+      },
+    ];
+
+    for (const highlight of highlights) {
+      parts.push(
+        '<div class="rounded-3xl border border-white/10 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">',
+      );
+      parts.push(`<h2 class="text-xl font-semibold text-white">${this.escapeHtml(highlight.title)}</h2>`);
+      parts.push(`<p class="mt-3 text-sm text-slate-300">${this.escapeHtml(highlight.body)}</p>`);
+      parts.push('</div>');
+    }
+    parts.push('</section>');
+    parts.push('</div>');
+
+    return parts.join('');
+  }
+
+  private normalizeClassementLeader(leader: HypeLeaderWithTrend, index: number): ClassementLeaderBootstrap {
+    const rank = Number.isFinite(leader.rank) ? Math.max(1, Math.floor(Number(leader.rank))) : index + 1;
+    const absoluteRank = Number.isFinite(leader.absoluteRank)
+      ? Math.max(1, Math.floor(Number(leader.absoluteRank)))
+      : null;
+    const positionTrend = leader.positionTrend
+      ? {
+          movement: leader.positionTrend.movement ?? 'same',
+          delta: Number.isFinite(leader.positionTrend.delta) ? Number(leader.positionTrend.delta) : null,
+          comparedAt: leader.positionTrend.comparedAt
+            ? leader.positionTrend.comparedAt.toISOString()
+            : null,
+        }
+      : null;
+
+    return {
+      userId: leader.userId,
+      displayName: leader.displayName ?? null,
+      username: leader.username ?? null,
+      rank,
+      absoluteRank,
+      avatar: leader.avatar ?? null,
+      avatarUrl: leader.avatarUrl ?? null,
+      profileAvatar: leader.profile?.avatar ?? null,
+      activityScore: Number.isFinite(leader.activityScore) ? Number(leader.activityScore) : 0,
+      arrivalEffect: Number.isFinite(leader.arrivalEffect) ? Number(leader.arrivalEffect) : 0,
+      departureEffect: Number.isFinite(leader.departureEffect) ? Number(leader.departureEffect) : 0,
+      schScoreNorm: Number.isFinite(leader.schScoreNorm) ? Number(leader.schScoreNorm) : 0,
+      retentionMinutes: Number.isFinite(leader.retentionMinutes) ? Number(leader.retentionMinutes) : 0,
+      sessions: Number.isFinite(leader.sessions) ? Number(leader.sessions) : 0,
+      positionTrend,
+    };
+  }
+
   private buildProfileSummary(
     range: { since: Date; until: Date },
     presenceSegments: UserVoicePresenceSegment[],
@@ -1894,35 +2723,33 @@ export default class AppServer {
         const result = await this.dailyArticleService.triggerManualGeneration();
         const status = result.status === 'failed' ? 500 : 200;
 
-        let message: string;
+        let message = 'Génération traitée.';
         if (result.status === 'generated') {
-          message = "La rédaction automatique d'un nouvel article vient de démarrer.";
+          const referenceNote = result.proposalReference ? ` (référence ${result.proposalReference})` : '';
+          message = `Un brouillon a été sauvegardé pour relecture${referenceNote}.`;
         } else if (result.status === 'skipped') {
           switch (result.reason) {
             case 'ALREADY_RUNNING':
-              message = 'Une génération est déjà en cours, patiente encore un instant.';
+              message = 'Une génération est déjà en cours. Réessaie dans quelques instants.';
               break;
             case 'MISSING_DEPENDENCIES':
-              message = 'La génération est momentanément indisponible (dépendances manquantes).';
+              message = 'La génération est indisponible (dépendances manquantes).';
               break;
             case 'DISABLED':
-              message = "La génération automatique est désactivée pour le moment.";
+              message = "La génération automatique est désactivée.";
               break;
             case 'ALREADY_EXISTS':
-              message = 'Le billet du jour semble déjà publié.';
+              message = 'Un article ou une proposition existe déjà pour cette date.';
               break;
             case 'NO_TRANSCRIPTS':
-              message = "Aucune retranscription disponible pour rédiger l'article.";
+              message = 'Aucune transcription exploitable pour la période demandée.';
               break;
             default:
-              message = "La génération n'a pas pu démarrer.";
+              message = 'La génération a été ignorée.';
               break;
           }
-        } else {
-          message =
-            typeof result.error === 'string' && result.error.trim().length > 0
-              ? result.error
-              : "La génération de l'article a échoué.";
+        } else if (result.status === 'failed') {
+          message = "La génération de l'article a échoué. Consulte les logs serveur.";
         }
 
         res.status(status).json({ result, message });
@@ -2353,7 +3180,7 @@ export default class AppServer {
       }
     });
 
-    this.app.get('/classements', (req, res) => {
+    this.app.get('/classements', async (req, res) => {
       this.setClientNoCache(res);
       const search = this.extractString(req.query?.search);
       const metadata: SeoPageMetadata = {
@@ -2400,7 +3227,29 @@ export default class AppServer {
         ],
       };
 
-      this.respondWithAppShell(res, metadata);
+      try {
+        const options = this.parseLeaderboardRequest(req);
+        const prerender = await this.buildClassementsPagePrerender(options);
+        const preloadState: AppPreloadState = {
+          route: {
+            name: 'classements',
+            params: {
+              search: prerender.bootstrap.query.search ?? '',
+              sortBy: prerender.bootstrap.query.sortBy,
+              sortOrder: prerender.bootstrap.query.sortOrder,
+              period: prerender.bootstrap.query.period,
+            },
+          },
+          pages: { classements: prerender.bootstrap },
+        };
+        this.respondWithAppShell(res, metadata, {
+          appHtml: prerender.html,
+          preloadState,
+        });
+      } catch (error) {
+        console.error('Failed to prerender classements page', error);
+        this.respondWithAppShell(res, metadata);
+      }
     });
 
     this.app.get(['/membres', '/members'], async (req, res) => {
@@ -2456,7 +3305,7 @@ export default class AppServer {
       }
     });
 
-    this.app.get(['/boutique', '/shop'], (_req, res) => {
+    this.app.get(['/boutique', '/shop'], (req, res) => {
       const metadata: SeoPageMetadata = {
         title: `${this.config.siteName} · Boutique officielle & soutien`,
         description:
@@ -2492,7 +3341,22 @@ export default class AppServer {
         ],
       };
 
-      this.respondWithAppShell(res, metadata);
+      try {
+        const checkoutParam = (req.query as Record<string, unknown> | undefined)?.checkout ?? null;
+        const checkoutStatus = this.extractQueryParam(checkoutParam);
+        const prerender = this.buildShopPagePrerender({ checkoutStatus });
+        const preloadState: AppPreloadState = {
+          route: { name: 'shop', params: {} },
+          pages: { shop: prerender.bootstrap },
+        };
+        this.respondWithAppShell(res, metadata, {
+          appHtml: prerender.html,
+          preloadState,
+        });
+      } catch (error) {
+        console.error('Failed to prerender shop page', error);
+        this.respondWithAppShell(res, metadata);
+      }
     });
 
     this.app.get(['/bannir', '/ban'], (_req, res) => {
@@ -2556,7 +3420,11 @@ export default class AppServer {
         ],
       };
 
-      this.respondWithAppShell(res, metadata);
+      const appHtml = this.buildAboutPageHtml();
+      const preloadState: AppPreloadState = {
+        route: { name: 'about', params: {} },
+      };
+      this.respondWithAppShell(res, metadata, { appHtml, preloadState });
     });
 
     this.app.get('/blog', async (req, res) => {
@@ -3147,6 +4015,61 @@ export default class AppServer {
     'sessions',
     'displayName',
   ];
+
+  private static readonly shopProviderRenderConfig: Record<
+    ShopProvider,
+    { label: string; helper: string; accentClass: string; icon: string }
+  > = {
+    stripe: {
+      label: 'Stripe',
+      helper: 'Cartes bancaires, Apple Pay et Google Pay.',
+      accentClass:
+        'border-indigo-400/50 bg-indigo-500/20 hover:bg-indigo-500/30 focus:ring-indigo-300',
+      icon: 'CreditCard',
+    },
+    paypal: {
+      label: 'PayPal',
+      helper: 'Compte PayPal ou carte via PayPal Checkout.',
+      accentClass: 'border-sky-400/50 bg-sky-500/20 hover:bg-sky-500/30 focus:ring-sky-300',
+      icon: 'Wallet',
+    },
+    coingate: {
+      label: 'CoinGate',
+      helper: 'Crypto, Lightning Network et virements SEPA.',
+      accentClass:
+        'border-emerald-400/50 bg-emerald-500/20 hover:bg-emerald-500/30 focus:ring-emerald-300',
+      icon: 'Coins',
+    },
+  } as const;
+
+  private static readonly classementsTopThreeStyles = [
+    {
+      highlight: 'border-[#0085C7] bg-slate-900/70 shadow-lg shadow-[0_0_45px_rgba(0,133,199,0.35)]',
+      accent: 'from-[#0085C7]/35 via-[#0085C7]/10 to-transparent',
+      ring: 'ring-4 ring-[#0085C7]/50',
+      badge: 'bg-gradient-to-br from-sky-400 via-[#0085C7] to-cyan-400 text-slate-950',
+    },
+    {
+      highlight: 'border-[#F4C300] bg-slate-900/70 shadow-lg shadow-[0_0_45px_rgba(244,195,0,0.35)]',
+      accent: 'from-[#F4C300]/35 via-[#F4C300]/10 to-transparent',
+      ring: 'ring-4 ring-[#F4C300]/40',
+      badge: 'bg-gradient-to-br from-amber-300 via-[#F4C300] to-yellow-200 text-slate-950',
+    },
+    {
+      highlight: 'border-black bg-slate-900/70 shadow-lg shadow-[0_0_45px_rgba(0,0,0,0.45)]',
+      accent: 'from-black/40 via-slate-900/60 to-transparent',
+      ring: 'ring-4 ring-white/20',
+      badge: 'bg-gradient-to-br from-slate-700 via-slate-500 to-slate-300 text-white/90',
+    },
+  ] as const;
+
+  private static readonly classementsFallbackBackgrounds = [
+    'from-sky-500/60 via-slate-900/60 to-indigo-500/60',
+    'from-fuchsia-500/60 via-slate-900/60 to-pink-500/60',
+    'from-emerald-400/60 via-slate-900/60 to-cyan-500/60',
+    'from-amber-400/60 via-slate-900/60 to-orange-500/60',
+    'from-purple-500/60 via-slate-900/60 to-violet-500/60',
+  ] as const;
 
   private async getCachedHypeLeaders(options: NormalizedHypeLeaderboardQueryOptions): Promise<HypeLeaderboardResult> {
     const service = this.hypeLeaderboardService;

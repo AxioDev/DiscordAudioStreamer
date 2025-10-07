@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   AlertCircle,
   Coffee,
@@ -63,9 +64,12 @@ const parseCheckoutFeedback = () => {
   }
 };
 
-export const ShopPage = () => {
-  const [loading, setLoading] = useState(true);
-  const [products, setProducts] = useState([]);
+export const ShopPage = ({ bootstrap = null }) => {
+  const initialProducts =
+    bootstrap && Array.isArray(bootstrap.products) ? bootstrap.products : [];
+  const bootstrapRef = useRef(initialProducts.length > 0);
+  const [loading, setLoading] = useState(initialProducts.length === 0);
+  const [products, setProducts] = useState(initialProducts);
   const [error, setError] = useState('');
   const [checkoutState, setCheckoutState] = useState({
     productId: null,
@@ -76,6 +80,12 @@ export const ShopPage = () => {
   const [feedback, setFeedback] = useState(parseCheckoutFeedback);
 
   const fetchProducts = useCallback(async () => {
+    if (bootstrapRef.current) {
+      bootstrapRef.current = false;
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       const response = await fetch('/api/shop/products');

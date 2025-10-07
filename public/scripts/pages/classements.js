@@ -166,20 +166,58 @@ const getTrendPresentation = (positionTrend) => {
   }
 };
 
-const ClassementsPage = ({ params = {}, onSyncRoute }) => {
+const ClassementsPage = ({ params = {}, onSyncRoute, bootstrap = null }) => {
   const initialState = useMemo(() => deriveInitialState(params), [params.search, params.sortBy, params.sortOrder, params.period]);
-  const [search, setSearch] = useState(initialState.search);
-  const [debouncedSearch, setDebouncedSearch] = useState(initialState.search.trim());
-  const [sortBy, setSortBy] = useState(initialState.sortBy);
-  const [sortOrder, setSortOrder] = useState(initialState.sortOrder);
-  const [period, setPeriod] = useState(initialState.period);
-  const [leaders, setLeaders] = useState([]);
-  const [snapshot, setSnapshot] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+
+  const bootstrapPayload = useMemo(() => {
+    if (!bootstrap || typeof bootstrap !== 'object') {
+      return null;
+    }
+
+    const querySource = bootstrap.query && typeof bootstrap.query === 'object' ? bootstrap.query : {};
+    const normalizedQuery = {
+      search: normalizeSearch(querySource.search),
+      sortBy: normalizeSortBy(querySource.sortBy),
+      sortOrder: normalizeSortOrder(querySource.sortOrder),
+      period: normalizePeriod(querySource.period),
+    };
+
+    const leaders = Array.isArray(bootstrap.leaders) ? bootstrap.leaders : [];
+    const snapshot = bootstrap.snapshot && typeof bootstrap.snapshot === 'object'
+      ? {
+          bucketStart: typeof bootstrap.snapshot.bucketStart === 'string' ? bootstrap.snapshot.bucketStart : null,
+          comparedTo:
+            typeof bootstrap.snapshot.comparedTo === 'string' && bootstrap.snapshot.comparedTo
+              ? bootstrap.snapshot.comparedTo
+              : null,
+        }
+      : null;
+
+    return {
+      query: normalizedQuery,
+      leaders,
+      snapshot,
+    };
+  }, [bootstrap]);
+
+  const bootstrapRef = useRef(bootstrapPayload);
+  const bootstrapQuery = bootstrapRef.current?.query ?? null;
+  const hasBootstrapData = Boolean(bootstrapRef.current && Array.isArray(bootstrapRef.current.leaders) && bootstrapRef.current.leaders.length > 0);
+
+  const [search, setSearch] = useState(bootstrapQuery ? bootstrapQuery.search : initialState.search);
+  const [debouncedSearch, setDebouncedSearch] = useState(
+    bootstrapQuery ? bootstrapQuery.search.trim() : initialState.search.trim(),
+  );
+  const [sortBy, setSortBy] = useState(bootstrapQuery ? bootstrapQuery.sortBy : initialState.sortBy);
+  const [sortOrder, setSortOrder] = useState(bootstrapQuery ? bootstrapQuery.sortOrder : initialState.sortOrder);
+  const [period, setPeriod] = useState(bootstrapQuery ? bootstrapQuery.period : initialState.period);
+  const [leaders, setLeaders] = useState(() => (bootstrapRef.current?.leaders ?? []));
+  const [snapshot, setSnapshot] = useState(() => bootstrapRef.current?.snapshot ?? null);
+  const [isLoading, setIsLoading] = useState(!hasBootstrapData);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [refreshTick, setRefreshTick] = useState(0);
-  const hasLoadedRef = useRef(false);
+  const hasLoadedRef = useRef(hasBootstrapData);
   const controllerRef = useRef(null);
 
   useEffect(() => {
@@ -254,6 +292,22 @@ const ClassementsPage = ({ params = {}, onSyncRoute }) => {
     controllerRef.current = controller;
 
     const run = async () => {
+      const bootstrapData = bootstrapRef.current;
+      const matchesBootstrap =
+        bootstrapData &&
+        bootstrapData.query.sortBy === sortBy &&
+        bootstrapData.query.sortOrder === sortOrder &&
+        bootstrapData.query.period === period &&
+        bootstrapData.query.search.trim() === debouncedSearch.trim();
+
+      if (!hasLoadedRef.current && matchesBootstrap && refreshTick === 0) {
+        hasLoadedRef.current = true;
+        setIsLoading(false);
+        setIsRefreshing(false);
+        setError(null);
+        return;
+      }
+
       const isInitialLoad = !hasLoadedRef.current;
       if (isInitialLoad) {
         setIsLoading(true);

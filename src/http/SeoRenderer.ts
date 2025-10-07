@@ -56,6 +56,38 @@ export interface SeoPageMetadata {
   profile?: SeoProfileMetadata;
 }
 
+export interface AssetScriptDescriptor {
+  src: string;
+  type?: string;
+  integrity?: string;
+  crossorigin?: string;
+  defer?: boolean;
+  async?: boolean;
+}
+
+export interface AssetStyleDescriptor {
+  href: string;
+  rel?: string;
+  media?: string;
+  integrity?: string;
+  crossorigin?: string;
+}
+
+export interface AssetPreloadDescriptor {
+  href: string;
+  rel?: string;
+  as: string;
+  type?: string;
+  crossorigin?: string;
+  media?: string;
+}
+
+export interface AssetManifest {
+  scripts?: AssetScriptDescriptor[] | null;
+  styles?: AssetStyleDescriptor[] | null;
+  preloads?: AssetPreloadDescriptor[] | null;
+}
+
 export interface SeoRendererOptions {
   templatePath: string;
   baseUrl: string;
@@ -97,6 +129,8 @@ export default class SeoRenderer {
 
   private readonly defaultStructuredData: unknown[];
 
+  private assetManifest: AssetManifest | null = null;
+
   constructor({
     templatePath,
     baseUrl,
@@ -132,6 +166,10 @@ export default class SeoRenderer {
     this.defaultStructuredData = Array.isArray(defaultStructuredData)
       ? defaultStructuredData
       : [];
+  }
+
+  public updateAssetManifest(manifest: AssetManifest | null): void {
+    this.assetManifest = this.normalizeAssetManifest(manifest);
   }
 
   public render(metadata: SeoPageMetadata, options: RenderOptions = {}): string {
@@ -326,6 +364,9 @@ export default class SeoRenderer {
   private injectAppShell(template: string, options: RenderOptions): string {
     const appPlaceholder = '<!--APP_HTML-->';
     const statePlaceholder = '<!--APP_STATE-->';
+    const stylesPlaceholder = '<!--ASSET_STYLES-->';
+    const scriptsPlaceholder = '<!--ASSET_SCRIPTS-->';
+    const preloadPlaceholder = '<!--ASSET_PRELOADS-->';
 
     let result = template;
 
@@ -337,6 +378,21 @@ export default class SeoRenderer {
     if (result.includes(statePlaceholder)) {
       const stateScript = this.buildStateBootstrap(options.preloadState);
       result = result.replace(statePlaceholder, stateScript);
+    }
+
+    if (result.includes(preloadPlaceholder)) {
+      const preloadTags = this.buildPreloadTags();
+      result = result.replace(preloadPlaceholder, preloadTags);
+    }
+
+    if (result.includes(stylesPlaceholder)) {
+      const styleTags = this.buildStyleTags();
+      result = result.replace(stylesPlaceholder, styleTags);
+    }
+
+    if (result.includes(scriptsPlaceholder)) {
+      const scriptTags = this.buildScriptTags();
+      result = result.replace(scriptsPlaceholder, scriptTags);
     }
 
     return result;
@@ -357,6 +413,185 @@ export default class SeoRenderer {
       console.warn('Failed to serialize pre-render state', error);
       return '';
     }
+  }
+
+  private buildPreloadTags(): string {
+    const manifest = this.assetManifest;
+    if (!manifest || !Array.isArray(manifest.preloads) || manifest.preloads.length === 0) {
+      return '';
+    }
+
+    const lines: string[] = [];
+    for (const entry of manifest.preloads) {
+      if (!entry || typeof entry.href !== 'string' || typeof entry.as !== 'string') {
+        continue;
+      }
+      const rel = (entry.rel ?? 'preload').trim() || 'preload';
+      const attrs: Array<[string, string | true]> = [
+        ['rel', rel],
+        ['href', entry.href],
+        ['as', entry.as],
+      ];
+      if (entry.type) {
+        attrs.push(['type', entry.type]);
+      }
+      if (entry.crossorigin) {
+        attrs.push(['crossorigin', entry.crossorigin]);
+      }
+      if (entry.media) {
+        attrs.push(['media', entry.media]);
+      }
+
+      lines.push('    <link ' + this.formatHtmlAttributes(attrs) + ' />');
+    }
+
+    return lines.join('\n');
+  }
+
+  private buildStyleTags(): string {
+    const manifest = this.assetManifest;
+    if (!manifest || !Array.isArray(manifest.styles) || manifest.styles.length === 0) {
+      return '';
+    }
+
+    const lines: string[] = [];
+    for (const entry of manifest.styles) {
+      if (!entry || typeof entry.href !== 'string') {
+        continue;
+      }
+      const rel = (entry.rel ?? 'stylesheet').trim() || 'stylesheet';
+      const attrs: Array<[string, string | true]> = [
+        ['rel', rel],
+        ['href', entry.href],
+      ];
+      if (entry.media) {
+        attrs.push(['media', entry.media]);
+      }
+      if (entry.crossorigin) {
+        attrs.push(['crossorigin', entry.crossorigin]);
+      }
+      if (entry.integrity) {
+        attrs.push(['integrity', entry.integrity]);
+      }
+      lines.push('    <link ' + this.formatHtmlAttributes(attrs) + ' />');
+    }
+
+    return lines.join('\n');
+  }
+
+  private buildScriptTags(): string {
+    const manifest = this.assetManifest;
+    if (!manifest || !Array.isArray(manifest.scripts) || manifest.scripts.length === 0) {
+      return '';
+    }
+
+    const lines: string[] = [];
+    for (const entry of manifest.scripts) {
+      if (!entry || typeof entry.src !== 'string') {
+        continue;
+      }
+      const attrs: Array<[string, string | true]> = [
+        ['type', (entry.type ?? 'module').trim() || 'module'],
+        ['src', entry.src],
+      ];
+      if (entry.defer) {
+        attrs.push(['defer', true]);
+      }
+      if (entry.async) {
+        attrs.push(['async', true]);
+      }
+      if (entry.crossorigin) {
+        attrs.push(['crossorigin', entry.crossorigin]);
+      }
+      if (entry.integrity) {
+        attrs.push(['integrity', entry.integrity]);
+      }
+      lines.push('    <script ' + this.formatHtmlAttributes(attrs) + '></script>');
+    }
+
+    return lines.join('\n');
+  }
+
+  private formatHtmlAttributes(attributes: Array<[string, string | true]>): string {
+    return attributes
+      .map(([key, value]) => {
+        const trimmedKey = key.trim();
+        if (!trimmedKey) {
+          return null;
+        }
+        if (value === true) {
+          return trimmedKey;
+        }
+        const trimmedValue = typeof value === 'string' ? value.trim() : '';
+        if (!trimmedValue) {
+          return trimmedKey;
+        }
+        return `${trimmedKey}="${this.escapeHtml(trimmedValue)}"`;
+      })
+      .filter((entry): entry is string => Boolean(entry))
+      .join(' ');
+  }
+
+  private normalizeAssetManifest(manifest: AssetManifest | null): AssetManifest | null {
+    if (!manifest || typeof manifest !== 'object') {
+      return null;
+    }
+
+    const normalizeScripts = (scripts: AssetScriptDescriptor[] | null | undefined): AssetScriptDescriptor[] => {
+      if (!Array.isArray(scripts)) {
+        return [];
+      }
+      return scripts
+        .filter((entry): entry is AssetScriptDescriptor => Boolean(entry && typeof entry.src === 'string'))
+        .map((entry) => ({
+          src: entry.src,
+          type: entry.type,
+          integrity: entry.integrity,
+          crossorigin: entry.crossorigin,
+          defer: Boolean(entry.defer),
+          async: Boolean(entry.async),
+        }));
+    };
+
+    const normalizeStyles = (styles: AssetStyleDescriptor[] | null | undefined): AssetStyleDescriptor[] => {
+      if (!Array.isArray(styles)) {
+        return [];
+      }
+      return styles
+        .filter((entry): entry is AssetStyleDescriptor => Boolean(entry && typeof entry.href === 'string'))
+        .map((entry) => ({
+          href: entry.href,
+          rel: entry.rel,
+          media: entry.media,
+          integrity: entry.integrity,
+          crossorigin: entry.crossorigin,
+        }));
+    };
+
+    const normalizePreloads = (preloads: AssetPreloadDescriptor[] | null | undefined): AssetPreloadDescriptor[] => {
+      if (!Array.isArray(preloads)) {
+        return [];
+      }
+      return preloads
+        .filter(
+          (entry): entry is AssetPreloadDescriptor =>
+            Boolean(entry && typeof entry.href === 'string' && typeof entry.as === 'string'),
+        )
+        .map((entry) => ({
+          href: entry.href,
+          rel: entry.rel,
+          as: entry.as,
+          type: entry.type,
+          crossorigin: entry.crossorigin,
+          media: entry.media,
+        }));
+    };
+
+    return {
+      scripts: normalizeScripts(manifest.scripts),
+      styles: normalizeStyles(manifest.styles),
+      preloads: normalizePreloads(manifest.preloads),
+    };
   }
 
   private buildAlternateLanguages(
