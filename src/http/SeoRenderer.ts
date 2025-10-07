@@ -648,6 +648,10 @@ export default class SeoRenderer {
       ],
       styles: [
         {
+          href: 'https://cdn.jsdelivr.net/npm/tailwindcss@3.4.14/dist/tailwind.min.css',
+          rel: 'stylesheet',
+        },
+        {
           href: '/styles/app.css',
           rel: 'stylesheet',
         },
