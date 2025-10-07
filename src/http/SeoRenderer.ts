@@ -169,7 +169,13 @@ export default class SeoRenderer {
   }
 
   public updateAssetManifest(manifest: AssetManifest | null): void {
-    this.assetManifest = this.normalizeAssetManifest(manifest);
+    const normalized = this.normalizeAssetManifest(manifest);
+    if (normalized && this.hasUsableAssets(normalized)) {
+      this.assetManifest = normalized;
+      return;
+    }
+
+    this.assetManifest = this.normalizeAssetManifest(this.buildFallbackAssetManifest());
   }
 
   public render(metadata: SeoPageMetadata, options: RenderOptions = {}): string {
@@ -591,6 +597,31 @@ export default class SeoRenderer {
       scripts: normalizeScripts(manifest.scripts),
       styles: normalizeStyles(manifest.styles),
       preloads: normalizePreloads(manifest.preloads),
+    };
+  }
+
+  private hasUsableAssets(manifest: AssetManifest): boolean {
+    const hasScripts = Array.isArray(manifest.scripts) && manifest.scripts.length > 0;
+    const hasStyles = Array.isArray(manifest.styles) && manifest.styles.length > 0;
+    const hasPreloads = Array.isArray(manifest.preloads) && manifest.preloads.length > 0;
+    return hasScripts || hasStyles || hasPreloads;
+  }
+
+  private buildFallbackAssetManifest(): AssetManifest {
+    return {
+      scripts: [
+        {
+          src: '/scripts/main.js',
+          type: 'module',
+        },
+      ],
+      styles: [
+        {
+          href: '/styles/app.css',
+          rel: 'stylesheet',
+        },
+      ],
+      preloads: [],
     };
   }
 
