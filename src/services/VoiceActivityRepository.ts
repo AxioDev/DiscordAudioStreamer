@@ -2396,9 +2396,8 @@ ${limitClause}`;
           return numeric;
         };
 
-        const displayName = this.normalizeString(row.display_name) ?? 'Anonyme';
-
         const username = this.normalizeString(row.username);
+        const displayName = this.normalizeString(row.display_name) ?? username ?? 'Anonyme';
 
         return {
           userId: String(row.user_id ?? ''),

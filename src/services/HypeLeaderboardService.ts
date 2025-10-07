@@ -413,10 +413,16 @@ export default class HypeLeaderboardService {
         const candidateRank = parseRank(entry.absoluteRank) ?? parseRank(entry.rank) ?? index + 1;
         const absoluteRank = Math.max(1, Math.floor(candidateRank));
 
+        const snapshotUsername = this.normalizeString(entry.username);
+        const snapshotDisplayName =
+          this.normalizeString(entry.displayName)
+          ?? snapshotUsername
+          ?? 'Anonyme';
+
         baseLeaders.push({
           userId: entry.userId,
-          displayName: this.normalizeString(entry.displayName) ?? 'Anonyme',
-          username: this.normalizeString(entry.username),
+          displayName: snapshotDisplayName,
+          username: snapshotUsername,
           sessions: toNumber(entry.sessions),
           absoluteRank,
           arrivalEffect: toNumber(entry.arrivalEffect),
@@ -477,10 +483,12 @@ export default class HypeLeaderboardService {
     return leaders.map<EnrichedLeader>((leader, index) => {
       const identity = identities[index];
       const avatarUrl = identity?.avatarUrl ?? null;
-      const displayName = this.normalizeString(leader.displayName)
-        ?? this.normalizeString(identity?.displayName)
-        ?? 'Anonyme';
       const username = this.normalizeString(leader.username) ?? this.normalizeString(identity?.username);
+      const displayName =
+        this.normalizeString(leader.displayName)
+        ?? this.normalizeString(identity?.displayName)
+        ?? username
+        ?? 'Anonyme';
 
       return {
         ...leader,
