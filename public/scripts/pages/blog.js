@@ -124,21 +124,78 @@ const BlogCard = ({ post, onOpen, isActive }) => {
   `;
 };
 
-export const BlogPage = ({ params = {}, onNavigateToPost, onNavigateToProposal }) => {
+const normalizeTags = (input) => {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+  return input
+    .map((tag) => (typeof tag === 'string' ? tag.trim() : ''))
+    .filter((tag) => tag.length > 0);
+};
+
+const sanitizePostSummary = (post) => {
+  if (!post || typeof post !== 'object' || typeof post.slug !== 'string') {
+    return null;
+  }
+  const tags = normalizeTags(post.tags);
+  return {
+    ...post,
+    slug: post.slug,
+    title: typeof post.title === 'string' ? post.title : '',
+    excerpt: typeof post.excerpt === 'string' ? post.excerpt : post.seoDescription ?? null,
+    seoDescription: typeof post.seoDescription === 'string' ? post.seoDescription : null,
+    date: typeof post.date === 'string' ? post.date : null,
+    updatedAt: typeof post.updatedAt === 'string' ? post.updatedAt : null,
+    coverImageUrl: typeof post.coverImageUrl === 'string' ? post.coverImageUrl : null,
+    tags,
+  };
+};
+
+const sanitizePostDetail = (post) => {
+  const summary = sanitizePostSummary(post);
+  if (!summary) {
+    return null;
+  }
+  return {
+    ...summary,
+    contentHtml: typeof post.contentHtml === 'string' ? post.contentHtml : '',
+    contentMarkdown: typeof post.contentMarkdown === 'string' ? post.contentMarkdown : '',
+  };
+};
+
+export const BlogPage = ({ params = {}, bootstrap = null, onNavigateToPost, onNavigateToProposal }) => {
   const slug = typeof params?.slug === 'string' && params.slug.trim().length > 0 ? params.slug.trim() : null;
-  const [posts, setPosts] = useState([]);
-  const [availableTags, setAvailableTags] = useState([]);
-  const [isLoadingList, setIsLoadingList] = useState(true);
+  const bootstrapData = bootstrap && typeof bootstrap === 'object' ? bootstrap : {};
+  const bootstrapSelectedTags = normalizeTags(bootstrapData.selectedTags);
+  const bootstrapSearch = typeof bootstrapData.search === 'string' ? bootstrapData.search : '';
+  const bootstrapPosts = Array.isArray(bootstrapData.posts)
+    ? bootstrapData.posts
+        .map((post) => sanitizePostSummary(post))
+        .filter((post) => post !== null)
+    : null;
+  const bootstrapAvailableTags = normalizeTags(bootstrapData.availableTags);
+  const bootstrapActivePostDetail = sanitizePostDetail(bootstrapData.activePost);
+  const bootstrapActiveSlug = bootstrapActivePostDetail?.slug ?? null;
+  const hasBootstrapActivePost = Boolean(slug && bootstrapActiveSlug && bootstrapActiveSlug === slug);
+  const hasBootstrapPosts = Array.isArray(bootstrapPosts);
+
+  const [posts, setPosts] = useState(() => (bootstrapPosts ? bootstrapPosts.map((post) => ({ ...post })) : []));
+  const [availableTags, setAvailableTags] = useState(() => bootstrapAvailableTags.slice());
+  const [isLoadingList, setIsLoadingList] = useState(() => !hasBootstrapPosts);
   const [listError, setListError] = useState(null);
-  const [activePost, setActivePost] = useState(null);
-  const [isLoadingPost, setIsLoadingPost] = useState(false);
+  const [activePost, setActivePost] = useState(() => (
+    hasBootstrapActivePost && bootstrapActivePostDetail ? { ...bootstrapActivePostDetail } : null
+  ));
+  const [isLoadingPost, setIsLoadingPost] = useState(() => (slug ? !hasBootstrapActivePost : false));
   const [postError, setPostError] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedTags, setSelectedTags] = useState([]);
+  const [searchTerm, setSearchTerm] = useState(() => bootstrapSearch);
+  const [selectedTags, setSelectedTags] = useState(() => bootstrapSelectedTags.slice());
   const [manualPassword, setManualPassword] = useState('');
   const [isTriggeringManualArticle, setIsTriggeringManualArticle] = useState(false);
   const [manualTriggerError, setManualTriggerError] = useState(null);
   const [manualTriggerSuccess, setManualTriggerSuccess] = useState(null);
+  const skipListFetchRef = useRef(hasBootstrapPosts);
+  const skipPostFetchRef = useRef(hasBootstrapActivePost);
   const debouncedSearch = useDebouncedValue(searchTerm, 350);
   const defaultMetaDescription = useRef(null);
 
@@ -151,7 +208,15 @@ export const BlogPage = ({ params = {}, onNavigateToPost, onNavigateToProposal }
 
   useEffect(() => {
     let cancelled = false;
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    let controller = null;
+
+    if (skipListFetchRef.current) {
+      skipListFetchRef.current = false;
+      setIsLoadingList(false);
+      return () => {};
+    }
+
+    controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
 
     const fetchPosts = async () => {
       setIsLoadingList(true);
@@ -171,8 +236,11 @@ export const BlogPage = ({ params = {}, onNavigateToPost, onNavigateToProposal }
         if (cancelled) {
           return;
         }
-        setPosts(Array.isArray(payload?.posts) ? payload.posts : []);
-        setAvailableTags(Array.isArray(payload?.tags) ? payload.tags : []);
+        const fetchedPosts = Array.isArray(payload?.posts)
+          ? payload.posts.map((post) => sanitizePostSummary(post)).filter((post) => post !== null)
+          : [];
+        setPosts(fetchedPosts);
+        setAvailableTags(Array.isArray(payload?.tags) ? normalizeTags(payload.tags) : []);
       } catch (error) {
         if (cancelled) {
           return;
@@ -180,6 +248,7 @@ export const BlogPage = ({ params = {}, onNavigateToPost, onNavigateToProposal }
         console.error('Failed to load blog posts', error);
         setListError("Impossible de charger les articles pour le moment.");
         setPosts([]);
+        setAvailableTags([]);
       } finally {
         if (!cancelled) {
           setIsLoadingList(false);
@@ -191,7 +260,9 @@ export const BlogPage = ({ params = {}, onNavigateToPost, onNavigateToProposal }
 
     return () => {
       cancelled = true;
-      controller?.abort();
+      if (controller) {
+        controller.abort();
+      }
     };
   }, [debouncedSearch, selectedTags]);
 
@@ -201,6 +272,13 @@ export const BlogPage = ({ params = {}, onNavigateToPost, onNavigateToProposal }
       setPostError(null);
       setIsLoadingPost(false);
       return;
+    }
+
+    if (skipPostFetchRef.current && bootstrapActiveSlug && bootstrapActiveSlug === slug) {
+      skipPostFetchRef.current = false;
+      setIsLoadingPost(false);
+      setPostError(null);
+      return () => {};
     }
 
     let cancelled = false;
@@ -221,7 +299,8 @@ export const BlogPage = ({ params = {}, onNavigateToPost, onNavigateToProposal }
         if (cancelled) {
           return;
         }
-        setActivePost(payload?.post ?? null);
+        const normalized = sanitizePostDetail(payload?.post);
+        setActivePost(normalized);
       } catch (error) {
         if (cancelled) {
           return;
