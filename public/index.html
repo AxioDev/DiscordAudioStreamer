@@ -75,11 +75,26 @@
     <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.svg" />
     <!--ASSET_PRELOADS-->
     <!--ASSET_STYLES-->
+    <link rel="stylesheet" href="/styles/app.css" data-fallback-style />
+    <script type="importmap" data-fallback-importmap>
+      {
+        "imports": {
+          "preact": "https://esm.sh/preact@10.23.2",
+          "preact/hooks": "https://esm.sh/preact@10.23.2/hooks",
+          "htm": "https://esm.sh/htm@3.1.1",
+          "chart.js/auto": "https://esm.sh/chart.js@4.4.6/auto",
+          "three": "https://esm.sh/three@0.170.0",
+          "marked": "https://esm.sh/marked@12.0.2",
+          "lucide-preact": "https://esm.sh/lucide-preact@0.439.0"
+        }
+      }
+    </script>
   </head>
   <body class="min-h-screen bg-slate-950 text-slate-100 antialiased">
     <div id="app" class="min-h-screen"><!--APP_HTML--></div>
 
       <!--APP_STATE-->
       <!--ASSET_SCRIPTS-->
+      <script type="module" src="/scripts/main.js" data-fallback-script></script>
 </body>
 </html>

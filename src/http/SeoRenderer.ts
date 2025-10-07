@@ -391,14 +391,45 @@ export default class SeoRenderer {
       result = result.replace(preloadPlaceholder, preloadTags);
     }
 
+    let injectedStyleTags = '';
     if (result.includes(stylesPlaceholder)) {
-      const styleTags = this.buildStyleTags();
-      result = result.replace(stylesPlaceholder, styleTags);
+      injectedStyleTags = this.buildStyleTags();
+      result = result.replace(stylesPlaceholder, injectedStyleTags);
     }
 
+    let injectedScriptTags = '';
     if (result.includes(scriptsPlaceholder)) {
-      const scriptTags = this.buildScriptTags();
-      result = result.replace(scriptsPlaceholder, scriptTags);
+      injectedScriptTags = this.buildScriptTags();
+      result = result.replace(scriptsPlaceholder, injectedScriptTags);
+    }
+
+    if (injectedStyleTags.trim().length > 0 || injectedScriptTags.trim().length > 0) {
+      result = this.stripFallbackAssets(result, {
+        removeStyles: injectedStyleTags.trim().length > 0,
+        removeScripts: injectedScriptTags.trim().length > 0,
+        removeImportMap: injectedScriptTags.trim().length > 0,
+      });
+    }
+
+    return result;
+  }
+
+  private stripFallbackAssets(
+    html: string,
+    options: { removeStyles: boolean; removeScripts: boolean; removeImportMap: boolean },
+  ): string {
+    let result = html;
+
+    if (options.removeImportMap) {
+      result = result.replace(/[\t ]*<script[^>]*data-fallback-importmap[^>]*>[\s\S]*?<\/script>(?:\r?\n)?/gi, '');
+    }
+
+    if (options.removeStyles) {
+      result = result.replace(/[\t ]*<link[^>]*data-fallback-style[^>]*\/?>(?:\r?\n)?/gi, '');
+    }
+
+    if (options.removeScripts) {
+      result = result.replace(/[\t ]*<script[^>]*data-fallback-script[^>]*><\/script>(?:\r?\n)?/gi, '');
     }
 
     return result;
