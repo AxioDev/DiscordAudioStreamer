@@ -1045,7 +1045,7 @@ const App = () => {
               : route.name === 'members'
               ? html`<${MembersPage} onViewProfile=${handleProfileOpen} />`
               : route.name === 'shop'
-              ? html`<${ShopPage} />`
+              ? html`<${ShopPage} bootstrap=${BOOTSTRAP_PAGES.shop ?? null} />`
               : route.name === 'profile'
               ? html`<${ProfilePage}
                   params=${route.params}
@@ -1055,6 +1055,7 @@ const App = () => {
               : route.name === 'classements'
               ? html`<${ClassementsPage}
                   params=${route.params}
+                  bootstrap=${BOOTSTRAP_PAGES.classements ?? null}
                   onSyncRoute=${(nextParams, options = {}) =>
                     navigateToRoute('classements', nextParams, {
                       replace: true,

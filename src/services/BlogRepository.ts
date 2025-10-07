@@ -53,6 +53,13 @@ export interface BlogPostProposalRow {
   submitted_at: Date;
 }
 
+export interface BlogPostProposalPersistedResult {
+  id: number | null;
+  slug: string;
+  reference: string;
+  submittedAt: Date;
+}
+
 interface SeedPostInput {
   slug: string;
   title: string;
@@ -438,6 +445,74 @@ export default class BlogRepository {
         input.submittedAt,
       ],
     );
+  }
+
+  async upsertProposal(input: BlogPostProposalInput): Promise<BlogPostProposalPersistedResult> {
+    const pool = await this.getPool();
+    if (!pool) {
+      return {
+        id: null,
+        slug: input.slug,
+        reference: input.reference,
+        submittedAt: input.submittedAt,
+      };
+    }
+
+    const { rows } = await pool.query<{
+      id: number | null;
+      slug: string;
+      reference: string;
+      submitted_at: Date;
+    }>(
+      `
+        INSERT INTO blog_post_proposals (
+          slug,
+          title,
+          excerpt,
+          content_markdown,
+          cover_image_url,
+          tags,
+          seo_description,
+          author_name,
+          author_contact,
+          reference,
+          submitted_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        ON CONFLICT (slug) DO UPDATE SET
+          title = EXCLUDED.title,
+          excerpt = EXCLUDED.excerpt,
+          content_markdown = EXCLUDED.content_markdown,
+          cover_image_url = EXCLUDED.cover_image_url,
+          tags = EXCLUDED.tags,
+          seo_description = EXCLUDED.seo_description,
+          author_name = EXCLUDED.author_name,
+          author_contact = EXCLUDED.author_contact,
+          reference = EXCLUDED.reference,
+          submitted_at = EXCLUDED.submitted_at
+        RETURNING id, slug, reference, submitted_at
+      `,
+      [
+        input.slug,
+        input.title,
+        input.excerpt,
+        input.contentMarkdown,
+        input.coverImageUrl,
+        input.tags,
+        input.seoDescription,
+        input.authorName,
+        input.authorContact,
+        input.reference,
+        input.submittedAt,
+      ],
+    );
+
+    const row = rows[0];
+    return {
+      id: row?.id ?? null,
+      slug: row?.slug ?? input.slug,
+      reference: row?.reference ?? input.reference,
+      submittedAt: row?.submitted_at ?? input.submittedAt,
+    };
   }
 
   async upsertPost(input: {

@@ -1,4 +1,4 @@
-import { h, render, hydrate, Fragment } from 'https://esm.sh/preact@10.19.2';
+import { Fragment, h, hydrate, render } from 'preact';
 import {
   useCallback,
   useEffect,
@@ -6,11 +6,11 @@ import {
   useMemo,
   useRef,
   useState,
-} from 'https://esm.sh/preact@10.19.2/hooks';
-import htm from 'https://esm.sh/htm@3.1.1?deps=preact@10.19.2';
-import Chart from 'https://esm.sh/chart.js@4.4.2/auto';
-import * as THREE from 'https://esm.sh/three@0.161.0';
-import { marked } from 'https://esm.sh/marked@12.0.2?deps=preact@10.19.2';
+} from 'preact/hooks';
+import htm from 'htm';
+import Chart from 'chart.js/auto';
+import * as THREE from 'three';
+import { marked } from 'marked';
 import {
   Activity,
   AlertCircle,
@@ -46,7 +46,7 @@ import {
   Volume2,
   VolumeX,
   X,
-} from 'https://esm.sh/lucide-preact@0.428.0?deps=preact@10.19.2';
+} from 'lucide-preact';
 
 const html = htm.bind(h);
 

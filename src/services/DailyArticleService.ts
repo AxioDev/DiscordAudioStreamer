@@ -41,6 +41,8 @@ export interface DailyArticleGenerationResult {
   title?: string;
   publishedAt?: string;
   tags?: string[];
+  proposalReference?: string;
+  proposalSubmittedAt?: string;
   reason?: DailyArticleGenerationReason;
   error?: string;
 }
@@ -258,6 +260,10 @@ export default class DailyArticleService {
     return `journal-${isoDate}`;
   }
 
+  private buildDailyArticleReference(slug: string): string {
+    return `auto-${slug}`;
+  }
+
   private getDateBoundsForTarget(targetDate: Date): { targetDate: Date; rangeStart: Date; rangeEnd: Date } {
     const normalizedTarget = new Date(
       Date.UTC(
@@ -366,10 +372,10 @@ export default class DailyArticleService {
         ]),
       );
 
-      const publishedAt = new Date(rangeEnd.getTime() - 60 * 60 * 1000);
-      const updatedAt = new Date();
+      const submittedAt = new Date();
+      const reference = this.buildDailyArticleReference(slug);
 
-      await this.blogRepository.upsertPost({
+      const persisted = await this.blogRepository.upsertProposal({
         slug,
         title: article.title.trim(),
         excerpt: this.normalizeExcerpt(article.excerpt),
@@ -377,8 +383,10 @@ export default class DailyArticleService {
         coverImageUrl: coverImageUrl ?? null,
         tags: normalizedTags,
         seoDescription: article.seoDescription ?? null,
-        publishedAt,
-        updatedAt,
+        authorName: 'Assistant IA Libre Antenne',
+        authorContact: null,
+        reference,
+        submittedAt,
       });
 
       if (this.blogService) {
@@ -386,14 +394,15 @@ export default class DailyArticleService {
         await this.blogService.initialize();
       }
 
-      console.log(`DailyArticleService: article généré et publié pour ${slug}.`);
+      console.log(`DailyArticleService: proposition générée et enregistrée pour ${slug}.`);
 
       return {
         status: 'generated',
         slug,
         title: article.title.trim(),
-        publishedAt: publishedAt.toISOString(),
         tags: normalizedTags,
+        proposalReference: persisted.reference,
+        proposalSubmittedAt: persisted.submittedAt.toISOString(),
       };
     }
 
