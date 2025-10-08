@@ -3018,7 +3018,35 @@ export default class AppServer {
     this.app.use(express.json({ limit: '256kb' }));
 
     const publicDir = path.resolve(__dirname, '..', '..', 'public');
-    this.app.use(express.static(publicDir));
+    this.app.use(
+      express.static(publicDir, {
+        setHeaders(res, filePath) {
+          const relativePath = path.relative(publicDir, filePath).split(path.sep).join('/');
+
+          if (relativePath.startsWith('assets/')) {
+            if (relativePath === 'assets/manifest.json') {
+              res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
+            } else {
+              res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+            }
+            return;
+          }
+
+          if (relativePath === 'sw.js') {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+            return;
+          }
+
+          const extension = path.extname(filePath).toLowerCase();
+          if (extension === '.html') {
+            res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
+            return;
+          }
+
+          res.setHeader('Cache-Control', 'public, max-age=3600');
+        },
+      }),
+    );
   }
 
   private registerRoutes(): void {
