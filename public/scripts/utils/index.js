@@ -9,6 +9,13 @@ const MEMBERS_ALIASES = new Set(['membres', 'members']);
 const SHOP_ALIASES = new Set(['boutique', 'shop']);
 const BAN_ALIASES = new Set(['bannir', 'ban']);
 const PROFILE_ALIASES = new Set(['profil', 'profile']);
+const CGU_ALIASES = new Set([
+  'cgu',
+  'conditions-generales',
+  'conditions-generales-utilisation',
+  'conditions-generales-d-utilisation',
+  'conditions-generales-d’utilisation',
+]);
 
 const decodePathSegment = (value) => {
   if (typeof value !== 'string') {
@@ -71,6 +78,8 @@ export const buildRoutePath = (name, params = {}) => {
       return '/bannir';
     case 'about':
       return '/about';
+    case 'cgu':
+      return '/cgu';
     case 'profile': {
       const userId = params.userId ? String(params.userId).trim() : '';
       const base = userId ? `/profil/${encodeURIComponent(userId)}` : '/profil';
@@ -109,6 +118,9 @@ export const parseRouteFromLocation = (location) => {
 
   const head = segments[0].toLowerCase();
 
+  if (CGU_ALIASES.has(head)) {
+    return { name: 'cgu', params: {} };
+  }
   if (head === 'about') {
     return { name: 'about', params: {} };
   }

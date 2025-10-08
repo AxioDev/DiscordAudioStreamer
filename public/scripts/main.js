@@ -43,6 +43,7 @@ import { AboutPage } from './pages/about.js';
 import { ClassementsPage } from './pages/classements.js';
 import { BlogPage } from './pages/blog.js';
 import { BlogProposalPage } from './pages/blog-proposal.js';
+import { CguPage } from './pages/cgu.js';
 
 const NAV_LINKS = [
   { label: 'Accueil', route: 'home', href: '/', icon: AudioLines },
@@ -1025,7 +1026,9 @@ const App = () => {
       <main class="flex-1">
         <div class="mx-auto flex w-full max-w-5xl flex-col gap-10 px-4 py-10 sm:px-6 lg:px-0">
           ${
-            route.name === 'ban'
+            route.name === 'cgu'
+              ? html`<${CguPage} />`
+              : route.name === 'ban'
               ? html`<${BanPage} />`
               : route.name === 'about'
               ? html`<${AboutPage} />`
@@ -1082,7 +1085,20 @@ const App = () => {
       </main>
 
       <footer class="border-t border-slate-800 bg-slate-900/80 py-6 text-center text-sm text-slate-400">
-        Libre Antenne · Tous droits réservés
+        <div class="flex flex-col items-center gap-2 sm:flex-row sm:justify-center sm:gap-4">
+          <span>Libre Antenne · Tous droits réservés</span>
+          <span class="hidden sm:inline">•</span>
+          <a
+            class="text-slate-300 transition hover:text-white hover:underline"
+            href="/cgu"
+            onClick=${(event) => {
+              event.preventDefault();
+              navigateToRoute('cgu', {}, { scrollToTop: true });
+            }}
+          >
+            Conditions générales d’utilisation
+          </a>
+        </div>
       </footer>
     </div>
   `;
