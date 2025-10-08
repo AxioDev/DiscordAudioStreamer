@@ -18,7 +18,38 @@
   body {
     font-family: inherit;
     background-color: #020617;
+    background-image:
+      radial-gradient(at 20% 20%, rgba(56, 189, 248, 0.18), transparent 55%),
+      radial-gradient(at 80% 15%, rgba(236, 72, 153, 0.16), transparent 60%),
+      radial-gradient(at 50% 80%, rgba(129, 140, 248, 0.14), transparent 65%);
+    background-repeat: no-repeat;
+    background-size: 115% 115%, 140% 140%, 160% 160%;
+    background-position: 0% 35%, 75% 20%, 50% 85%;
+    animation: aurora-shift 26s ease-in-out infinite;
+    animation-delay: 0.8s;
+    background-attachment: fixed;
     color: #f8fafc;
+  }
+}
+
+@keyframes aurora-shift {
+  0% {
+    background-position: 0% 35%, 75% 20%, 50% 85%;
+  }
+
+  50% {
+    background-position: 12% 45%, 68% 28%, 48% 78%;
+  }
+
+  100% {
+    background-position: 0% 35%, 75% 20%, 50% 85%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body {
+    animation: none;
+    background-position: 0% 35%, 75% 20%, 50% 85%;
   }
 }
 
