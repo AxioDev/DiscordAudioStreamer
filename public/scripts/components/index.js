@@ -1780,7 +1780,6 @@ const NAV_LINKS = [
   { label: 'Boutique', route: 'shop', href: '/boutique' },
   { label: 'Classements', route: 'classements', href: '/classements' },
   { label: 'Modération', route: 'ban', href: '/bannir' },
-  { label: 'À propos', route: 'about', href: '/about' },
 ];
 
 const getRouteFromHash = () => {
