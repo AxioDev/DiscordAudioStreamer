@@ -1,3 +1,4 @@
+import compression from 'compression';
 import express, { type Request, type Response } from 'express';
 import fs from 'fs';
 import path from 'path';
@@ -50,6 +51,7 @@ import SeoRenderer, {
 } from './SeoRenderer';
 import AdminService, { type HiddenMemberRecord } from '../services/AdminService';
 import DailyArticleService, { type DailyArticleServiceStatus } from '../services/DailyArticleService';
+import SitemapLastModStore from './SitemapLastModStore';
 
 export interface AppServerOptions {
   config: Config;
@@ -290,6 +292,8 @@ export default class AppServer {
 
   private readonly serverBootTimestamp: string;
 
+  private readonly sitemapLastModStore: SitemapLastModStore;
+
   constructor({
     config,
     transcoder,
@@ -329,6 +333,9 @@ export default class AppServer {
         ? { path: secretArticlePath, password: secretArticlePassword }
         : null;
     this.serverBootTimestamp = new Date().toISOString();
+    this.sitemapLastModStore = new SitemapLastModStore(
+      path.resolve(__dirname, '..', '..', 'content', 'cache', 'sitemap-lastmod.json'),
+    );
     this.hypeLeaderboardService = voiceActivityRepository
       ? new HypeLeaderboardService({
           repository: voiceActivityRepository,
@@ -723,6 +730,7 @@ export default class AppServer {
     return [
       { path: '/', changeFreq: 'daily', priority: 1 },
       { path: '/membres', changeFreq: 'daily', priority: 0.8 },
+      { path: '/members', changeFreq: 'daily', priority: 0.8 },
       { path: '/boutique', changeFreq: 'weekly', priority: 0.6 },
       { path: '/classements', changeFreq: 'hourly', priority: 0.7 },
       { path: '/blog', changeFreq: 'daily', priority: 0.7 },
@@ -752,6 +760,8 @@ export default class AppServer {
     for (const entry of profileEntries) {
       entries.push(entry);
     }
+
+    await this.sitemapLastModStore.flush();
 
     return entries;
   }
@@ -823,30 +833,44 @@ export default class AppServer {
   }
 
   private getStaticPageLastMod(path: string, context: SitemapComputationContext): string | null {
-    switch (path) {
-      case '/':
-        return this.pickLatestTimestamp([
-          context.latestBlogPostDate,
-          context.latestClassementsSnapshot,
-          context.latestProfileActivityAt,
-          context.shopCatalogUpdatedAt,
-          this.serverBootTimestamp,
-        ]);
-      case '/membres':
-        return this.pickLatestTimestamp([context.latestProfileActivityAt, this.serverBootTimestamp]);
-      case '/boutique':
-        return this.pickLatestTimestamp([context.shopCatalogUpdatedAt, context.latestClassementsSnapshot, this.serverBootTimestamp]);
-      case '/classements':
-        return this.pickLatestTimestamp([context.latestClassementsSnapshot, this.serverBootTimestamp]);
-      case '/blog':
-        return this.pickLatestTimestamp([context.latestBlogPostDate, this.serverBootTimestamp]);
-      case '/blog/proposer':
-        return this.pickLatestTimestamp([context.latestBlogPostDate, this.serverBootTimestamp]);
-      case '/about':
-        return this.serverBootTimestamp;
-      default:
-        return this.serverBootTimestamp;
+    const candidates: Array<string | null> = (() => {
+      switch (path) {
+        case '/':
+          return [
+            context.latestBlogPostDate,
+            context.latestClassementsSnapshot,
+            context.latestProfileActivityAt,
+            context.shopCatalogUpdatedAt,
+          ];
+        case '/membres':
+        case '/members':
+          return [context.latestProfileActivityAt];
+        case '/boutique':
+          return [context.shopCatalogUpdatedAt, context.latestClassementsSnapshot];
+        case '/classements':
+          return [context.latestClassementsSnapshot];
+        case '/blog':
+        case '/blog/proposer':
+          return [context.latestBlogPostDate];
+        case '/about':
+        default:
+          return [];
+      }
+    })();
+
+    const latest = this.pickLatestTimestamp(candidates);
+    if (latest) {
+      this.sitemapLastModStore.update(path, latest);
+      return latest;
     }
+
+    const persisted = this.sitemapLastModStore.get(path);
+    if (persisted) {
+      return persisted;
+    }
+
+    this.sitemapLastModStore.update(path, this.serverBootTimestamp);
+    return this.serverBootTimestamp;
   }
 
   private pickLatestTimestamp(values: Array<string | null | undefined>): string | null {
@@ -1575,21 +1599,23 @@ export default class AppServer {
 
     parts.push('<main class="home-prerender mx-auto max-w-6xl space-y-12 px-4 py-16">');
     parts.push(
-      '<section class="rounded-3xl border border-slate-800/60 bg-slate-950/80 p-8 shadow-xl shadow-slate-900/50">',
+      '<section id="home-hero" class="rounded-3xl border border-slate-800/60 bg-slate-950/80 p-8 shadow-xl shadow-slate-900/50">',
     );
-    parts.push('<p class="text-sm uppercase tracking-[0.2em] text-amber-300">Radio libre communautaire</p>');
+    parts.push(
+      '<p data-speakable="kicker" class="text-sm uppercase tracking-[0.2em] text-amber-300">Radio libre communautaire</p>',
+    );
     parts.push(
       '<h1 class="mt-3 text-3xl font-bold text-white sm:text-4xl">Libre Antenne · Voix nocturnes du Discord</h1>',
     );
     parts.push(
-      '<p class="mt-4 text-lg text-slate-300">La communauté Libre Antenne diffuse en continu ses débats, confidences et sessions de jeu. Branche-toi pour suivre le direct, proposer un sujet ou prendre le micro.</p>',
+      '<p data-speakable="description" class="mt-4 text-lg text-slate-300">La communauté Libre Antenne diffuse en continu ses débats, confidences et sessions de jeu. Branche-toi pour suivre le direct, proposer un sujet ou prendre le micro.</p>',
     );
     parts.push(
       `<p class="mt-6 inline-flex items-center gap-2 rounded-full bg-emerald-500/20 px-4 py-2 text-sm font-semibold text-emerald-300"><span class="h-2 w-2 animate-pulse rounded-full bg-emerald-300"></span>${this.escapeHtml(listenerLabel)}</p>`,
     );
     parts.push('</section>');
 
-    parts.push('<section class="rounded-3xl border border-slate-800/60 bg-slate-950/60 p-8">');
+    parts.push('<section id="home-live-speakers" class="rounded-3xl border border-slate-800/60 bg-slate-950/60 p-8">');
     parts.push('<div class="flex items-center justify-between gap-4">');
     parts.push('<h2 class="text-2xl font-semibold text-white">Au micro en ce moment</h2>');
     parts.push('<a class="text-sm font-medium text-amber-300 hover:text-amber-200" href="/membres">Explorer les profils →</a>');
@@ -1632,7 +1658,7 @@ export default class AppServer {
     }
     parts.push('</section>');
 
-    parts.push('<section class="rounded-3xl border border-slate-800/60 bg-slate-950/60 p-8">');
+    parts.push('<section id="home-latest-posts" class="rounded-3xl border border-slate-800/60 bg-slate-950/60 p-8">');
     parts.push('<div class="flex items-center justify-between gap-4">');
     parts.push('<h2 class="text-2xl font-semibold text-white">Les dernières chroniques</h2>');
     parts.push('<a class="text-sm font-medium text-amber-300 hover:text-amber-200" href="/blog">Lire le blog →</a>');
@@ -1646,7 +1672,7 @@ export default class AppServer {
         const title = this.escapeHtml(post.title);
         const excerpt = post.excerpt ? this.escapeHtml(this.truncateText(post.excerpt, 180)) : 'Découvre ce qui agite Libre Antenne cette semaine.';
         const dateLabel = this.formatDateLabel(post.date ?? post.slug) ?? null;
-        parts.push('<article class="flex h-full flex-col justify-between rounded-2xl bg-slate-900/70 p-6">');
+        parts.push('<article class="latest-post flex h-full flex-col justify-between rounded-2xl bg-slate-900/70 p-6">');
         parts.push('<div>');
         if (dateLabel) {
           parts.push(`<p class="text-xs uppercase tracking-[0.15em] text-slate-500">${this.escapeHtml(dateLabel)}</p>`);
@@ -3015,6 +3041,24 @@ export default class AppServer {
       next();
     });
 
+    this.app.use(
+      compression({
+        threshold: 512,
+        filter: (req, res) => {
+          if (req.path === this.config.streamEndpoint || req.path === '/events') {
+            return false;
+          }
+
+          const header = req.headers['x-no-compression'];
+          if (typeof header === 'string' && header.toLowerCase() === 'true') {
+            return false;
+          }
+
+          return compression.filter(req, res);
+        },
+      }),
+    );
+
     this.app.use(express.json({ limit: '256kb' }));
 
     const publicDir = path.resolve(__dirname, '..', '..', 'public');
@@ -4319,43 +4363,83 @@ export default class AppServer {
     this.app.get(['/membres', '/members'], async (req, res) => {
       const rawSearch = this.extractString(req.query?.search);
       const search = rawSearch ? rawSearch.slice(0, 80) : null;
-      const baseDescription =
-        'Parcours les membres actifs de Libre Antenne, leurs présences vocales et leurs derniers messages Discord.';
+      const isEnglishRoute = req.path === '/members';
+      const pagePath = isEnglishRoute ? '/members' : '/membres';
+      const canonicalPath = '/membres';
+      const canonicalUrl = this.toAbsoluteUrl(canonicalPath);
+      const pageLanguage = isEnglishRoute ? 'en-US' : this.config.siteLanguage;
+      const pageLocale = isEnglishRoute ? 'en_US' : this.config.siteLocale;
+      const alternateLanguages = [
+        { locale: 'fr-FR', url: this.toAbsoluteUrl('/membres') },
+        { locale: 'en-US', url: this.toAbsoluteUrl('/members') },
+      ];
+      const baseDescription = isEnglishRoute
+        ? 'Browse the active members of Libre Antenne, their live presence on voice channels and their latest Discord messages.'
+        : 'Parcours les membres actifs de Libre Antenne, leurs présences vocales et leurs derniers messages Discord.';
+      const description = search
+        ? isEnglishRoute
+          ? `Results for “${search}” in the Libre Antenne community: profiles, messages and audio activity.`
+          : `Résultats pour « ${search} » dans la communauté Libre Antenne : profils, messages et activité audio.`
+        : baseDescription;
+      const keywords = isEnglishRoute
+        ? this.combineKeywords(
+            this.config.siteName,
+            'Libre Antenne members',
+            'Discord community',
+            'audio profile',
+            search ? `member ${search}` : null,
+          )
+        : this.combineKeywords(
+            this.config.siteName,
+            'membres Libre Antenne',
+            'communauté Discord',
+            'profil audio',
+            search ? `membre ${search}` : null,
+          );
       const metadata: SeoPageMetadata = {
-        title: `${this.config.siteName} · Membres actifs & profils Discord`,
-        description: search
-          ? `Résultats pour « ${search} » dans la communauté Libre Antenne : profils, messages et activité audio.`
-          : baseDescription,
-        path: '/membres',
-        canonicalUrl: this.toAbsoluteUrl('/membres'),
+        title: isEnglishRoute
+          ? `${this.config.siteName} · Active members & Discord profiles`
+          : `${this.config.siteName} · Membres actifs & profils Discord`,
+        description,
+        path: pagePath,
+        canonicalUrl,
         robots: search ? 'noindex,follow' : undefined,
-        keywords: this.combineKeywords(
-          this.config.siteName,
-          'membres Libre Antenne',
-          'communauté Discord',
-          'profil audio',
-          search ? `membre ${search}` : null,
-        ),
+        keywords,
         openGraphType: 'website',
-        breadcrumbs: [
-          { name: 'Accueil', path: '/' },
-          { name: 'Membres', path: '/membres' },
-        ],
+        locale: pageLocale,
+        language: pageLanguage,
+        alternateLocales: isEnglishRoute ? [this.config.siteLocale] : ['en_US'],
+        alternateLanguages,
+        breadcrumbs: isEnglishRoute
+          ? [
+              { name: 'Home', path: '/' },
+              { name: 'Members', path: '/members' },
+            ]
+          : [
+              { name: 'Accueil', path: '/' },
+              { name: 'Membres', path: '/membres' },
+            ],
         structuredData: [
           {
             '@context': 'https://schema.org',
             '@type': 'CollectionPage',
-            name: `${this.config.siteName} – Membres`,
+            name: isEnglishRoute
+              ? `${this.config.siteName} – Members`
+              : `${this.config.siteName} – Membres`,
             description: search
-              ? `Résultats de recherche pour ${search} parmi les membres de Libre Antenne.`
-              : 'Annuaire des membres actifs de la communauté audio Libre Antenne.',
-            url: this.toAbsoluteUrl('/membres'),
+              ? isEnglishRoute
+                ? `Search results for ${search} across Libre Antenne members.`
+                : `Résultats de recherche pour ${search} parmi les membres de Libre Antenne.`
+              : isEnglishRoute
+                ? 'Directory of active voices in the Libre Antenne audio community.'
+                : 'Annuaire des membres actifs de la communauté audio Libre Antenne.',
+            url: canonicalUrl,
             about: {
               '@type': 'Organization',
               name: this.config.siteName,
               url: this.config.publicBaseUrl,
             },
-            inLanguage: this.config.siteLanguage,
+            inLanguage: pageLanguage,
           },
         ],
       };
@@ -5007,6 +5091,37 @@ export default class AppServer {
     });
 
     this.app.get('/', async (_req, res) => {
+      const streamContentUrl = this.toAbsoluteUrl(this.config.streamEndpoint);
+      const streamEncodingFormat =
+        this.config.mimeTypes[this.config.outputFormat] ?? this.config.mimeTypes.opus ?? 'audio/mpeg';
+      const bitrateSetting =
+        this.config.outputFormat === 'mp3'
+          ? this.config.mp3Bitrate
+          : this.config.outputFormat === 'opus'
+            ? this.config.opusBitrate
+            : null;
+      const normalizedBitrate = (() => {
+        if (!bitrateSetting) {
+          return undefined;
+        }
+        const numeric = Number.parseInt(String(bitrateSetting), 10);
+        if (Number.isFinite(numeric) && numeric > 0) {
+          const kbps = Math.round(numeric / 1000);
+          if (kbps > 0) {
+            return `${kbps} kbps`;
+          }
+        }
+        if (typeof bitrateSetting === 'string' && bitrateSetting.trim().length > 0) {
+          return bitrateSetting.trim();
+        }
+        return undefined;
+      })();
+      const heroSpeakableSelectors = [
+        '#home-hero h1',
+        '#home-hero [data-speakable="description"]',
+        '#home-latest-posts .latest-post h3',
+      ];
+
       const metadata: SeoPageMetadata = {
         title: `${this.config.siteName} · Radio libre et streaming communautaire`,
         description:
@@ -5030,6 +5145,49 @@ export default class AppServer {
             url: this.config.publicBaseUrl,
             inLanguage: this.config.siteLanguage,
             broadcastServiceTier: 'Libre Antenne – Direct Discord',
+          },
+          {
+            '@context': 'https://schema.org',
+            '@type': 'AudioObject',
+            name: `${this.config.siteName} – Flux audio en direct`,
+            description:
+              'Écoute le direct Libre Antenne : débats communautaires, confidences nocturnes et mixs improvisés en streaming temps réel.',
+            url: this.toAbsoluteUrl('/'),
+            contentUrl: streamContentUrl,
+            encodingFormat: streamEncodingFormat,
+            inLanguage: this.config.siteLanguage,
+            isLiveBroadcast: true,
+            uploadDate: this.serverBootTimestamp,
+            thumbnailUrl: this.toAbsoluteUrl('/icons/icon-512.svg'),
+            potentialAction: {
+              '@type': 'ListenAction',
+              target: {
+                '@type': 'EntryPoint',
+                urlTemplate: streamContentUrl,
+                actionPlatform: [
+                  'https://schema.org/DesktopWebPlatform',
+                  'https://schema.org/MobileWebPlatform',
+                ],
+                contentType: streamEncodingFormat,
+                inLanguage: this.config.siteLanguage,
+              },
+            },
+            publisher: {
+              '@type': 'Organization',
+              name: this.config.siteName,
+              url: this.config.publicBaseUrl,
+            },
+            author: {
+              '@type': 'Organization',
+              name: this.config.siteName,
+              url: this.config.publicBaseUrl,
+            },
+            ...(normalizedBitrate ? { bitrate: normalizedBitrate } : {}),
+          },
+          {
+            '@context': 'https://schema.org',
+            '@type': 'SpeakableSpecification',
+            cssSelector: heroSpeakableSelectors,
           },
         ],
       };
