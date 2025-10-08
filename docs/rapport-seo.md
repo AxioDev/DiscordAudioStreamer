@@ -1,9 +1,9 @@
 # Rapport d'optimisation SEO – Libre Antenne
 
 ## Résumé exécutif
-- **Priorité haute – Sécuriser la livraison des bundles fingerprintés** : le build ESBuild génère désormais scripts, CSS et polices auto-hébergés, mais Express les sert sans directive de cache longue durée. Configurer `express.static` avec un `Cache-Control` fort (et prévoir un header plus souple pour `index.html`) permettra de capitaliser sur le versioning par hash, d’améliorer le LCP et de supprimer les requêtes répétées après navigation.【F:scripts/build-client.mjs†L105-L184】【F:src/http/AppServer.ts†L3004-L3022】
-- **Priorité moyenne – Industrialiser la revue éditoriale des propositions IA** : les articles quotidiens OpenAI arrivent maintenant comme brouillons dans `blog_post_proposals`. Il faut définir un flux de validation (checklist E-E-A-T, publication manuelle, suivi des références) pour transformer ces propositions en billets publiés sans risquer de contenus non conformes.【F:src/services/DailyArticleService.ts†L355-L406】【F:src/services/BlogProposalService.ts†L145-L220】【F:src/services/BlogRepository.ts†L573-L609】
-- **Priorité moyenne – Structurer la boutique pour le SEO commercial** : la page `/boutique` ne fait remonter qu'un schéma `OfferCatalog` générique alors que le service expose déjà prix, visuels, fournisseurs et avantages pour chaque produit. Générer des balises `Product`/`Offer` par article (et désindexer les variantes `?checkout=`) renforcera la visibilité e-commerce et évitera les duplications de crawl.【F:src/http/AppServer.ts†L3308-L3360】【F:src/services/ShopService.ts†L53-L146】
+- **Priorité haute – Activer la compression HTTP sur les assets fingerprintés** : les bundles ESBuild sont désormais hashés et servis avec un cache long, mais Express ne compresse ni HTML ni fichiers statiques. Ajouter `compression` (ou servir des variantes Brotli pré-générées) réduira drastiquement le poids transféré et consolidera les Core Web Vitals en production.【F:scripts/build-client.mjs†L130-L183】【F:src/http/AppServer.ts†L3004-L3050】
+- **Priorité moyenne – Stabiliser les dates `lastmod` du sitemap** : les nouvelles règles alimentent enfin chaque URL statique avec des signaux métiers, mais retombent sur `serverBootTimestamp` en cas de données manquantes. Persister ces horodatages (fichiers, timestamps en base) évitera les faux positifs de mise à jour à chaque redéploiement.【F:src/http/AppServer.ts†L825-L848】
+- **Priorité moyenne – Harmoniser canoniques et `hreflang` des routes FR/EN** : les routes `/membres` et `/members` partagent le même handler, mais seule la version française est déclarée dans les balises et métadonnées. Déclarer explicitement les alternates et une canonique commune lèvera l’ambiguïté pour Google et Bing.【F:src/http/AppServer.ts†L4320-L4369】
 
 ## Audit technique détaillé
 
@@ -13,16 +13,18 @@
 
 ### Pilotage du crawl (robots & sitemap)
 - Le `robots.txt` autorise l'intégralité du site hors `/admin` et `/bannir`, tandis que le sitemap assemble les routes statiques et dynamiques (blog, profils, activités) avec un filtrage correct des membres masqués.【F:public/robots.txt†L1-L6】【F:src/http/AppServer.ts†L585-L711】
-- Les URLs statiques (home, boutique, about, classements) n'exposent toujours pas de `lastmod` dédié dans le sitemap. Alimenter `formatSitemapDate` avec des timestamps métiers améliorera la fraîcheur perçue par les moteurs.【F:src/http/AppServer.ts†L596-L711】
-- Les variantes `/boutique?checkout=...` réutilisent le même contenu mais restent servies en `index,follow`. Appliquer `noindex` ou normaliser la canonicalisation côté serveur sur ces états de retour évitera du crawl gaspillé.【F:src/http/AppServer.ts†L3308-L3360】
+- Les entrées statiques du sitemap s’appuient désormais sur les dernières activités (posts, classements, catalogue) avant de retomber sur l’horodatage de démarrage du serveur. Il reste à persister ces dates pour qu’un redéploiement n’entraîne pas de faux rafraîchissements massifs.【F:src/http/AppServer.ts†L825-L848】
+- Les variantes `/boutique?checkout=...` déclenchent maintenant un `noindex,follow`, ce qui limite les duplications de crawl sur les retours de paiement.【F:src/http/AppServer.ts†L4395-L4429】
 
 ### Métadonnées et balisage
-- `SeoRenderer` demeure la source de vérité pour Open Graph, Twitter et JSON-LD, injectant titres, descriptions, hreflang et scripts structurés de façon cohérente sur l'ensemble des routes SSR.【F:src/http/SeoRenderer.ts†L185-L366】
-- La boutique ne déclare qu'un `OfferCatalog` global alors que `ShopService` expose le détail des produits (prix, fournisseurs, visuels). Générer un `ItemList` avec des entrées `Product`/`Offer` enrichira les résultats riches et facilitera Merchant Center.【F:src/http/AppServer.ts†L3308-L3360】【F:src/services/ShopService.ts†L53-L146】
+- `SeoRenderer` demeure la source de vérité pour Open Graph, Twitter et JSON-LD, injectant titres, descriptions, hreflang et scripts structurés de façon cohérente sur l'ensemble des routes SSR.【F:src/http/SeoRenderer.ts†L200-L366】
+- La boutique expose désormais un `OfferCatalog` enrichi par un `ItemList` de produits complets (prix, moyens de paiement, attributs), ce qui couvre la base pour Merchant Center.【F:src/http/AppServer.ts†L4372-L4429】【F:src/http/AppServer.ts†L2447-L2572】
+- Les routes bilingues (`/membres` / `/members`) n'annoncent toujours qu'une canonique française et aucun `hreflang`. Alimenter `alternateLanguages`/`alternateLocales` clarifiera la relation entre les variantes.【F:src/http/AppServer.ts†L4320-L4369】
 
 ### Performance & Core Web Vitals
-- Le bundler ESBuild produit désormais des bundles fingerprintés (JS, CSS et police Inter) injectés par le SSR. Sans configuration de cache, chaque navigation ressert néanmoins ces fichiers. Définir `max-age=31536000, immutable` sur `/assets` (et conserver un cache court sur `index.html`) exploitera enfin le versioning par hash et stabilisera le LCP.【F:scripts/build-client.mjs†L105-L184】【F:src/http/AppServer.ts†L3004-L3022】
+- Le bundler ESBuild produit désormais des bundles fingerprintés (JS, CSS et polices) injectés avec un cache long d’un an côté Express, ce qui sécurise la réutilisation des assets entre pages.【F:scripts/build-client.mjs†L130-L183】【F:src/http/AppServer.ts†L3004-L3050】
 - Le SSR stabilisé ouvre la voie à une stratégie « streaming + hydrations progressives » : prioriser l'envoi du markup critique, différer Chart.js/Three.js et ne charger les graphes qu'au scroll améliorerait FID/INP tout en réduisant le JS initial.【F:src/http/AppServer.ts†L1205-L1300】【F:public/scripts/core/deps.js†L1-L74】
+- Aucun middleware de compression n'est encore appliqué : même avec des assets minifiés, chaque réponse HTML/JSON reste servie brute. Activer Brotli/Gzip (ou livrer des variantes précompressées) s'impose avant la mise en prod CDN.【F:src/http/AppServer.ts†L3004-L3050】
 
 ### Contenus & sémantique
 - Les articles IA sont maintenant enregistrés comme propositions (`blog_post_proposals`) plutôt que publiés automatiquement. Structurer une revue éditoriale (validation factuelle, enrichissement interne, publication dans `blog_posts`) et tracer les références `proposalReference` reste indispensable pour préserver l'E-E-A-T.【F:src/services/DailyArticleService.ts†L355-L406】【F:src/services/BlogProposalService.ts†L145-L220】【F:src/services/BlogRepository.ts†L573-L609】
@@ -30,13 +32,13 @@
 
 ### Données structurées & signaux enrichis
 - Chaque route SSR majeure injecte du JSON-LD contextualisé (`RadioChannel`, `Blog`, `Article`, `Person`/`ProfilePage`, `Dataset`).【F:src/http/AppServer.ts†L2356-L3434】
-- Prochaine étape : ajouter des schémas `AudioObject`/`PodcastSeries` pour les flux live et préparer un `SpeakableSpecification` sur les articles maintenant que l'hydratation est en place.【F:src/http/AppServer.ts†L2562-L3434】
+- La page d’accueil ne sert encore qu’un schéma `RadioChannel`; ajouter des `AudioObject` (diffusion live), `PodcastEpisode` ou `SpeakableSpecification` permettra de tirer parti des extraits audio dans Google/Assistant.【F:src/http/AppServer.ts†L5009-L5034】
 
 ### Suivi & gouvernance
 - Automatiser dans la CI `npm run build` (vérification du manifest, présence des préloads et nettoyage des fallbacks) ainsi que les tests de réhydratation (`__PRERENDER_STATE__`) limitera les régressions SEO lors des déploiements SSR.【F:scripts/build-client.mjs†L105-L184】【F:src/http/SeoRenderer.ts†L400-L473】【F:public/scripts/main.js†L57-L109】
 - Mettre en place un workflow éditorial (revue humaine + guidelines) pour les articles IA et des alertes sur les temps de réponse du SSR assurera un pilotage continu de la qualité.【F:src/services/DailyArticleService.ts†L355-L406】
 
 ## Feuille de route suggérée
-1. **M-1** : Configurer les en-têtes de cache (`Cache-Control`, `ETag`) sur les assets fingerprintés et monitorer les tailles de bundles pour capitaliser sur le build ESBuild en production.【F:scripts/build-client.mjs†L105-L184】【F:src/http/AppServer.ts†L3004-L3022】
-2. **M-2** : Étendre le balisage SEO « commerce » : `lastmod` précis sur les pages statiques, `noindex` sur les retours de paiement et JSON-LD `Product`/`Offer` alimenté par `ShopService`.【F:src/http/AppServer.ts†L596-L711】【F:src/http/AppServer.ts†L3308-L3398】【F:src/services/ShopService.ts†L53-L146】
-3. **M-3** : Formaliser la gouvernance éditoriale (revue humaine, guidelines SEO) et enrichir les schémas structurés (`AudioObject`, `SpeakableSpecification`) autour des contenus audio et articles automatisés.【F:src/services/DailyArticleService.ts†L355-L406】【F:src/http/AppServer.ts†L2562-L3434】
+1. **M-1** : Déployer la compression HTTP côté Node (ou servir des fichiers précompressés) et établir un budget Core Web Vitals pour suivre l’impact en prod.【F:src/http/AppServer.ts†L3004-L3050】
+2. **M-2** : Persister des horodatages de mise à jour pour le sitemap et enrichir les balises `hreflang`/canoniques sur les routes bilingues (`/membres`, `/members`).【F:src/http/AppServer.ts†L825-L848】【F:src/http/AppServer.ts†L4320-L4369】
+3. **M-3** : Poursuivre la gouvernance éditoriale (workflow IA) et ajouter des schémas audio (`AudioObject`, `SpeakableSpecification`) pour renforcer la visibilité des contenus live et générés.【F:src/services/DailyArticleService.ts†L355-L406】【F:src/http/AppServer.ts†L5009-L5034】
