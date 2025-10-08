@@ -1,22 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
-  <title id="title">Libre Antenne Icon Large</title>
-  <desc id="desc">Icône carrée avec onde sonore lumineuse</desc>
+  <title id="title">Libre Antenne — Icône grand format</title>
+  <desc id="desc">Icône grand format alignée sur la charte Libre Antenne avec halo dégradé et onde lumineuse.</desc>
   <defs>
-    <radialGradient id="bg" cx="30%" cy="30%" r="85%">
-      <stop offset="0%" stop-color="#818cf8" />
-      <stop offset="55%" stop-color="#6366f1" />
-      <stop offset="100%" stop-color="#db2777" />
-    </radialGradient>
-    <linearGradient id="wave" x1="0%" y1="0%" x2="100%" y2="0%">
+    <linearGradient id="brand-bg" x1="8%" y1="0%" x2="92%" y2="100%">
+      <stop offset="0%" stop-color="#0ea5e9" />
+      <stop offset="50%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#ec4899" />
+    </linearGradient>
+    <linearGradient id="signal" x1="0%" y1="35%" x2="100%" y2="65%">
       <stop offset="0%" stop-color="#f8fafc" />
-      <stop offset="100%" stop-color="#e0e7ff" />
+      <stop offset="40%" stop-color="#e0f2fe" />
+      <stop offset="100%" stop-color="#d8b4fe" />
     </linearGradient>
   </defs>
   <rect width="512" height="512" rx="120" fill="#020617" />
-  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#bg)" opacity="0.9" />
-  <g fill="none" stroke="url(#wave)" stroke-width="40" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M128 336c46-62 77-160 128-160s82 98 128 160" />
-    <path d="M92 256h36m260 0h36" />
-    <path d="M256 176v160" />
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#brand-bg)" opacity="0.9" />
+  <rect x="72" y="72" width="368" height="368" rx="96" fill="#020617" opacity="0.6" />
+  <g fill="none" stroke="url(#signal)" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M104 332c44-96 96-188 152-188s108 92 152 188" stroke-width="34" />
+    <path d="M168 332c32-64 64-124 88-124s56 60 88 124" stroke-width="26" />
+    <path d="M256 188v172" stroke-width="22" />
   </g>
+  <circle cx="256" cy="164" r="28" fill="#34d399" />
+  <circle cx="256" cy="164" r="16" fill="#ecfeff" />
 </svg>
