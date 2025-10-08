@@ -94,6 +94,13 @@ interface SitemapEntry {
   priority?: number | null;
 }
 
+interface SitemapComputationContext {
+  latestBlogPostDate: string | null;
+  latestProfileActivityAt: string | null;
+  latestClassementsSnapshot: string | null;
+  shopCatalogUpdatedAt: string | null;
+}
+
 interface AppShellRenderOptions {
   status?: number;
   appHtml?: string | null;
@@ -236,6 +243,8 @@ export default class AppServer {
 
   private readonly secretArticleTrigger: { path: string; password: string } | null;
 
+  private readonly serverBootTimestamp: string;
+
   constructor({
     config,
     transcoder,
@@ -274,6 +283,7 @@ export default class AppServer {
       secretArticlePath && secretArticlePassword
         ? { path: secretArticlePath, password: secretArticlePassword }
         : null;
+    this.serverBootTimestamp = new Date().toISOString();
     this.hypeLeaderboardService = voiceActivityRepository
       ? new HypeLeaderboardService({
           repository: voiceActivityRepository,
@@ -572,6 +582,35 @@ export default class AppServer {
     }
   }
 
+  private toAbsoluteMediaUrl(rawUrl: string | null | undefined): string | null {
+    if (!rawUrl) {
+      return null;
+    }
+
+    const trimmed = rawUrl.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    if (/^data:/i.test(trimmed)) {
+      return trimmed;
+    }
+
+    if (/^https?:\/\//i.test(trimmed)) {
+      return trimmed;
+    }
+
+    if (trimmed.startsWith('//')) {
+      return `https:${trimmed}`;
+    }
+
+    if (trimmed.startsWith('/')) {
+      return this.toAbsoluteUrl(trimmed);
+    }
+
+    return this.toAbsoluteUrl(`/${trimmed.replace(/^\/+/, '')}`);
+  }
+
   private formatDuration(ms: number): string {
     if (!Number.isFinite(ms) || ms <= 0) {
       return '0 min';
@@ -648,11 +687,16 @@ export default class AppServer {
   }
 
   private async buildSitemapEntries(): Promise<SitemapEntry[]> {
-    const entries: SitemapEntry[] = this.getStaticSitemapDescriptors().map((descriptor) => ({
-      loc: this.toAbsoluteUrl(descriptor.path),
-      changeFreq: descriptor.changeFreq,
-      priority: descriptor.priority,
-    }));
+    const context = await this.buildSitemapContext();
+    const entries: SitemapEntry[] = this.getStaticSitemapDescriptors().map((descriptor) => {
+      const lastMod = this.formatSitemapDate(this.getStaticPageLastMod(descriptor.path, context));
+      return {
+        loc: this.toAbsoluteUrl(descriptor.path),
+        changeFreq: descriptor.changeFreq,
+        priority: descriptor.priority,
+        lastMod,
+      } satisfies SitemapEntry;
+    });
 
     const blogEntries = await this.buildBlogSitemapEntries();
     for (const entry of blogEntries) {
@@ -665,6 +709,123 @@ export default class AppServer {
     }
 
     return entries;
+  }
+
+  private async buildSitemapContext(): Promise<SitemapComputationContext> {
+    const [latestBlogPostDate, latestProfileActivityAt, latestClassementsSnapshot] = await Promise.all([
+      this.resolveLatestBlogPostDate(),
+      this.resolveLatestProfileActivityAt(),
+      this.resolveLatestClassementsSnapshot(),
+    ]);
+
+    const shopCatalogUpdatedAt = this.shopService.getCatalogUpdatedAt();
+
+    return {
+      latestBlogPostDate: this.formatSitemapDate(latestBlogPostDate),
+      latestProfileActivityAt: this.formatSitemapDate(latestProfileActivityAt),
+      latestClassementsSnapshot: this.formatSitemapDate(latestClassementsSnapshot),
+      shopCatalogUpdatedAt: this.formatSitemapDate(shopCatalogUpdatedAt),
+    };
+  }
+
+  private async resolveLatestBlogPostDate(): Promise<string | null> {
+    try {
+      const { posts } = await this.blogService.listPosts({ limit: 1, sortBy: 'date', sortOrder: 'desc' });
+      if (!posts || posts.length === 0) {
+        return null;
+      }
+      const [latest] = posts;
+      return latest?.updatedAt ?? latest?.date ?? null;
+    } catch (error) {
+      console.warn('Failed to resolve latest blog post date for sitemap', error);
+      return null;
+    }
+  }
+
+  private async resolveLatestProfileActivityAt(): Promise<string | null> {
+    if (!this.voiceActivityRepository) {
+      return null;
+    }
+
+    try {
+      const activeUsers = await this.voiceActivityRepository.listActiveUsers({ limit: 1 });
+      const latest = activeUsers?.[0]?.lastActivityAt;
+      return latest instanceof Date ? latest.toISOString() : null;
+    } catch (error) {
+      console.warn('Failed to resolve latest member activity for sitemap', error);
+      return null;
+    }
+  }
+
+  private async resolveLatestClassementsSnapshot(): Promise<string | null> {
+    const service = this.hypeLeaderboardService;
+    if (!service) {
+      return null;
+    }
+
+    try {
+      const defaultOptions = service.getDefaultOptions();
+      const options: NormalizedHypeLeaderboardQueryOptions = {
+        ...defaultOptions,
+        limit: 1,
+      };
+      const result = await this.getCachedHypeLeaders(options);
+      return result.snapshot?.bucketStart?.toISOString?.() ?? null;
+    } catch (error) {
+      console.warn('Failed to resolve hype leaderboard snapshot for sitemap', error);
+      return null;
+    }
+  }
+
+  private getStaticPageLastMod(path: string, context: SitemapComputationContext): string | null {
+    switch (path) {
+      case '/':
+        return this.pickLatestTimestamp([
+          context.latestBlogPostDate,
+          context.latestClassementsSnapshot,
+          context.latestProfileActivityAt,
+          context.shopCatalogUpdatedAt,
+          this.serverBootTimestamp,
+        ]);
+      case '/membres':
+        return this.pickLatestTimestamp([context.latestProfileActivityAt, this.serverBootTimestamp]);
+      case '/boutique':
+        return this.pickLatestTimestamp([context.shopCatalogUpdatedAt, context.latestClassementsSnapshot, this.serverBootTimestamp]);
+      case '/classements':
+        return this.pickLatestTimestamp([context.latestClassementsSnapshot, this.serverBootTimestamp]);
+      case '/blog':
+        return this.pickLatestTimestamp([context.latestBlogPostDate, this.serverBootTimestamp]);
+      case '/blog/proposer':
+        return this.pickLatestTimestamp([context.latestBlogPostDate, this.serverBootTimestamp]);
+      case '/about':
+        return this.serverBootTimestamp;
+      default:
+        return this.serverBootTimestamp;
+    }
+  }
+
+  private pickLatestTimestamp(values: Array<string | null | undefined>): string | null {
+    let latestMs = Number.NEGATIVE_INFINITY;
+
+    for (const value of values) {
+      if (!value) {
+        continue;
+      }
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        continue;
+      }
+      const time = parsed.getTime();
+      if (time > latestMs) {
+        latestMs = time;
+      }
+    }
+
+    if (!Number.isFinite(latestMs) || latestMs === Number.NEGATIVE_INFINITY) {
+      return null;
+    }
+
+    return new Date(latestMs).toISOString();
   }
 
   private async buildBlogSitemapEntries(): Promise<SitemapEntry[]> {
@@ -1856,14 +2017,142 @@ export default class AppServer {
     };
   }
 
-  private buildShopPagePrerender(options: { checkoutStatus?: string | null } = {}): {
+  private buildShopPagePrerender(options: { checkoutStatus?: string | null; products?: PublicProduct[] } = {}): {
     html: string;
     bootstrap: ShopPageBootstrap;
   } {
-    const products = this.shopService.getProducts();
+    const products = Array.isArray(options.products) ? options.products : this.shopService.getProducts();
     const feedback = this.parseShopCheckoutFeedback(options.checkoutStatus);
     const html = this.buildShopPageHtml({ products, feedback });
     return { html, bootstrap: { products } };
+  }
+
+  private buildShopStructuredData(products: PublicProduct[]): unknown[] {
+    if (!Array.isArray(products) || products.length === 0) {
+      return [];
+    }
+
+    const seller = {
+      '@type': 'Organization',
+      name: this.config.siteName,
+      url: this.config.publicBaseUrl,
+    };
+
+    const normalizePaymentMethod = (provider: ShopProvider): string | null => {
+      switch (provider) {
+        case 'paypal':
+          return 'https://schema.org/PayPal';
+        case 'coingate':
+          return 'https://schema.org/Cryptocurrency';
+        case 'stripe':
+          return 'https://schema.org/CreditCard';
+        default:
+          return null;
+      }
+    };
+
+    const itemListElements = products
+      .map((product, index) => {
+        if (!product || typeof product.id !== 'string') {
+          return null;
+        }
+
+        const productUrl = this.toAbsoluteUrl(`/boutique#${encodeURIComponent(product.id)}`);
+        const imageUrl = this.toAbsoluteMediaUrl(product.image?.url ?? null);
+        const includes = Array.isArray(product.includes) ? product.includes.filter(Boolean) : [];
+        const badges = Array.isArray(product.badges) ? product.badges.filter(Boolean) : [];
+        const paymentMethods = Array.isArray(product.providers)
+          ? Array.from(
+              new Set(
+                product.providers
+                  .map((provider) => normalizePaymentMethod(provider))
+                  .filter((method): method is string => Boolean(method)),
+              ),
+            )
+          : [];
+
+        const offer: Record<string, unknown> = {
+          '@type': 'Offer',
+          url: productUrl,
+          priceCurrency: product.price?.currency?.toUpperCase?.() ?? 'EUR',
+          availability: 'https://schema.org/InStock',
+          itemCondition: 'https://schema.org/NewCondition',
+          seller,
+        };
+
+        const priceAmount = Number(product.price?.amount);
+        if (Number.isFinite(priceAmount)) {
+          offer.price = priceAmount.toFixed(2);
+        }
+
+        if (paymentMethods.length > 0) {
+          offer.acceptedPaymentMethod = paymentMethods;
+        }
+
+        const additionalProperties = includes.map((value) => ({
+          '@type': 'PropertyValue',
+          name: 'Inclus',
+          value,
+        }));
+
+        const releaseDate = this.formatSitemapDate(product.updatedAt ?? null);
+
+        const productData: Record<string, unknown> = {
+          '@type': 'Product',
+          name: product.name,
+          description: product.description,
+          sku: product.id,
+          offers: offer,
+          brand: {
+            '@type': 'Brand',
+            name: this.config.siteName,
+          },
+        };
+
+        if (imageUrl) {
+          productData.image = imageUrl;
+        }
+
+        if (badges.length > 0) {
+          productData.keywords = badges.join(', ');
+        }
+
+        if (additionalProperties.length > 0) {
+          productData.additionalProperty = additionalProperties;
+        }
+
+        if (releaseDate) {
+          productData.releaseDate = releaseDate;
+          productData.dateModified = releaseDate;
+        }
+
+        return {
+          '@type': 'ListItem',
+          position: index + 1,
+          url: productUrl,
+          name: product.name,
+          item: productData,
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+    if (itemListElements.length === 0) {
+      return [];
+    }
+
+    const itemList = {
+      '@context': 'https://schema.org',
+      '@type': 'ItemList',
+      name: `${this.config.siteName} – Sélection boutique`,
+      description:
+        'Catalogue des produits officiels Libre Antenne avec détails des offres, tarifs et moyens de paiement disponibles.',
+      url: this.toAbsoluteUrl('/boutique'),
+      numberOfItems: itemListElements.length,
+      itemListOrder: 'http://schema.org/ItemListOrderAscending',
+      itemListElement: itemListElements,
+    };
+
+    return [itemList];
   }
 
   private buildShopPageHtml(data: {
@@ -3306,6 +3595,8 @@ export default class AppServer {
     });
 
     this.app.get(['/boutique', '/shop'], (req, res) => {
+      const products = this.shopService.getProducts();
+      const structuredCatalog = this.buildShopStructuredData(products);
       const metadata: SeoPageMetadata = {
         title: `${this.config.siteName} · Boutique officielle & soutien`,
         description:
@@ -3338,13 +3629,18 @@ export default class AppServer {
               url: this.config.publicBaseUrl,
             },
           },
+          ...structuredCatalog,
         ],
       };
 
       try {
         const checkoutParam = (req.query as Record<string, unknown> | undefined)?.checkout ?? null;
         const checkoutStatus = this.extractQueryParam(checkoutParam);
-        const prerender = this.buildShopPagePrerender({ checkoutStatus });
+        const hasCheckoutFeedback = typeof checkoutStatus === 'string' && checkoutStatus.trim().length > 0;
+        if (hasCheckoutFeedback) {
+          metadata.robots = 'noindex,follow';
+        }
+        const prerender = this.buildShopPagePrerender({ checkoutStatus, products });
         const preloadState: AppPreloadState = {
           route: { name: 'shop', params: {} },
           pages: { shop: prerender.bootstrap },

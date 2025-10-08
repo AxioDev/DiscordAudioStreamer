@@ -20,6 +20,7 @@ interface ProductDefinition {
   stripePriceKey?: string;
   imageUrl?: string;
   imageAlt?: string;
+  updatedAt?: string;
 }
 
 interface InternalProduct extends ProductDefinition {
@@ -44,6 +45,7 @@ export interface PublicProduct {
   highlight: boolean;
   providers: ShopProvider[];
   image: { url: string; alt: string } | null;
+  updatedAt: string | null;
 }
 
 export interface CheckoutRequestOptions {
@@ -125,7 +127,32 @@ export default class ShopService {
             alt: product.imageAlt?.trim() || product.name,
           }
         : null,
+      updatedAt: product.updatedAt ?? null,
     }));
+  }
+
+  public getCatalogUpdatedAt(): string | null {
+    const timestamps = this.products
+      .map((product) => product.updatedAt)
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .map((value) => {
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+      })
+      .filter((date): date is Date => Boolean(date));
+
+    if (timestamps.length === 0) {
+      return null;
+    }
+
+    const latest = timestamps.reduce((acc, current) => {
+      if (!acc) {
+        return current;
+      }
+      return current.getTime() > acc.getTime() ? current : acc;
+    });
+
+    return latest?.toISOString() ?? null;
   }
 
   public async createCheckoutSession(options: CheckoutRequestOptions): Promise<CheckoutSession> {
@@ -168,6 +195,7 @@ export default class ShopService {
         stripePriceKey: 'mug',
         imageUrl: MUG_LIBRE_ANTENNE_IMAGE,
         imageAlt: 'Illustration du mug Libre Antenne avec mascotte en noir et blanc',
+        updatedAt: '2024-10-02T09:00:00.000Z',
       },
       {
         id: 'tshirt-logo',
@@ -189,6 +217,7 @@ export default class ShopService {
         stripePriceKey: 'tshirt',
         imageUrl: TSHIRT_SIGNAL_BRUT_IMAGE,
         imageAlt: 'Visuel du t-shirt noir Libre Antenne "Libre Antenne"',
+        updatedAt: '2024-10-15T09:00:00.000Z',
       },
       {
         id: 'pack-essentiel',
@@ -207,6 +236,7 @@ export default class ShopService {
         accentSoft: 'bg-fuchsia-500/10',
         emoji: '🎁',
         stripePriceKey: 'pack',
+        updatedAt: '2024-11-05T09:00:00.000Z',
       },
       {
         id: 'option-moderation',
@@ -226,6 +256,7 @@ export default class ShopService {
         accentSoft: 'bg-emerald-500/10',
         emoji: '🛡️',
         stripePriceKey: 'moderation',
+        updatedAt: '2024-09-20T09:00:00.000Z',
       },
     ];
 
