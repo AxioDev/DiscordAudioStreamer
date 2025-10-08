@@ -494,6 +494,7 @@ const ClassementsPage = ({ params = {}, onSyncRoute, bootstrap = null }) => {
                               alt=${`Avatar de ${altName}`}
                               class="h-full w-full object-cover"
                               loading="lazy"
+                              decoding="async"
                             />`
                           : html`<span
                               class=${`flex h-full w-full items-center justify-center bg-gradient-to-br ${fallbackBackground} text-lg font-semibold text-white/90`}
