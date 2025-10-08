@@ -736,6 +736,7 @@ export default class AppServer {
       { path: '/blog', changeFreq: 'daily', priority: 0.7 },
       { path: '/blog/proposer', changeFreq: 'monthly', priority: 0.5 },
       { path: '/about', changeFreq: 'monthly', priority: 0.5 },
+      { path: '/cgu', changeFreq: 'yearly', priority: 0.4 },
     ];
   }
 
@@ -853,6 +854,7 @@ export default class AppServer {
         case '/blog/proposer':
           return [context.latestBlogPostDate];
         case '/about':
+        case '/cgu':
         default:
           return [];
       }
@@ -2859,6 +2861,183 @@ export default class AppServer {
     return parts.join('');
   }
 
+  private buildCguPageHtml(): string {
+    const parts: string[] = [];
+    const obligations = [
+      'Respecte les règles Discord, la loi française et les sensibilités des autres participants.',
+      'Ne partage pas de contenus illicites, discriminatoires ou contraires aux valeurs d’inclusion du projet.',
+      'Accepte que les modérateurs puissent couper un micro, exclure un membre ou signaler une situation à Discord.',
+      'Préserve la confidentialité des informations personnelles échangées hors antenne.',
+    ];
+    const dataCategories = [
+      {
+        title: 'Flux audio en direct',
+        description:
+          'Les voix captées sur Discord sont transmises en continu pour la diffusion publique du direct Libre Antenne.',
+        usage:
+          'Diffusion du direct, supervision technique en temps réel et détection d’abus pour protéger les membres.',
+        retention:
+          'Aucun enregistrement permanent. Tampon de diffusion inférieur à deux minutes et journaux techniques conservés 24 heures maximum.',
+      },
+      {
+        title: 'Métadonnées Discord & activité communautaire',
+        description:
+          'Identifiants Discord, pseudonymes, états vocaux, temps de présence et statistiques de participation générés pendant les sessions.',
+        usage:
+          'Affichage des participants, génération des classements, lutte contre le spam et modération communautaire.',
+        retention:
+          'Historique agrégé conservé douze mois pour les classements ; anonymisation ou suppression des identifiants 30 jours après départ du serveur.',
+      },
+      {
+        title: 'Statistiques d’écoute et journaux techniques',
+        description:
+          'Adresse IP tronquée, agent utilisateur, date de connexion et compteurs d’audience collectés par nos serveurs.',
+        usage:
+          'Mesure d’audience, équilibrage de charge, sécurité réseau et détection d’utilisation frauduleuse.',
+        retention:
+          'Journaux bruts stockés 30 jours maximum ; agrégats statistiques anonymisés conservés jusqu’à 24 mois.',
+      },
+      {
+        title: 'Formulaires, boutique & support',
+        description:
+          'Nom, alias, coordonnées, commandes et contenus soumis via la boutique, le blog ou les canaux de contact.',
+        usage:
+          'Traitement des demandes, suivi de commande, assistance et obligations comptables ou légales.',
+        retention:
+          'Données contractuelles conservées jusqu’à cinq ans ; brouillons rejetés supprimés sous six mois ; suppression accélérée sur demande légitime.',
+      },
+      {
+        title: 'Préférences locales & cookies fonctionnels',
+        description:
+          'Réglages de volume, choix du thème et état de connexion administrateur stockés sur ton appareil.',
+        usage:
+          'Assurer le confort d’écoute, maintenir la session sécurisée et mémoriser les préférences de navigation.',
+        retention:
+          'Stockage local conservé sur ton appareil ; cookies fonctionnels expirent au plus tard après douze mois.',
+      },
+    ];
+    const finalities = [
+      'Diffuser un flux audio communautaire conforme aux règles Discord et au droit français.',
+      'Fournir des outils de modération, de statistiques et de découverte de talents à la communauté.',
+      'Garantir la sécurité des infrastructures et prévenir les abus ou tentatives de fraude.',
+      'Respecter les obligations légales en matière de facturation, de conservation comptable et de réponse aux autorités compétentes.',
+    ];
+    const conservationRules = [
+      'Données audio et préférences locales : uniquement le temps nécessaire à la diffusion en direct ou à l’usage de ton navigateur.',
+      'Historique de participation et classements : conservation maximale de douze mois, avec anonymisation progressive au-delà.',
+      'Logs techniques et métriques d’audience : conservation inférieure ou égale à trente jours, agrégats anonymisés jusqu’à vingt-quatre mois.',
+      'Documents contractuels et commandes : conservation légale de cinq ans, puis archivage sécurisé ou suppression.',
+    ];
+    const rights = [
+      'Accès, rectification, effacement : écris-nous pour consulter ou corriger les informations liées à ton compte Discord ou à une commande.',
+      'Limitation et opposition : tu peux demander la suspension des statistiques te concernant ou t’opposer au traitement marketing.',
+      'Portabilité : sur demande, nous exportons les données structurées liées à tes interactions lorsqu’elles sont techniquement disponibles.',
+      'Retrait du consentement : les préférences facultatives (cookies analytiques, newsletter) peuvent être retirées à tout moment.',
+      'Réclamation : tu peux contacter l’autorité de contrôle compétente (CNIL) si tu estimes que tes droits ne sont pas respectés.',
+    ];
+    const contacts = [
+      'Salon #support sur Discord pour les demandes rapides liées au direct.',
+      'Adresse dédiée : privacy@libre-antenne.xyz pour toute question relative aux données ou à la modération.',
+      'Courrier postal sur demande pour les requêtes nécessitant une identification renforcée.',
+    ];
+
+    parts.push('<div class="cgu-page flex flex-col gap-10">');
+    parts.push(
+      '<article class="space-y-6 rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/40 backdrop-blur-xl">',
+    );
+    parts.push('<p class="text-xs uppercase tracking-[0.35em] text-slate-300">Libre Antenne</p>');
+    parts.push(
+      '<h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">Conditions générales d’utilisation & gestion des données</h1>',
+    );
+    parts.push(
+      '<p class="text-base leading-relaxed text-slate-200">Libre Antenne est un service communautaire de diffusion audio en direct. L’accès au flux, aux salons Discord associés et aux outils proposés implique l’acceptation pleine et entière des présentes conditions générales d’utilisation (CGU).</p>',
+    );
+    parts.push(
+      '<p class="text-base leading-relaxed text-slate-200">En rejoignant la communauté, tu reconnais que chaque intervenant reste responsable de ses propos, que l’équipe de modération peut intervenir pour préserver un espace sûr, et que des traitements techniques sont nécessaires pour assurer la diffusion et la sécurité du service.</p>',
+    );
+    parts.push('<ul class="list-disc space-y-2 pl-6 text-sm text-slate-200">');
+    for (const item of obligations) {
+      parts.push(`<li>${this.escapeHtml(item)}</li>`);
+    }
+    parts.push('</ul>');
+    parts.push('</article>');
+
+    parts.push('<section class="grid gap-6 md:grid-cols-2">');
+    for (const category of dataCategories) {
+      parts.push(
+        '<article class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">',
+      );
+      parts.push(`<h2 class="text-xl font-semibold text-white">${this.escapeHtml(category.title)}</h2>`);
+      parts.push(`<p class="mt-3 text-sm leading-relaxed text-slate-300">${this.escapeHtml(category.description)}</p>`);
+      parts.push('<dl class="mt-4 space-y-2 text-sm text-slate-300">');
+      parts.push('<div>');
+      parts.push('<dt class="font-semibold text-slate-200">Finalité principale</dt>');
+      parts.push(`<dd>${this.escapeHtml(category.usage)}</dd>`);
+      parts.push('</div>');
+      parts.push('<div>');
+      parts.push('<dt class="font-semibold text-slate-200">Durée de conservation</dt>');
+      parts.push(`<dd>${this.escapeHtml(category.retention)}</dd>`);
+      parts.push('</div>');
+      parts.push('</dl>');
+      parts.push('</article>');
+    }
+    parts.push('</section>');
+
+    parts.push('<section class="grid gap-6 lg:grid-cols-2">');
+    parts.push(
+      '<div class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/30 backdrop-blur">',
+    );
+    parts.push('<h2 class="text-lg font-semibold text-white">Finalités & bases légales</h2>');
+    parts.push('<ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-300">');
+    for (const item of finalities) {
+      parts.push(`<li>${this.escapeHtml(item)}</li>`);
+    }
+    parts.push('</ul>');
+    parts.push('</div>');
+    parts.push(
+      '<div class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/30 backdrop-blur">',
+    );
+    parts.push('<h2 class="text-lg font-semibold text-white">Durées de conservation</h2>');
+    parts.push('<ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-300">');
+    for (const item of conservationRules) {
+      parts.push(`<li>${this.escapeHtml(item)}</li>`);
+    }
+    parts.push('</ul>');
+    parts.push('</div>');
+    parts.push('</section>');
+
+    parts.push('<section class="grid gap-6 lg:grid-cols-2">');
+    parts.push(
+      '<div class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/30 backdrop-blur">',
+    );
+    parts.push('<h2 class="text-lg font-semibold text-white">Tes droits</h2>');
+    parts.push('<ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-300">');
+    for (const item of rights) {
+      parts.push(`<li>${this.escapeHtml(item)}</li>`);
+    }
+    parts.push('</ul>');
+    parts.push('</div>');
+    parts.push(
+      '<div class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/30 backdrop-blur">',
+    );
+    parts.push('<h2 class="text-lg font-semibold text-white">Nous contacter</h2>');
+    parts.push(
+      '<p class="text-sm leading-relaxed text-slate-300">Notre équipe traite chaque requête dans un délai raisonnable (moins de 30 jours pour les demandes liées aux données personnelles). Identifie-toi clairement afin que nous puissions t’accompagner en toute sécurité.</p>',
+    );
+    parts.push('<ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-300">');
+    for (const item of contacts) {
+      parts.push(`<li>${this.escapeHtml(item)}</li>`);
+    }
+    parts.push('</ul>');
+    parts.push('</div>');
+    parts.push('</section>');
+
+    parts.push('<p class="text-xs uppercase tracking-[0.25em] text-slate-500">Dernière mise à jour : 4 novembre 2024</p>');
+    parts.push('</div>');
+
+    return parts.join('');
+  }
+
   private normalizeClassementLeader(leader: HypeLeaderWithTrend, index: number): ClassementLeaderBootstrap {
     const rank = Number.isFinite(leader.rank) ? Math.max(1, Math.floor(Number(leader.rank))) : index + 1;
     const absoluteRank = Number.isFinite(leader.absoluteRank)
@@ -4578,6 +4757,51 @@ export default class AppServer {
       const appHtml = this.buildAboutPageHtml();
       const preloadState: AppPreloadState = {
         route: { name: 'about', params: {} },
+      };
+      this.respondWithAppShell(res, metadata, { appHtml, preloadState });
+    });
+
+    this.app.get('/cgu', (_req, res) => {
+      const metadata: SeoPageMetadata = {
+        title: `${this.config.siteName} · Conditions générales d’utilisation & politique de données`,
+        description:
+          'Consulte les règles d’utilisation de Libre Antenne, la gestion des données audio Discord, des statistiques et de la boutique.',
+        path: '/cgu',
+        canonicalUrl: this.toAbsoluteUrl('/cgu'),
+        keywords: this.combineKeywords(
+          this.config.siteName,
+          'conditions générales d’utilisation',
+          'politique de confidentialité',
+          'données Discord',
+          'radio libre',
+        ),
+        openGraphType: 'website',
+        breadcrumbs: [
+          { name: 'Accueil', path: '/' },
+          { name: 'Conditions générales', path: '/cgu' },
+        ],
+        structuredData: [
+          {
+            '@context': 'https://schema.org',
+            '@type': 'TermsOfService',
+            name: `Conditions générales – ${this.config.siteName}`,
+            description:
+              'Conditions générales d’utilisation, informations sur la collecte de données et droits des membres de Libre Antenne.',
+            url: this.toAbsoluteUrl('/cgu'),
+            inLanguage: this.config.siteLanguage,
+            provider: {
+              '@type': 'Organization',
+              name: this.config.siteName,
+              url: this.config.publicBaseUrl,
+            },
+            dateModified: '2024-11-04',
+          },
+        ],
+      };
+
+      const appHtml = this.buildCguPageHtml();
+      const preloadState: AppPreloadState = {
+        route: { name: 'cgu', params: {} },
       };
       this.respondWithAppShell(res, metadata, { appHtml, preloadState });
     });
