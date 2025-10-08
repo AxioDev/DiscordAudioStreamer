@@ -7,8 +7,6 @@ import {
   useMemo,
   useRef,
   useState,
-  Chart,
-  THREE,
   Activity,
   AlertCircle,
   AudioLines,
@@ -44,6 +42,8 @@ import {
   VolumeX,
   X,
 } from '../core/deps.js';
+import { loadChart } from '../core/chart-loader.js';
+import { loadThree } from '../core/three-loader.js';
 import {
   STATUS_LABELS,
   TALK_WINDOW_OPTIONS,
@@ -64,10 +64,6 @@ import {
   mergeProfiles,
   parseRouteFromLocation,
 } from '../utils/index.js';
-
-Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
-Chart.defaults.color = '#e2e8f0';
-Chart.defaults.borderColor = 'rgba(148, 163, 184, 0.25)';
 
 const StatusBadge = ({ status, className = '' }) => {
   const config = STATUS_LABELS[status] ?? STATUS_LABELS.connecting;
@@ -3153,26 +3149,58 @@ const ProfileActivityTimeline = ({
     },
   }), [granularityConfig, chartState.labels]);
 
+  const latestOptionsRef = useRef(chartOptions);
+  useEffect(() => {
+    latestOptionsRef.current = chartOptions;
+  }, [chartOptions]);
+
+  const latestStateRef = useRef(chartState);
+  useEffect(() => {
+    latestStateRef.current = chartState;
+  }, [chartState]);
+
   useEffect(() => {
     if (!canvasRef.current || typeof window === 'undefined') {
       return undefined;
     }
-    if (chartRef.current) {
-      return undefined;
-    }
-    const context = canvasRef.current.getContext('2d');
-    if (!context) {
-      return undefined;
-    }
-    const chart = new Chart(context, {
-      type: 'bar',
-      data: { labels: [], datasets: [] },
-      options: chartOptions,
-    });
-    chartRef.current = chart;
+
+    let isActive = true;
+
+    const mountChart = async () => {
+      try {
+        const Chart = await loadChart();
+        if (!isActive || chartRef.current || !canvasRef.current) {
+          return;
+        }
+        const context = canvasRef.current.getContext('2d');
+        if (!context) {
+          return;
+        }
+        const chart = new Chart(context, {
+          type: 'bar',
+          data: { labels: [], datasets: [] },
+          options: latestOptionsRef.current,
+        });
+        chartRef.current = chart;
+        const latestState = latestStateRef.current;
+        if (latestState) {
+          chart.data.labels = latestState.labels;
+          chart.data.datasets = latestState.datasets;
+        }
+        chart.update('none');
+      } catch (error) {
+        console.error('Failed to load chart library', error);
+      }
+    };
+
+    mountChart();
+
     return () => {
-      chart.destroy();
-      chartRef.current = null;
+      isActive = false;
+      if (chartRef.current) {
+        chartRef.current.destroy();
+        chartRef.current = null;
+      }
     };
   }, []);
 
@@ -3693,254 +3721,299 @@ const DailyBreakdown = ({
   `;
 };
 
+const initializeBeerCanScene = (THREE, container) => {
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 20);
+  camera.position.set(0, 0, 4);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  const setRendererSize = () => {
+    const width = container.clientWidth || 1;
+    const height = container.clientHeight || 1;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(width, height, false);
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+  };
+
+  renderer.domElement.style.width = '100%';
+  renderer.domElement.style.height = '100%';
+  renderer.domElement.style.display = 'block';
+
+  container.innerHTML = '';
+  container.appendChild(renderer.domElement);
+  container.style.touchAction = 'none';
+  container.style.cursor = 'grab';
+
+  const ambientLight = new THREE.AmbientLight(0xffffff, 1.1);
+  scene.add(ambientLight);
+
+  const keyLight = new THREE.DirectionalLight(0xf8fafc, 1.35);
+  keyLight.position.set(1.5, 2.5, 2.5);
+  keyLight.castShadow = false;
+  scene.add(keyLight);
+
+  const rimLight = new THREE.PointLight(0x6366f1, 1.2, 8, 2);
+  rimLight.position.set(-2.5, 1.2, -1.5);
+  scene.add(rimLight);
+
+  const fillLight = new THREE.PointLight(0x38bdf8, 1.1, 10, 2);
+  fillLight.position.set(2.5, -0.8, 2.0);
+  scene.add(fillLight);
+
+  const glowLight = new THREE.PointLight(0xa855f7, 1.4, 6, 2.5);
+  glowLight.position.set(0.8, 2.8, 2.8);
+  scene.add(glowLight);
+
+  const canGroup = new THREE.Group();
+  scene.add(canGroup);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+    gradient.addColorStop(0, '#38bdf8');
+    gradient.addColorStop(0.5, '#a855f7');
+    gradient.addColorStop(1, '#f97316');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(60, 60, canvas.width - 120, canvas.height - 120);
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 120px "Inter", system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Libre', canvas.width / 2, canvas.height / 2 - 70);
+    ctx.fillText('Antenne', canvas.width / 2, canvas.height / 2 + 70);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    ctx.font = '36px "Inter", system-ui';
+    ctx.fillText('Radio Libre', canvas.width / 2, canvas.height / 2 + 150);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.anisotropy = 16;
+  texture.rotation = Math.PI / 2;
+  texture.wrapS = THREE.MirroredRepeatWrapping;
+  texture.wrapT = THREE.MirroredRepeatWrapping;
+
+  const canGeometry = new THREE.CylinderGeometry(0.6, 0.6, 2, 128, 1, false);
+  const sideMaterial = new THREE.MeshStandardMaterial({
+    map: texture,
+    metalness: 0.65,
+    roughness: 0.35,
+    emissive: new THREE.Color(0x1e3a8a).multiplyScalar(0.18),
+  });
+  const topMaterial = new THREE.MeshStandardMaterial({
+    color: 0xe2e8f0,
+    metalness: 0.85,
+    roughness: 0.18,
+    emissive: new THREE.Color(0x312e81).multiplyScalar(0.22),
+  });
+  const canMesh = new THREE.Mesh(canGeometry, [sideMaterial, topMaterial, topMaterial]);
+  canGroup.add(canMesh);
+
+  const lipGeometry = new THREE.TorusGeometry(0.58, 0.025, 22, 100);
+  const lipMaterial = new THREE.MeshStandardMaterial({
+    color: 0xf1f5f9,
+    metalness: 0.9,
+    roughness: 0.2,
+  });
+  const topLip = new THREE.Mesh(lipGeometry, lipMaterial);
+  topLip.position.y = 1;
+  topLip.rotation.x = Math.PI / 2;
+  canGroup.add(topLip);
+  const bottomLip = topLip.clone();
+  bottomLip.position.y = -1;
+  canGroup.add(bottomLip);
+
+  const topCapGeometry = new THREE.CircleGeometry(0.35, 48);
+  const topCapMaterial = new THREE.MeshStandardMaterial({
+    color: 0xcbd5f5,
+    metalness: 0.95,
+    roughness: 0.28,
+  });
+  const topCap = new THREE.Mesh(topCapGeometry, topCapMaterial);
+  topCap.position.y = 1.01;
+  topCap.rotation.x = -Math.PI / 2;
+  canGroup.add(topCap);
+
+  const waveGroup = new THREE.Group();
+  waveGroup.position.y = -0.15;
+  scene.add(waveGroup);
+
+  const waveMeshes = [];
+  const waveMaterials = [];
+  const waveGeometries = [];
+  for (let index = 0; index < 3; index += 1) {
+    const innerRadius = 0.75 + index * 0.03;
+    const ringGeometry = new THREE.RingGeometry(innerRadius, innerRadius + 0.02, 128);
+    const ringMaterial = new THREE.MeshBasicMaterial({
+      color: index % 2 === 0 ? 0x60a5fa : 0xa855f7,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
+    ringMesh.rotation.x = Math.PI / 2;
+    waveGroup.add(ringMesh);
+    waveMeshes.push(ringMesh);
+    waveMaterials.push(ringMaterial);
+    waveGeometries.push(ringGeometry);
+  }
+
+  const particleCount = 180;
+  const particleGeometry = new THREE.BufferGeometry();
+  const particlePositions = new Float32Array(particleCount * 3);
+  const particleSpeeds = new Float32Array(particleCount);
+  for (let index = 0; index < particleCount; index += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const radius = 0.35 + Math.random() * 0.6;
+    const height = (Math.random() - 0.3) * 1.2;
+    particlePositions[index * 3] = Math.cos(angle) * radius;
+    particlePositions[index * 3 + 1] = height;
+    particlePositions[index * 3 + 2] = Math.sin(angle) * radius;
+    particleSpeeds[index] = 0.00035 + Math.random() * 0.00055;
+  }
+  particleGeometry.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+
+  const particleMaterial = new THREE.PointsMaterial({
+    color: 0x7c3aed,
+    size: 0.06,
+    transparent: true,
+    opacity: 0.85,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    sizeAttenuation: true,
+  });
+  const particles = new THREE.Points(particleGeometry, particleMaterial);
+  particles.position.y = -0.2;
+  scene.add(particles);
+
+  const defaultRotation = { x: 0.35, y: -0.4 };
+  const targetRotation = { ...defaultRotation };
+  const currentRotation = { ...defaultRotation };
+  canGroup.rotation.set(defaultRotation.x, defaultRotation.y, 0);
+
+  const updateRotationFromPointer = (clientX, clientY) => {
+    const rect = container.getBoundingClientRect();
+    const relativeX = (clientX - rect.left) / rect.width - 0.5;
+    const relativeY = (clientY - rect.top) / rect.height - 0.5;
+    targetRotation.y = THREE.MathUtils.clamp(relativeX * 1.2, -1.1, 1.1);
+    targetRotation.x = THREE.MathUtils.clamp(defaultRotation.x - relativeY * 1.2, -0.2, 0.85);
+  };
+
+  const handlePointerMove = (event) => {
+    if (event.isPrimary === false) {
+      return;
+    }
+    updateRotationFromPointer(event.clientX, event.clientY);
+  };
+
+  window.addEventListener('pointermove', handlePointerMove);
+
+  const handleResize = () => {
+    setRendererSize();
+  };
+  handleResize();
+  window.addEventListener('resize', handleResize);
+
+  let animationFrameId = 0;
+  const startTime = performance.now();
+  const animate = (time) => {
+    animationFrameId = requestAnimationFrame(animate);
+    currentRotation.x += (targetRotation.x - currentRotation.x) * 0.075;
+    currentRotation.y += (targetRotation.y - currentRotation.y) * 0.075;
+    canGroup.rotation.x = currentRotation.x + Math.sin(time * 0.00045) * 0.05;
+    canGroup.rotation.y = currentRotation.y + Math.cos(time * 0.00035) * 0.04;
+    canGroup.position.y = Math.sin(time * 0.0006) * 0.05;
+
+    const elapsed = time - startTime;
+    waveMeshes.forEach((mesh, index) => {
+      const material = waveMaterials[index];
+      const progress = ((elapsed / 1800 + index / waveMeshes.length) % 1 + 1) % 1;
+      const scale = 1 + progress * 1.85;
+      mesh.scale.setScalar(scale);
+      material.opacity = 0.65 * (1 - progress);
+    });
+
+    const positions = particleGeometry.attributes.position.array;
+    for (let index = 0; index < particleCount; index += 1) {
+      const yIndex = index * 3 + 1;
+      positions[yIndex] += particleSpeeds[index] * Math.max(1, 1 + Math.sin(time * 0.0015));
+      if (positions[yIndex] > 1.6) {
+        positions[yIndex] = -0.8 + Math.random() * 0.4;
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 0.35 + Math.random() * 0.6;
+        positions[index * 3] = Math.cos(angle) * radius;
+        positions[index * 3 + 2] = Math.sin(angle) * radius;
+      }
+    }
+    particleGeometry.attributes.position.needsUpdate = true;
+
+    const pulse = 0.9 + Math.sin(time * 0.0012) * 0.25;
+    rimLight.intensity = 0.9 * pulse;
+    fillLight.intensity = 0.75 * pulse + 0.55;
+    glowLight.intensity = 1.1 * pulse;
+
+    renderer.render(scene, camera);
+  };
+  animationFrameId = requestAnimationFrame(animate);
+
+  return () => {
+    cancelAnimationFrame(animationFrameId);
+    window.removeEventListener('resize', handleResize);
+    window.removeEventListener('pointermove', handlePointerMove);
+    canGeometry.dispose();
+    lipGeometry.dispose();
+    topCapGeometry.dispose();
+    sideMaterial.dispose();
+    topMaterial.dispose();
+    lipMaterial.dispose();
+    topCapMaterial.dispose();
+    waveGeometries.forEach((geometry) => geometry.dispose());
+    waveMaterials.forEach((material) => material.dispose());
+    particleGeometry.dispose();
+    particleMaterial.dispose();
+    texture?.dispose?.();
+    renderer.dispose();
+    container.style.touchAction = '';
+    container.style.cursor = '';
+    container.innerHTML = '';
+  };
+};
+
 const BeerCanDisplay = () => {
   const containerRef = useRef(null);
 
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) {
+    if (!containerRef.current) {
       return undefined;
     }
 
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 20);
-    camera.position.set(0, 0, 4);
+    let cleanup = () => {};
+    let isMounted = true;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    const setRendererSize = () => {
-      const width = container.clientWidth || 1;
-      const height = container.clientHeight || 1;
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-      renderer.setSize(width, height, false);
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-    };
-
-    renderer.domElement.style.width = '100%';
-    renderer.domElement.style.height = '100%';
-    renderer.domElement.style.display = 'block';
-
-    container.innerHTML = '';
-    container.appendChild(renderer.domElement);
-    container.style.touchAction = 'none';
-    container.style.cursor = 'grab';
-
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.1);
-    scene.add(ambientLight);
-
-    const keyLight = new THREE.DirectionalLight(0xf8fafc, 1.35);
-    keyLight.position.set(3.5, 4.5, 5);
-    scene.add(keyLight);
-
-    const rimLight = new THREE.PointLight(0x6366f1, 1.2, 8, 2);
-    rimLight.position.set(-4, -3, -2);
-    scene.add(rimLight);
-
-    const fillLight = new THREE.PointLight(0x38bdf8, 1.1, 10, 2);
-    fillLight.position.set(-1.5, 1.8, 3.5);
-    scene.add(fillLight);
-
-    const glowLight = new THREE.PointLight(0xa855f7, 1.4, 6, 2.5);
-    glowLight.position.set(0, 0.4, 2.8);
-    scene.add(glowLight);
-
-    const canGroup = new THREE.Group();
-    scene.add(canGroup);
-
-    const canGeometry = new THREE.CylinderGeometry(0.6, 0.6, 2, 128, 1, false);
-    const canTexture = createBeerCanTexture();
-    if (canTexture) {
-      canTexture.wrapS = THREE.RepeatWrapping;
-      canTexture.wrapT = THREE.ClampToEdgeWrapping;
-      canTexture.repeat.x = 1;
-      canTexture.anisotropy = renderer.capabilities.getMaxAnisotropy?.() ?? canTexture.anisotropy;
-    }
-    const sideMaterial = new THREE.MeshStandardMaterial({
-      map: canTexture || undefined,
-      color: canTexture ? 0xffffff : 0x1e293b,
-      emissive: new THREE.Color(0x1e3a8a).multiplyScalar(0.18),
-      metalness: 0.72,
-      roughness: 0.22,
-      envMapIntensity: 1.2,
-    });
-    const topMaterial = new THREE.MeshStandardMaterial({
-      color: 0xe2e8f0,
-      metalness: 0.95,
-      roughness: 0.18,
-      emissive: new THREE.Color(0x312e81).multiplyScalar(0.22),
-    });
-    const canMesh = new THREE.Mesh(canGeometry, [sideMaterial, topMaterial, topMaterial]);
-    canGroup.add(canMesh);
-
-    const lipGeometry = new THREE.TorusGeometry(0.58, 0.025, 22, 100);
-    const lipMaterial = new THREE.MeshStandardMaterial({
-      color: 0xf1f5f9,
-      metalness: 0.9,
-      roughness: 0.2,
-    });
-    const topLip = new THREE.Mesh(lipGeometry, lipMaterial);
-    topLip.position.y = 1;
-    topLip.rotation.x = Math.PI / 2;
-    canGroup.add(topLip);
-    const bottomLip = topLip.clone();
-    bottomLip.position.y = -1;
-    canGroup.add(bottomLip);
-
-    const topCapGeometry = new THREE.CircleGeometry(0.35, 48);
-    const topCapMaterial = new THREE.MeshStandardMaterial({
-      color: 0xcbd5f5,
-      metalness: 0.95,
-      roughness: 0.28,
-    });
-    const topCap = new THREE.Mesh(topCapGeometry, topCapMaterial);
-    topCap.position.y = 1.01;
-    topCap.rotation.x = -Math.PI / 2;
-    canGroup.add(topCap);
-
-    const waveGroup = new THREE.Group();
-    waveGroup.position.y = -0.15;
-    scene.add(waveGroup);
-
-    const waveMeshes = [];
-    const waveMaterials = [];
-    const waveGeometries = [];
-    for (let index = 0; index < 3; index += 1) {
-      const innerRadius = 0.75 + index * 0.03;
-      const ringGeometry = new THREE.RingGeometry(innerRadius, innerRadius + 0.02, 128);
-      const ringMaterial = new THREE.MeshBasicMaterial({
-        color: index % 2 === 0 ? 0x60a5fa : 0xa855f7,
-        transparent: true,
-        opacity: 0,
-        blending: THREE.AdditiveBlending,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      });
-      const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
-      ringMesh.rotation.x = Math.PI / 2;
-      waveGroup.add(ringMesh);
-      waveMeshes.push(ringMesh);
-      waveMaterials.push(ringMaterial);
-      waveGeometries.push(ringGeometry);
-    }
-
-    const particleCount = 180;
-    const particleGeometry = new THREE.BufferGeometry();
-    const particlePositions = new Float32Array(particleCount * 3);
-    const particleSpeeds = new Float32Array(particleCount);
-    for (let index = 0; index < particleCount; index += 1) {
-      const angle = Math.random() * Math.PI * 2;
-      const radius = 0.35 + Math.random() * 0.6;
-      const height = (Math.random() - 0.3) * 1.2;
-      particlePositions[index * 3] = Math.cos(angle) * radius;
-      particlePositions[index * 3 + 1] = height;
-      particlePositions[index * 3 + 2] = Math.sin(angle) * radius;
-      particleSpeeds[index] = 0.00035 + Math.random() * 0.00055;
-    }
-    particleGeometry.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
-
-    const particleMaterial = new THREE.PointsMaterial({
-      color: 0x7c3aed,
-      size: 0.06,
-      transparent: true,
-      opacity: 0.85,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      sizeAttenuation: true,
-    });
-    const particles = new THREE.Points(particleGeometry, particleMaterial);
-    particles.position.y = -0.2;
-    scene.add(particles);
-
-    const defaultRotation = { x: 0.35, y: -0.4 };
-    const targetRotation = { ...defaultRotation };
-    const currentRotation = { ...defaultRotation };
-    canGroup.rotation.set(defaultRotation.x, defaultRotation.y, 0);
-
-    const updateRotationFromPointer = (clientX, clientY) => {
-      const rect = container.getBoundingClientRect();
-      const relativeX = (clientX - rect.left) / rect.width - 0.5;
-      const relativeY = (clientY - rect.top) / rect.height - 0.5;
-      targetRotation.y = THREE.MathUtils.clamp(relativeX * 1.2, -1.1, 1.1);
-      targetRotation.x = THREE.MathUtils.clamp(defaultRotation.x - relativeY * 1.2, -0.2, 0.85);
-    };
-
-    const handlePointerMove = (event) => {
-      if (event.isPrimary === false) {
-        return;
-      }
-      updateRotationFromPointer(event.clientX, event.clientY);
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-
-    const handleResize = () => {
-      setRendererSize();
-    };
-    handleResize();
-    window.addEventListener('resize', handleResize);
-
-    let animationFrameId = 0;
-    const startTime = performance.now();
-    const animate = (time) => {
-      animationFrameId = requestAnimationFrame(animate);
-      currentRotation.x += (targetRotation.x - currentRotation.x) * 0.075;
-      currentRotation.y += (targetRotation.y - currentRotation.y) * 0.075;
-      canGroup.rotation.x = currentRotation.x + Math.sin(time * 0.00045) * 0.05;
-      canGroup.rotation.y = currentRotation.y + Math.cos(time * 0.00035) * 0.04;
-      canGroup.position.y = Math.sin(time * 0.0006) * 0.05;
-
-      const elapsed = time - startTime;
-      waveMeshes.forEach((mesh, index) => {
-        const material = waveMaterials[index];
-        const progress = ((elapsed / 1800 + index / waveMeshes.length) % 1 + 1) % 1;
-        const scale = 1 + progress * 1.85;
-        mesh.scale.setScalar(scale);
-        material.opacity = 0.65 * (1 - progress);
-      });
-
-      const positions = particleGeometry.attributes.position.array;
-      for (let index = 0; index < particleCount; index += 1) {
-        const yIndex = index * 3 + 1;
-        positions[yIndex] += particleSpeeds[index] * Math.max(1, 1 + Math.sin(time * 0.0015));
-        if (positions[yIndex] > 1.6) {
-          positions[yIndex] = -0.8 + Math.random() * 0.4;
-          const angle = Math.random() * Math.PI * 2;
-          const radius = 0.35 + Math.random() * 0.6;
-          positions[index * 3] = Math.cos(angle) * radius;
-          positions[index * 3 + 2] = Math.sin(angle) * radius;
+    loadThree()
+      .then((THREE) => {
+        if (!isMounted) {
+          return;
         }
-      }
-      particleGeometry.attributes.position.needsUpdate = true;
-
-      const pulse = 0.9 + Math.sin(time * 0.0012) * 0.25;
-      rimLight.intensity = 0.9 * pulse;
-      fillLight.intensity = 0.75 * pulse + 0.55;
-      glowLight.intensity = 1.1 * pulse;
-
-      renderer.render(scene, camera);
-    };
-    animationFrameId = requestAnimationFrame(animate);
+        const target = containerRef.current;
+        if (!target) {
+          return;
+        }
+        cleanup = initializeBeerCanScene(THREE, target);
+      })
+      .catch((error) => {
+        console.error('Failed to load 3D renderer', error);
+      });
 
     return () => {
-      cancelAnimationFrame(animationFrameId);
-      window.removeEventListener('resize', handleResize);
-      window.removeEventListener('pointermove', handlePointerMove);
-      canGeometry.dispose();
-      lipGeometry.dispose();
-      topCapGeometry.dispose();
-      sideMaterial.dispose();
-      topMaterial.dispose();
-      lipMaterial.dispose();
-      topCapMaterial.dispose();
-      waveGeometries.forEach((geometry) => geometry.dispose());
-      waveMaterials.forEach((material) => material.dispose());
-      particleGeometry.dispose();
-      particleMaterial.dispose();
-      canTexture?.dispose?.();
-      renderer.dispose();
-      container.style.touchAction = '';
-      container.style.cursor = '';
-      container.innerHTML = '';
+      isMounted = false;
+      cleanup();
     };
   }, []);
 

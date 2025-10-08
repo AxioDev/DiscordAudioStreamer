@@ -8,9 +8,6 @@ import {
   useState,
 } from 'preact/hooks';
 import htm from 'htm';
-import Chart from 'chart.js/auto';
-import * as THREE from 'three';
-import { marked } from 'marked';
 import {
   Activity,
   AlertCircle,
@@ -62,8 +59,6 @@ export {
   useMemo,
   useRef,
   useState,
-  Chart,
-  THREE,
   Activity,
   AlertCircle,
   AudioLines,
@@ -98,5 +93,4 @@ export {
   Volume2,
   VolumeX,
   X,
-  marked,
 };

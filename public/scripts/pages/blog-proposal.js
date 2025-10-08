@@ -4,11 +4,11 @@ import {
   useEffect,
   useMemo,
   useState,
-  marked,
   ArrowLeft,
   AlertCircle,
   Sparkles,
 } from '../core/deps.js';
+import { loadMarkdownRenderer } from '../core/markdown-loader.js';
 
 const initialFormState = {
   title: '',
@@ -111,6 +111,23 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
   const [form, setForm] = useState(initialFormState);
   const [formErrors, setFormErrors] = useState({});
   const [status, setStatus] = useState({ submitting: false, success: false, message: '', reference: null });
+  const [markdownRenderer, setMarkdownRenderer] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    loadMarkdownRenderer()
+      .then((renderer) => {
+        if (isMounted) {
+          setMarkdownRenderer(() => renderer);
+        }
+      })
+      .catch((error) => {
+        console.error('Markdown renderer failed to load', error);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     document.title = 'Proposer un article · Libre Antenne';
@@ -148,13 +165,22 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
     if (!content) {
       return '<p class="text-sm text-slate-400">Commence à écrire ton article en Markdown pour voir l’aperçu.</p>';
     }
+    if (!markdownRenderer) {
+      return '<p class="text-sm text-slate-400">Chargement du rendu Markdown…</p>';
+    }
     try {
-      return marked.parse(content);
+      if (typeof markdownRenderer.parse === 'function') {
+        return markdownRenderer.parse(content);
+      }
+      if (typeof markdownRenderer === 'function') {
+        return markdownRenderer(content);
+      }
+      return String(content);
     } catch (error) {
       console.warn('Impossible de générer la prévisualisation Markdown', error);
       return '<p class="text-sm text-rose-200">Impossible de générer un aperçu pour le moment.</p>';
     }
-  }, [form.contentMarkdown]);
+  }, [form.contentMarkdown, markdownRenderer]);
 
   const handleInputChange = useCallback((field) => (event) => {
     const value = event.target.value;
