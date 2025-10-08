@@ -8,7 +8,7 @@ import {
 } from '../core/deps.js';
 import {
   StatusBadge,
-  BeerCanDisplay,
+  MicrophoneDisplay,
   AudioPlayer,
   DailyActivityChart,
   RealTimeTalkChart,
@@ -193,7 +193,7 @@ const HomePage = ({
             </div>
           </div>
         </div>
-        <${BeerCanDisplay} />
+        <${MicrophoneDisplay} />
       </div>
     </section>
 
