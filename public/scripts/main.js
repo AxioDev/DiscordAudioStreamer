@@ -36,16 +36,22 @@ import {
   sanitizeProfile,
 } from './utils/index.js';
 import { HomePage } from './pages/home.js';
-import { MembersPage } from './pages/members.js';
-import { ShopPage } from './pages/shop.js';
-import { ProfilePage } from './pages/profile.js';
-import { BanPage } from './pages/ban.js';
-import { AboutPage } from './pages/about.js';
-import { ClassementsPage } from './pages/classements.js';
-import { StatistiquesPage } from './pages/statistiques.js';
-import { BlogPage } from './pages/blog.js';
-import { BlogProposalPage } from './pages/blog-proposal.js';
-import { CguPage } from './pages/cgu.js';
+
+const ROUTE_LOADERS = {
+  about: () => import('./pages/about.js').then((module) => module?.AboutPage ?? null),
+  ban: () => import('./pages/ban.js').then((module) => module?.BanPage ?? null),
+  blog: () => import('./pages/blog.js').then((module) => module?.BlogPage ?? null),
+  'blog-proposal': () =>
+    import('./pages/blog-proposal.js').then((module) => module?.BlogProposalPage ?? null),
+  classements: () =>
+    import('./pages/classements.js').then((module) => module?.ClassementsPage ?? null),
+  cgu: () => import('./pages/cgu.js').then((module) => module?.CguPage ?? null),
+  members: () => import('./pages/members.js').then((module) => module?.MembersPage ?? null),
+  profile: () => import('./pages/profile.js').then((module) => module?.ProfilePage ?? null),
+  shop: () => import('./pages/shop.js').then((module) => module?.ShopPage ?? null),
+  statistiques: () =>
+    import('./pages/statistiques.js').then((module) => module?.StatistiquesPage ?? null),
+};
 
 const NAV_LINKS = [
   { label: 'Accueil', route: 'home', href: '/', icon: AudioLines },
@@ -275,7 +281,147 @@ const App = () => {
     BOOTSTRAP_LISTENER_STATS ? { count: BOOTSTRAP_LISTENER_STATS.count, history: BOOTSTRAP_LISTENER_STATS.history.slice() } : { count: 0, history: [] }
   ));
   const [guildSummary, setGuildSummary] = useState(null);
+  const [asyncPages, setAsyncPages] = useState({});
   const sidebarTouchStartRef = useRef(null);
+  const asyncPagesRef = useRef(asyncPages);
+  const pendingPageLoadsRef = useRef(new Map());
+
+  useEffect(() => {
+    asyncPagesRef.current = asyncPages;
+  }, [asyncPages]);
+
+  const loadPageComponent = useCallback(
+    (name) => {
+      if (!name || !ROUTE_LOADERS[name]) {
+        return;
+      }
+      if (asyncPagesRef.current[name]) {
+        return;
+      }
+      if (pendingPageLoadsRef.current.has(name)) {
+        return;
+      }
+
+      const loader = ROUTE_LOADERS[name];
+      const promise = loader()
+        .then((component) => {
+          if (!component) {
+            return;
+          }
+          setAsyncPages((previous) => {
+            if (previous[name]) {
+              return previous;
+            }
+            return { ...previous, [name]: component };
+          });
+        })
+        .catch((error) => {
+          console.warn(`Failed to load ${name} page`, error);
+        })
+        .finally(() => {
+          pendingPageLoadsRef.current.delete(name);
+        });
+
+      pendingPageLoadsRef.current.set(name, promise);
+    },
+    [setAsyncPages],
+  );
+
+  const prefetchRoute = useCallback(
+    (name) => {
+      if (!name) {
+        return;
+      }
+      loadPageComponent(name);
+      if (name === 'blog') {
+        loadPageComponent('blog-proposal');
+      }
+    },
+    [loadPageComponent],
+  );
+
+  useEffect(() => {
+    prefetchRoute(route.name);
+  }, [route.name, prefetchRoute]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const connection =
+      navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
+    if (connection?.saveData) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const cancelers = [];
+    const schedule = (callback, delay = 0) => {
+      if (typeof window === 'undefined') {
+        return () => {};
+      }
+      if (delay > 0) {
+        const timeoutId = window.setTimeout(() => {
+          if (!cancelled) {
+            callback();
+          }
+        }, delay);
+        return () => window.clearTimeout(timeoutId);
+      }
+      if (typeof window.requestIdleCallback === 'function') {
+        const idleId = window.requestIdleCallback(
+          () => {
+            if (!cancelled) {
+              callback();
+            }
+          },
+          { timeout: 2500 },
+        );
+        return () => window.cancelIdleCallback(idleId);
+      }
+      const fallbackId = window.setTimeout(() => {
+        if (!cancelled) {
+          callback();
+        }
+      }, 600);
+      return () => window.clearTimeout(fallbackId);
+    };
+
+    const targets = [
+      'members',
+      'shop',
+      'classements',
+      'statistiques',
+      'blog',
+      'profile',
+      'ban',
+      'about',
+      'cgu',
+    ];
+
+    const startPrefetch = () => {
+      const loadNext = (index) => {
+        if (cancelled || index >= targets.length) {
+          return;
+        }
+        loadPageComponent(targets[index]);
+        cancelers.push(schedule(() => loadNext(index + 1), 360));
+      };
+      loadNext(0);
+    };
+
+    cancelers.push(schedule(startPrefetch, 1500));
+
+    return () => {
+      cancelled = true;
+      for (const cancel of cancelers) {
+        if (typeof cancel === 'function') {
+          cancel();
+        }
+      }
+    };
+  }, [loadPageComponent]);
 
   const closeMenu = useCallback(() => {
     setMenuOpen(false);
@@ -283,6 +429,7 @@ const App = () => {
 
   const navigateToRoute = useCallback(
     (name, params = {}, { replace = false, scrollToTop = false, behavior = 'smooth' } = {}) => {
+      prefetchRoute(name);
       const { descriptor, path } = normalizeRouteDescriptor(name, params);
 
       if (typeof window !== 'undefined') {
@@ -308,7 +455,7 @@ const App = () => {
         window.scrollTo({ top: 0, behavior });
       }
     },
-    [setRoute],
+    [prefetchRoute, setRoute],
   );
 
   useEffect(() => {
@@ -363,13 +510,14 @@ const App = () => {
       if (untilParam) {
         params.until = untilParam;
       }
+      prefetchRoute('profile');
       navigateToRoute('profile', params, {
         replace: options.replace ?? false,
         scrollToTop: options.scrollToTop ?? false,
         behavior: options.behavior ?? 'smooth',
       });
     },
-    [navigateToRoute],
+    [navigateToRoute, prefetchRoute],
   );
 
   const handleProfileOpen = useCallback(
@@ -904,6 +1052,7 @@ const App = () => {
     if (!link) {
       return;
     }
+    prefetchRoute(targetRoute);
     navigateToRoute(targetRoute, {}, { scrollToTop: true });
     closeMenu();
   };
@@ -918,6 +1067,22 @@ const App = () => {
     'fixed inset-y-0 left-0 z-40 flex w-[80vw] max-w-sm transform flex-col overflow-y-auto bg-slate-900/95 px-6 py-6 shadow-2xl ring-1 ring-white/10 transition-transform duration-300 ease-in-out sm:w-[70vw] md:w-[30vw] md:max-w-md lg:hidden',
     menuOpen ? 'translate-x-0' : '-translate-x-full pointer-events-none',
   ].join(' ');
+
+  const renderAsyncPage = (name, props = {}, fallback = null) => {
+    const Component = name === 'home' ? HomePage : asyncPages[name] ?? null;
+    if (Component) {
+      return html`<${Component} ...${props} />`;
+    }
+    if (ROUTE_LOADERS[name]) {
+      return (
+        fallback ??
+        html`<div class="flex min-h-[280px] items-center justify-center text-sm text-slate-400">
+          Chargement de la page…
+        </div>`
+      );
+    }
+    return null;
+  };
 
   return html`
     <div class="flex min-h-screen flex-col bg-slate-950 text-slate-100">
@@ -978,6 +1143,8 @@ const App = () => {
                 class=${[baseClasses, stateClass].join(' ')}
                 href=${href}
                 onClick=${(event) => handleNavigate(event, link.route)}
+                onMouseEnter=${() => prefetchRoute(link.route)}
+                onFocus=${() => prefetchRoute(link.route)}
                 aria-current=${isActive ? 'page' : undefined}
               >
                 ${link.label}
@@ -1065,6 +1232,9 @@ const App = () => {
                 class=${[baseClasses, stateClass].join(' ')}
                 href=${href}
                 onClick=${(event) => handleNavigate(event, link.route)}
+                onMouseEnter=${() => prefetchRoute(link.route)}
+                onFocus=${() => prefetchRoute(link.route)}
+                onTouchStart=${() => prefetchRoute(link.route)}
                 aria-current=${isActive ? 'page' : undefined}
               >
                 ${Icon ? html`<${Icon} class=${`h-5 w-5 ${iconClass}`} aria-hidden="true" />` : null}
@@ -1078,69 +1248,69 @@ const App = () => {
         <div class="mx-auto flex w-full max-w-5xl flex-col gap-10 px-4 py-10 sm:px-6 lg:px-0">
           ${
             route.name === 'cgu'
-              ? html`<${CguPage} />`
+              ? renderAsyncPage('cgu')
               : route.name === 'ban'
-              ? html`<${BanPage} />`
+              ? renderAsyncPage('ban')
               : route.name === 'about'
-              ? html`<${AboutPage} />`
+              ? renderAsyncPage('about')
               : route.name === 'blog'
-              ? html`<${BlogPage}
-                  params=${route.params}
-                  bootstrap=${BOOTSTRAP_PAGES.blog ?? null}
-                  onNavigateToPost=${(slug) =>
-                    navigateToRoute('blog', { slug }, { scrollToTop: true })}
-                  onNavigateToProposal=${() =>
-                    navigateToRoute('blog-proposal', {}, { scrollToTop: true })}
-                />`
+              ? renderAsyncPage('blog', {
+                  params: route.params,
+                  bootstrap: BOOTSTRAP_PAGES.blog ?? null,
+                  onNavigateToPost: (slug) =>
+                    navigateToRoute('blog', { slug }, { scrollToTop: true }),
+                  onNavigateToProposal: () =>
+                    navigateToRoute('blog-proposal', {}, { scrollToTop: true }),
+                })
               : route.name === 'blog-proposal'
-              ? html`<${BlogProposalPage}
-                  onNavigateToBlog=${() => navigateToRoute('blog', {}, { scrollToTop: true })}
-                />`
+              ? renderAsyncPage('blog-proposal', {
+                  onNavigateToBlog: () => navigateToRoute('blog', {}, { scrollToTop: true }),
+                })
               : route.name === 'members'
-              ? html`<${MembersPage} onViewProfile=${handleProfileOpen} />`
+              ? renderAsyncPage('members', { onViewProfile: handleProfileOpen })
               : route.name === 'shop'
-              ? html`<${ShopPage} bootstrap=${BOOTSTRAP_PAGES.shop ?? null} />`
+              ? renderAsyncPage('shop', { bootstrap: BOOTSTRAP_PAGES.shop ?? null })
               : route.name === 'profile'
-              ? html`<${ProfilePage}
-                  params=${route.params}
-                  onNavigateHome=${() => navigateToRoute('home', {}, { scrollToTop: true })}
-                  onUpdateRange=${updateProfileRoute}
-                />`
+              ? renderAsyncPage('profile', {
+                  params: route.params,
+                  onNavigateHome: () => navigateToRoute('home', {}, { scrollToTop: true }),
+                  onUpdateRange: updateProfileRoute,
+                })
               : route.name === 'statistiques'
-              ? html`<${StatistiquesPage}
-                  params=${route.params}
-                  bootstrap=${BOOTSTRAP_PAGES.statistiques ?? null}
-                  onSyncRoute=${(nextParams, options = {}) =>
+              ? renderAsyncPage('statistiques', {
+                  params: route.params,
+                  bootstrap: BOOTSTRAP_PAGES.statistiques ?? null,
+                  onSyncRoute: (nextParams, options = {}) =>
                     navigateToRoute('statistiques', nextParams, {
                       replace: true,
                       scrollToTop: options.scrollToTop ?? false,
-                    })}
-                />`
+                    }),
+                })
               : route.name === 'classements'
-              ? html`<${ClassementsPage}
-                  params=${route.params}
-                  bootstrap=${BOOTSTRAP_PAGES.classements ?? null}
-                  onSyncRoute=${(nextParams, options = {}) =>
+              ? renderAsyncPage('classements', {
+                  params: route.params,
+                  bootstrap: BOOTSTRAP_PAGES.classements ?? null,
+                  onSyncRoute: (nextParams, options = {}) =>
                     navigateToRoute('classements', nextParams, {
                       replace: true,
                       scrollToTop: options.scrollToTop ?? false,
-                    })}
-                />`
-              : html`<${HomePage}
-                  status=${status}
-                  streamInfo=${streamInfo}
-                  audioKey=${audioKey}
-                  speakers=${speakers}
-                  now=${now}
-                  anonymousSlot=${anonymousSlot}
-                  speakingHistory=${speakingHistory}
-                  isHistoryLoading=${isHistoryLoading}
-                  selectedWindowMinutes=${selectedWindowMinutes}
-                  onWindowChange=${handleWindowChange}
-                  onViewProfile=${handleProfileOpen}
-                  listenerStats=${listenerStats}
-                  guildSummary=${guildSummary}
-                />`
+                    }),
+                })
+              : renderAsyncPage('home', {
+                  status,
+                  streamInfo,
+                  audioKey,
+                  speakers,
+                  now,
+                  anonymousSlot,
+                  speakingHistory,
+                  isHistoryLoading,
+                  selectedWindowMinutes,
+                  onWindowChange: handleWindowChange,
+                  onViewProfile: handleProfileOpen,
+                  listenerStats,
+                  guildSummary,
+                })
           }
         </div>
       </main>

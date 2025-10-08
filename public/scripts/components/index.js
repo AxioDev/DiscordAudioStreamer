@@ -271,6 +271,7 @@ const SpeakerCard = ({ speaker, now, cardId, onViewProfile }) => {
                 alt=${`Avatar de ${safeDisplayName}`}
                 class="relative h-20 w-20 rounded-full border-2 border-white/70 object-cover shadow-lg shadow-fuchsia-900/30"
                 loading="lazy"
+                decoding="async"
               />`
             : html`<div class="relative flex h-20 w-20 items-center justify-center rounded-full border-2 border-white/70 bg-white/10 text-xl font-semibold text-white shadow-inner shadow-slate-950/40">
                 ${initials || '??'}
@@ -706,7 +707,13 @@ const RealTimeTalkChart = ({ history, speakers, now, selectedWindowMinutes, onWi
                       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div class="flex items-center gap-3">
                           ${item.avatar
-                            ? html`<img src=${item.avatar} alt="Avatar ${item.label}" class="h-10 w-10 rounded-full border border-white/20 object-cover" />`
+                            ? html`<img
+                                src=${item.avatar}
+                                alt="Avatar ${item.label}"
+                                class="h-10 w-10 rounded-full border border-white/20 object-cover"
+                                loading="lazy"
+                                decoding="async"
+                              />`
                             : html`<div class="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/40 text-sm font-semibold uppercase text-slate-200">
                                 ${item.label.slice(0, 2)}
                               </div>`}

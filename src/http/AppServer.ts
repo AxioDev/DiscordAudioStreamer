@@ -1,5 +1,7 @@
 import compression from 'compression';
 import express, { type Request, type Response } from 'express';
+import helmet from 'helmet';
+import minifyHTML from 'express-minify-html-terser';
 import fs from 'fs';
 import path from 'path';
 import type { Server } from 'http';
@@ -3351,6 +3353,17 @@ export default class AppServer {
   }
 
   private configureMiddleware(): void {
+    this.app.disable('x-powered-by');
+
+    this.app.use(
+      helmet({
+        contentSecurityPolicy: false,
+        crossOriginEmbedderPolicy: false,
+        crossOriginResourcePolicy: { policy: 'cross-origin' },
+        referrerPolicy: { policy: 'no-referrer-when-downgrade' },
+      }),
+    );
+
     this.app.use((req, res, next) => {
       res.header('Access-Control-Allow-Origin', '*');
       res.header('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
@@ -3382,35 +3395,65 @@ export default class AppServer {
       }),
     );
 
+    this.app.use(
+      minifyHTML({
+        override: true,
+        htmlMinifier: {
+          collapseWhitespace: true,
+          removeComments: true,
+          minifyJS: true,
+          minifyCSS: true,
+        },
+      }),
+    );
+
     this.app.use(express.json({ limit: '256kb' }));
 
     const publicDir = path.resolve(__dirname, '..', '..', 'public');
     this.app.use(
       express.static(publicDir, {
+        etag: false,
+        maxAge: '1y',
+        immutable: true,
         setHeaders(res, filePath) {
           const relativePath = path.relative(publicDir, filePath).split(path.sep).join('/');
 
-          if (relativePath.startsWith('assets/')) {
-            if (relativePath === 'assets/manifest.json') {
-              res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
-            } else {
-              res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-            }
-            return;
-          }
-
-          if (relativePath === 'sw.js') {
-            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-            return;
-          }
-
-          const extension = path.extname(filePath).toLowerCase();
-          if (extension === '.html') {
+          if (!relativePath) {
             res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
             return;
           }
 
-          res.setHeader('Cache-Control', 'public, max-age=3600');
+          if (relativePath === 'sw.js') {
+            res.setHeader('Cache-Control', 'no-store');
+            return;
+          }
+
+          if (relativePath === 'assets/manifest.json') {
+            res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
+            return;
+          }
+
+          if (relativePath.startsWith('assets/')) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+            return;
+          }
+
+          if (relativePath.startsWith('styles/') || relativePath.startsWith('scripts/')) {
+            res.setHeader('Cache-Control', 'public, max-age=86400, must-revalidate');
+            return;
+          }
+
+          if (relativePath === 'site.webmanifest' || relativePath === 'robots.txt') {
+            res.setHeader('Cache-Control', 'public, max-age=86400, must-revalidate');
+            return;
+          }
+
+          if (relativePath.endsWith('.html')) {
+            res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
+            return;
+          }
+
+          res.setHeader('Cache-Control', 'public, max-age=3600, must-revalidate');
         },
       }),
     );

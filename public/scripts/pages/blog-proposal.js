@@ -381,6 +381,7 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
                       src=${coverPreview}
                       alt="Aperçu de l’illustration"
                       loading="lazy"
+                      decoding="async"
                       class="mt-3 w-full rounded-2xl border border-slate-800/70 object-cover shadow-inner"
                     />`
                   : null}

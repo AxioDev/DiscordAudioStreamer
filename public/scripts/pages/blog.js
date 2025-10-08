@@ -82,6 +82,7 @@ const BlogCard = ({ post, onOpen, isActive }) => {
                   src=${post.coverImageUrl}
                   alt=${`Illustration de l'article ${post.title}`}
                   loading="lazy"
+                  decoding="async"
                   class="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-105"
                 />
                 <div class="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-slate-950/90 to-transparent"></div>
@@ -607,6 +608,8 @@ export const BlogPage = ({ params = {}, bootstrap = null, onNavigateToPost, onNa
                               <img
                                 src=${activePost.coverImageUrl}
                                 alt=${`Illustration de l'article ${activePost.title}`}
+                                loading="lazy"
+                                decoding="async"
                                 class="absolute inset-0 h-full w-full object-cover"
                               />
                               <div class="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-slate-950/90 to-transparent"></div>

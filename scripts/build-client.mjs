@@ -143,7 +143,7 @@ async function buildClient() {
     }
     const relative = toPosixPath(path.relative(publicDir, path.join(rootDir, outputPath)));
     const entryName = path.basename(metadata.entryPoint, path.extname(metadata.entryPoint));
-    const descriptor = { src: `/${relative}`, type: 'module' };
+    const descriptor = { src: `/${relative}`, type: 'module', defer: true };
     entryScripts[entryName] = descriptor;
     if (entryName === 'main') {
       scripts.push(descriptor);
