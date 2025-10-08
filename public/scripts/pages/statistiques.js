@@ -7,13 +7,17 @@ import {
   useRef,
   useState,
   Activity,
-  Users,
-  Clock3,
-  CalendarDays,
-  Search,
   AlertCircle,
+  CalendarDays,
+  Check,
+  ChevronDown,
+  Clock3,
   MessageSquare,
+  Mic,
   RefreshCcw,
+  Search,
+  Users,
+  X,
 } from '../core/deps.js';
 import { loadChart } from '../core/chart-loader.js';
 
@@ -45,6 +49,17 @@ const ACTIVITY_FILTERS = [
 const DEFAULT_ACTIVITY_TYPES = new Set(ACTIVITY_FILTERS.map((entry) => entry.value));
 
 const DAY_LABELS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+
+const normalizeSearch = (value) => {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value
+    .normalize('NFD')
+    .replace(/[^\p{Letter}\p{Number}\s-]/gu, '')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+};
 
 const formatInteger = (value) => {
   const numeric = Number(value);
@@ -328,6 +343,228 @@ const MetricCard = ({ icon: Icon, label, value, sublabel, trend }) => {
     </div>
     ${trendLabel
       ? html`<div class="text-right text-sm font-medium ${trendClass}">${trendLabel}</div>`
+      : null}
+  </div>`;
+};
+
+const ChannelMultiSelect = ({
+  id,
+  channels = [],
+  selectedIds = [],
+  selectedDetails = [],
+  onToggle,
+  onClear,
+}) => {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const containerRef = useRef(null);
+  const searchRef = useRef(null);
+  const panelId = id ? `${id}-panel` : undefined;
+
+  const selectedSet = useMemo(() => new Set(selectedIds.map((value) => String(value))), [selectedIds]);
+
+  const pillDetails = useMemo(() => {
+    if (selectedDetails && selectedDetails.length > 0) {
+      return selectedDetails;
+    }
+    return selectedIds.map((channelId) => ({ channelId, channelName: channelId }));
+  }, [selectedDetails, selectedIds]);
+
+  const filteredChannels = useMemo(() => {
+    if (!query) {
+      return channels;
+    }
+    const normalized = normalizeSearch(query);
+    if (!normalized) {
+      return channels;
+    }
+    return channels.filter((channel) => (channel.searchLabel ?? '').includes(normalized));
+  }, [channels, query]);
+
+  const summaryLabel = useMemo(() => {
+    if (pillDetails.length === 0) {
+      return 'Tous les salons';
+    }
+    if (pillDetails.length === 1) {
+      const channel = pillDetails[0];
+      return channel.channelName ?? `Salon ${channel.channelId}`;
+    }
+    if (pillDetails.length === 2) {
+      const [first, second] = pillDetails;
+      return `${first.channelName ?? first.channelId}, ${second.channelName ?? second.channelId}`;
+    }
+    const [first, second] = pillDetails;
+    return `${first.channelName ?? first.channelId}, ${second.channelName ?? second.channelId} +${pillDetails.length - 2}`;
+  }, [pillDetails]);
+
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+    const handleClick = (event) => {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (open && searchRef.current) {
+      searchRef.current.focus();
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      setQuery('');
+    }
+  }, [open]);
+
+  const handleSearchChange = useCallback((event) => {
+    setQuery(event?.target?.value ?? '');
+  }, []);
+
+  const handleToggleOption = useCallback(
+    (channelId) => {
+      if (typeof onToggle === 'function') {
+        onToggle(channelId);
+      }
+    },
+    [onToggle],
+  );
+
+  const handleClear = useCallback(() => {
+    if (typeof onClear === 'function') {
+      onClear();
+    }
+  }, [onClear]);
+
+  return html`<div class="space-y-3">
+    <div class="relative" ref=${containerRef}>
+      <button
+        id=${id}
+        type="button"
+        class="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-800/70 bg-slate-900/80 px-3 py-2 text-left text-sm font-medium text-slate-200 shadow-inner shadow-slate-950/30 transition hover:border-slate-600 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-300/40"
+        aria-haspopup="listbox"
+        aria-expanded=${open}
+        aria-controls=${panelId}
+        onClick=${() => setOpen((prev) => !prev)}
+      >
+        <span class="truncate">${summaryLabel}</span>
+        <${ChevronDown}
+          class=${`h-4 w-4 flex-shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
+          aria-hidden="true"
+        />
+      </button>
+      ${open
+        ? html`<div
+            id=${panelId}
+            role="listbox"
+            class="absolute left-0 right-0 top-full z-30 mt-2 w-full overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-950/95 shadow-xl shadow-slate-950/40 backdrop-blur supports-[backdrop-filter]:bg-slate-950/80"
+          >
+            <div class="border-b border-slate-800/70 bg-slate-900/60 p-3">
+              <div class="flex items-center gap-2">
+                <div class="relative flex-1">
+                  <${Search}
+                    class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+                    aria-hidden="true"
+                  />
+                  <input
+                    ref=${searchRef}
+                    type="search"
+                    placeholder="Rechercher un salon…"
+                    class="w-full rounded-lg border border-slate-700/70 bg-slate-900/90 px-9 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-300/40"
+                    value=${query}
+                    onInput=${handleSearchChange}
+                  />
+                </div>
+                ${selectedIds.length > 0
+                  ? html`<button
+                      type="button"
+                      class="whitespace-nowrap rounded-lg border border-slate-700/70 px-3 py-1 text-xs font-medium text-slate-200 transition hover:border-slate-500 hover:text-white"
+                      onClick=${handleClear}
+                    >
+                      Tout effacer
+                    </button>`
+                  : null}
+              </div>
+            </div>
+            <div class="max-h-64 overflow-y-auto py-2">
+              ${filteredChannels.length > 0
+                ? filteredChannels.map((channel) => {
+                    const active = selectedSet.has(channel.channelId);
+                    const optionLabel = channel.channelName ?? `Salon ${channel.channelId}`;
+                    const typeLabel = channel.channelType === 'voice' ? 'Vocal' : channel.channelType === 'text' ? 'Texte' : '';
+                    return html`<button
+                      key=${channel.channelId}
+                      type="button"
+                      role="option"
+                      aria-selected=${active}
+                      class="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-slate-800/60"
+                      onClick=${() => handleToggleOption(channel.channelId)}
+                    >
+                      <span class="flex min-w-0 flex-1 items-center gap-2">
+                        ${channel.channelType === 'voice'
+                          ? html`<${Mic} class="h-4 w-4 text-violet-200/80" aria-hidden="true" />`
+                          : channel.channelType === 'text'
+                            ? html`<${MessageSquare} class="h-4 w-4 text-sky-200/80" aria-hidden="true" />`
+                            : null}
+                        <span class="truncate">${optionLabel}</span>
+                      </span>
+                      ${active
+                        ? html`<span class="flex h-5 w-5 items-center justify-center rounded-full bg-amber-400/20 text-amber-200">
+                            <${Check} class="h-4 w-4" aria-hidden="true" />
+                          </span>`
+                        : typeLabel
+                          ? html`<span class="text-xs uppercase tracking-wide text-slate-500">${typeLabel}</span>`
+                          : null}
+                    </button>`;
+                  })
+                : html`<p class="px-4 py-3 text-sm text-slate-400">Aucun salon ne correspond à cette recherche.</p>`}
+            </div>
+          </div>`
+        : null}
+    </div>
+    ${pillDetails.length > 0
+      ? html`<div class="flex flex-wrap gap-2">
+          ${pillDetails.map((channel) => {
+            const label = channel.channelName ?? `Salon ${channel.channelId}`;
+            return html`<span
+              key=${`selected-${channel.channelId}`}
+              class="inline-flex items-center gap-2 rounded-full bg-slate-800/80 px-3 py-1 text-xs text-slate-200"
+            >
+              <span class="max-w-[10rem] truncate sm:max-w-[12rem]">${label}</span>
+              <button
+                type="button"
+                class="flex h-5 w-5 items-center justify-center rounded-full bg-slate-700/70 text-slate-300 transition hover:bg-slate-600"
+                onClick=${() => handleToggleOption(channel.channelId)}
+                aria-label=${`Retirer ${label}`}
+              >
+                <${X} class="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </span>`;
+          })}
+          ${selectedIds.length > 0
+            ? html`<button
+                type="button"
+                class="rounded-full border border-slate-700/70 px-3 py-1 text-xs font-semibold text-amber-200 transition hover:border-amber-300/60 hover:text-amber-100"
+                onClick=${handleClear}
+              >
+                Effacer
+              </button>`
+            : null}
+        </div>`
       : null}
   </div>`;
 };
@@ -1126,11 +1363,88 @@ export const StatistiquesPage = ({ params = {}, onSyncRoute, bootstrap = null })
   );
 
   const availableChannels = snapshot?.availableChannels ?? [];
+  const channelOptions = useMemo(() => {
+    const map = new Map();
+    const register = (source = {}) => {
+      const channelId =
+        typeof source.channelId === 'string'
+          ? source.channelId
+          : source.channelId != null
+            ? String(source.channelId)
+            : null;
+      if (!channelId) {
+        return;
+      }
+      const existing = map.get(channelId);
+      const rawName = typeof source.channelName === 'string' ? source.channelName.trim() : '';
+      const previousName = existing?.channelName ?? '';
+      const channelName = rawName && (!previousName || rawName.length > previousName.length)
+        ? rawName
+        : previousName || rawName || `Salon ${channelId}`;
+      const sourceType = source.channelType === 'voice' || source.channelType === 'text' ? source.channelType : null;
+      const channelType = sourceType ?? existing?.channelType ?? 'unknown';
+      const numericScore = Number(
+        source.activityScore ?? source.voiceMinutes ?? source.messageCount ?? existing?.activityScore ?? 0,
+      );
+      const activityScore = Number.isFinite(numericScore)
+        ? Math.max(numericScore, existing?.activityScore ?? 0)
+        : existing?.activityScore ?? 0;
+      map.set(channelId, {
+        channelId,
+        channelName,
+        channelType,
+        activityScore,
+      });
+    };
+
+    availableChannels.forEach((entry) => register(entry));
+    (snapshot?.channelActivity?.voice ?? []).forEach((entry) =>
+      register({
+        channelId: entry.channelId,
+        channelName: entry.channelName,
+        channelType: 'voice',
+        activityScore: entry.voiceMinutes ?? entry.activityScore ?? 0,
+      }),
+    );
+    (snapshot?.channelActivity?.text ?? []).forEach((entry) =>
+      register({
+        channelId: entry.channelId,
+        channelName: entry.channelName,
+        channelType: 'text',
+        activityScore: entry.messageCount ?? entry.activityScore ?? 0,
+      }),
+    );
+
+    const entries = Array.from(map.values()).map((entry) => ({
+      ...entry,
+      searchLabel: normalizeSearch(`${entry.channelName} ${entry.channelId}`),
+    }));
+    entries.sort((a, b) => {
+      const scoreDiff = (b.activityScore ?? 0) - (a.activityScore ?? 0);
+      if (Math.abs(scoreDiff) > 0.01) {
+        return scoreDiff;
+      }
+      return (a.channelName ?? '').localeCompare(b.channelName ?? '', 'fr', { sensitivity: 'base' });
+    });
+    return entries;
+  }, [availableChannels, snapshot]);
+
+  const channelOptionIndex = useMemo(
+    () => new Map(channelOptions.map((entry) => [entry.channelId, entry])),
+    [channelOptions],
+  );
   const selectedChannels = filters.selectedChannels;
-  const selectedChannelDetails = useMemo(() => {
-    const index = new Map(availableChannels.map((entry) => [entry.channelId, entry]));
-    return selectedChannels.map((channelId) => index.get(channelId) ?? { channelId, channelName: null });
-  }, [availableChannels, selectedChannels]);
+  const selectedChannelDetails = useMemo(
+    () =>
+      selectedChannels.map((channelId) =>
+        channelOptionIndex.get(channelId) ?? {
+          channelId,
+          channelName: channelId,
+          channelType: 'unknown',
+        },
+      ),
+    [channelOptionIndex, selectedChannels],
+  );
 
   const selectedUser = useMemo(() => findUserDetails(snapshot, filters.userId), [snapshot, filters.userId]);
 
@@ -1267,16 +1581,22 @@ export const StatistiquesPage = ({ params = {}, onSyncRoute, bootstrap = null })
 
               <div>
                 <label class="text-xs uppercase tracking-wide text-slate-400" for="statistiques-granularite">Granularité</label>
-                <select
-                  id="statistiques-granularite"
-                  class="mt-2 w-full rounded-lg border border-slate-700/70 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-300/40"
-                  value=${filters.granularity}
-                  onInput=${handleGranularityChange}
-                >
-                  ${GRANULARITY_OPTIONS.map((option) =>
-                    html`<option key=${option.value} value=${option.value}>${option.label}</option>`,
-                  )}
-                </select>
+                <div class="relative mt-2">
+                  <select
+                    id="statistiques-granularite"
+                    class="w-full appearance-none rounded-xl border border-slate-800/70 bg-slate-900/80 px-3 py-2 pr-10 text-sm text-slate-100 shadow-inner shadow-slate-950/30 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-300/40"
+                    value=${filters.granularity}
+                    onInput=${handleGranularityChange}
+                  >
+                    ${GRANULARITY_OPTIONS.map((option) =>
+                      html`<option key=${option.value} value=${option.value}>${option.label}</option>`,
+                    )}
+                  </select>
+                  <${ChevronDown}
+                    class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                    aria-hidden="true"
+                  />
+                </div>
               </div>
 
               <div>
@@ -1306,52 +1626,14 @@ export const StatistiquesPage = ({ params = {}, onSyncRoute, bootstrap = null })
             <div class="space-y-5">
               <div>
                 <label class="text-xs uppercase tracking-wide text-slate-400" for="statistiques-channel-filter">Salons</label>
-                <div class="mt-2 flex flex-wrap gap-2">
-                  ${availableChannels.map((channel) => {
-                    const active = filters.selectedChannels.includes(channel.channelId);
-                    const classes = [
-                      'rounded-xl px-3 py-2 text-sm font-medium transition',
-                      active
-                        ? 'bg-violet-400/20 text-violet-100 ring-2 ring-violet-300/60'
-                        : 'bg-slate-800/60 text-slate-300 hover:bg-slate-800/80',
-                    ].join(' ');
-                    const label = channel.channelName ?? `Salon ${channel.channelId}`;
-                    return html`<button
-                      key=${channel.channelId}
-                      type="button"
-                      class=${classes}
-                      onClick=${() => handleChannelToggle(channel.channelId)}
-                    >
-                      ${label}
-                    </button>`;
-                  })}
-                </div>
-                ${selectedChannelDetails.length > 0
-                  ? html`<div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-300">
-                      ${selectedChannelDetails.map((channel) =>
-                        html`<span
-                          key=${`selected-${channel.channelId}`}
-                          class="inline-flex items-center gap-2 rounded-lg bg-slate-800/80 px-2 py-1"
-                        >
-                          ${channel.channelName ?? channel.channelId}
-                          <button
-                            type="button"
-                            class="rounded-full bg-slate-700/70 px-1 text-[10px] text-slate-300 hover:bg-slate-600/80"
-                            onClick=${() => handleChannelToggle(channel.channelId)}
-                          >
-                            ✕
-                          </button>
-                        </span>`,
-                      )}
-                      <button
-                        type="button"
-                        class="rounded-lg border border-transparent px-2 py-1 font-medium text-amber-200 hover:border-amber-300/60"
-                        onClick=${handleClearChannels}
-                      >
-                        Effacer
-                      </button>
-                    </div>`
-                  : null}
+                <${ChannelMultiSelect}
+                  id="statistiques-channel-filter"
+                  channels=${channelOptions}
+                  selectedIds=${filters.selectedChannels}
+                  selectedDetails=${selectedChannelDetails}
+                  onToggle=${handleChannelToggle}
+                  onClear=${handleClearChannels}
+                />
               </div>
 
               <div>
@@ -1450,18 +1732,18 @@ export const StatistiquesPage = ({ params = {}, onSyncRoute, bootstrap = null })
         />
       </section>
 
-      <section class="grid gap-6 lg:grid-cols-3">
-        <div class="lg:col-span-2 space-y-6">
-          <div>
-            <h3 class="mb-4 text-lg font-semibold text-white">Evolution de l’activité</h3>
+      <section class="grid gap-6 lg:grid-cols-2 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] xl:gap-8">
+        <div class="space-y-6 xl:space-y-8">
+          <div class="space-y-4">
+            <h3 class="text-lg font-semibold text-white">Evolution de l’activité</h3>
             ${activityChartConfig
               ? html`<${StatisticsChart} type="line" data=${activityChartConfig.data} options=${activityChartConfig.options} />`
               : html`<p class="rounded-xl border border-slate-800/60 bg-slate-900/60 p-6 text-sm text-slate-300">
                   Aucune donnée d’activité disponible pour cette période.
                 </p>`}
           </div>
-          <div>
-            <h3 class="mb-4 text-lg font-semibold text-white">Nouveaux membres</h3>
+          <div class="space-y-4">
+            <h3 class="text-lg font-semibold text-white">Nouveaux membres</h3>
             ${newMembersChart
               ? html`<${StatisticsChart} type="bar" data=${newMembersChart.data} options=${newMembersChart.options} />`
               : html`<p class="rounded-xl border border-slate-800/60 bg-slate-900/60 p-6 text-sm text-slate-300">
@@ -1469,8 +1751,8 @@ export const StatistiquesPage = ({ params = {}, onSyncRoute, bootstrap = null })
                 </p>`}
           </div>
           ${filters.includeHypeHistory
-            ? html`<div>
-                <h3 class="mb-4 text-lg font-semibold text-white">Tendance hype globale</h3>
+            ? html`<div class="space-y-4">
+                <h3 class="text-lg font-semibold text-white">Tendance hype globale</h3>
                 ${hypeChart
                   ? html`<${StatisticsChart} type="line" data=${hypeChart.data} options=${hypeChart.options} />`
                   : html`<p class="rounded-xl border border-slate-800/60 bg-slate-900/60 p-6 text-sm text-slate-300">
@@ -1480,8 +1762,8 @@ export const StatistiquesPage = ({ params = {}, onSyncRoute, bootstrap = null })
             : null}
         </div>
 
-        <div class="space-y-6">
-          <div class="rounded-2xl border border-slate-800/70 bg-slate-900/70 p-5 shadow-inner shadow-slate-950/30">
+        <div class="grid gap-6 xl:gap-8">
+          <div class="flex flex-col rounded-2xl border border-slate-800/70 bg-slate-900/70 p-5 shadow-inner shadow-slate-950/30">
             <h3 class="text-lg font-semibold text-white">Top membres actifs</h3>
             <p class="mt-1 text-xs text-slate-400">Classement combinant temps vocal et messages.</p>
             <div class="mt-4 space-y-3">
@@ -1518,7 +1800,7 @@ export const StatistiquesPage = ({ params = {}, onSyncRoute, bootstrap = null })
             </div>
           </div>
 
-          <div class="rounded-2xl border border-slate-800/70 bg-slate-900/70 p-5 shadow-inner shadow-slate-950/30">
+          <div class="flex flex-col rounded-2xl border border-slate-800/70 bg-slate-900/70 p-5 shadow-inner shadow-slate-950/30">
             <h3 class="text-lg font-semibold text-white">Taux de rétention</h3>
             <p class="mt-1 text-xs text-slate-400">Pourcentage de membres revenus après X jours.</p>
             <ul class="mt-3 space-y-2">
