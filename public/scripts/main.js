@@ -934,12 +934,36 @@ const App = () => {
             ${menuOpen ? html`<${X} class="h-5 w-5" />` : html`<${Menu} class="h-5 w-5" />`}
           </button>
           <a
-            class="flex items-center gap-2 text-lg font-semibold tracking-wide text-white transition hover:text-amber-300 lg:mr-auto"
+            class="group flex items-center gap-3 text-lg font-semibold tracking-wide text-white transition hover:text-amber-300 lg:mr-auto"
             href="/"
             onClick=${(event) => handleNavigate(event, 'home')}
           >
-            <span class="rounded bg-amber-400 px-2 py-1 text-sm font-bold text-amber-950">LA</span>
-            Libre Antenne
+            <span
+              class="flex items-center gap-3 rounded-full border border-amber-500/40 bg-slate-900/80 px-3 py-1 shadow-[0_0_0_1px_rgba(15,23,42,0.65)] transition group-hover:border-amber-300/80 group-hover:shadow-[0_0_20px_rgba(251,191,36,0.25)]"
+            >
+              <span
+                class="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 via-orange-500 to-rose-500 text-slate-950 shadow-lg shadow-amber-500/40 ring-1 ring-amber-200/70"
+              >
+                <svg
+                  class="h-5 w-5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M4 12c2.5-3 5.5-3 8 0s5.5 3 8 0" stroke-opacity="0.95" />
+                  <path d="M6 15c2-2.4 4.5-2.4 6.5 0S16.5 17.4 19 15" stroke-opacity="0.75" />
+                  <circle cx="12" cy="12" r="1.4" fill="currentColor" fill-opacity="0.85" />
+                </svg>
+              </span>
+              <span class="flex flex-col leading-tight">
+                <span class="text-[0.55rem] uppercase tracking-[0.45em] text-amber-200/90 transition group-hover:text-amber-100">Libre</span>
+                <span class="text-base font-bold tracking-tight text-white transition group-hover:text-amber-50">Antenne</span>
+              </span>
+            </span>
           </a>
           <nav class="hidden items-center gap-6 lg:flex">
           ${NAV_LINKS.map((link) => {
@@ -984,12 +1008,36 @@ const App = () => {
       >
         <div class="flex items-center justify-between gap-4">
           <a
-            class="flex items-center gap-2 text-lg font-semibold tracking-wide text-white transition hover:text-amber-300"
+            class="group flex items-center gap-3 text-lg font-semibold tracking-wide text-white transition hover:text-amber-300"
             href="/"
             onClick=${(event) => handleNavigate(event, 'home')}
           >
-            <span class="rounded bg-amber-400 px-2 py-1 text-sm font-bold text-amber-950">LA</span>
-            Libre Antenne
+            <span
+              class="flex items-center gap-3 rounded-full border border-amber-500/40 bg-slate-900/80 px-3 py-1 shadow-[0_0_0_1px_rgba(15,23,42,0.65)] transition group-hover:border-amber-300/80 group-hover:shadow-[0_0_20px_rgba(251,191,36,0.25)]"
+            >
+              <span
+                class="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 via-orange-500 to-rose-500 text-slate-950 shadow-lg shadow-amber-500/40 ring-1 ring-amber-200/70"
+              >
+                <svg
+                  class="h-5 w-5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M4 12c2.5-3 5.5-3 8 0s5.5 3 8 0" stroke-opacity="0.95" />
+                  <path d="M6 15c2-2.4 4.5-2.4 6.5 0S16.5 17.4 19 15" stroke-opacity="0.75" />
+                  <circle cx="12" cy="12" r="1.4" fill="currentColor" fill-opacity="0.85" />
+                </svg>
+              </span>
+              <span class="flex flex-col leading-tight">
+                <span class="text-[0.55rem] uppercase tracking-[0.45em] text-amber-200/90 transition group-hover:text-amber-100">Libre</span>
+                <span class="text-base font-bold tracking-tight text-white transition group-hover:text-amber-50">Antenne</span>
+              </span>
+            </span>
           </a>
           <button
             class="rounded-lg border border-slate-700 p-2 text-slate-200 transition hover:border-slate-500 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
