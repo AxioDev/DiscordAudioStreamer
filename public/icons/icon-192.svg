@@ -1,21 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-labelledby="title desc">
-  <title id="title">Libre Antenne Icon</title>
-  <desc id="desc">Monogramme stylisé en forme d'onde sonore</desc>
+  <title id="title">Libre Antenne — Icône</title>
+  <desc id="desc">Icône carrée inspirée de la charte Libre Antenne avec halo dégradé et onde sonore stylisée.</desc>
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#6366f1" />
+    <linearGradient id="brand-bg" x1="10%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%" stop-color="#0ea5e9" />
+      <stop offset="55%" stop-color="#6366f1" />
       <stop offset="100%" stop-color="#ec4899" />
     </linearGradient>
-    <linearGradient id="wave" x1="0%" y1="0%" x2="100%" y2="0%">
+    <linearGradient id="signal" x1="0%" y1="40%" x2="100%" y2="60%">
       <stop offset="0%" stop-color="#f8fafc" />
-      <stop offset="100%" stop-color="#cbd5f5" />
+      <stop offset="45%" stop-color="#e0f2fe" />
+      <stop offset="100%" stop-color="#c4b5fd" />
     </linearGradient>
   </defs>
   <rect width="192" height="192" rx="48" fill="#020617" />
-  <rect x="12" y="12" width="168" height="168" rx="44" fill="url(#bg)" opacity="0.85" />
-  <g fill="none" stroke="url(#wave)" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M48 120c18-24 30-48 48-48s30 24 48 48" />
-    <path d="M36 96h12m96 0h12" />
-    <path d="M96 72v48" />
+  <rect x="12" y="12" width="168" height="168" rx="44" fill="url(#brand-bg)" opacity="0.88" />
+  <rect x="24" y="24" width="144" height="144" rx="40" fill="#020617" opacity="0.65" />
+  <g fill="none" stroke="url(#signal)" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M36 126c26-54 52-102 92-102s66 48 92 102" stroke-width="14" />
+    <path d="M58 126c18-38 34-70 70-70s52 32 70 70" stroke-width="12" />
+    <path d="M96 70v64" stroke-width="10" />
   </g>
+  <circle cx="96" cy="58" r="10" fill="#34d399" />
+  <circle cx="96" cy="58" r="6" fill="#ecfeff" />
 </svg>
