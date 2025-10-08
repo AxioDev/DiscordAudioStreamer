@@ -6,7 +6,7 @@ export interface BlogRepositoryOptions {
   poolConfig?: Omit<PoolConfig, 'connectionString'>;
 }
 
-export type BlogPostSortBy = 'published_at' | 'title';
+export type BlogPostSortBy = 'published_at' | 'title' | 'updated_at' | 'slug';
 export type BlogPostSortOrder = 'asc' | 'desc';
 
 export interface BlogPostListOptions {
@@ -49,8 +49,23 @@ export interface BlogPostProposalInput {
 export interface BlogPostProposalRow {
   id: number;
   slug: string;
+  title: string;
+  excerpt: string | null;
+  content_markdown: string;
+  cover_image_url: string | null;
+  tags: string[] | null;
+  seo_description: string | null;
+  author_name: string | null;
+  author_contact: string | null;
   reference: string;
   submitted_at: Date;
+}
+
+export interface BlogPostProposalListOptions {
+  search?: string | null;
+  limit?: number | null;
+  offset?: number | null;
+  sortOrder?: BlogPostSortOrder | null;
 }
 
 export interface BlogPostProposalPersistedResult {
@@ -296,8 +311,12 @@ export default class BlogRepository {
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const sortBy = options.sortBy ?? 'published_at';
-    const sortOrder = options.sortOrder ?? (sortBy === 'title' ? 'asc' : 'desc');
+    const allowedSortColumns: BlogPostSortBy[] = ['published_at', 'title', 'updated_at', 'slug'];
+    const sortByCandidate = options.sortBy ?? 'published_at';
+    const sortBy = allowedSortColumns.includes(sortByCandidate) ? sortByCandidate : 'published_at';
+    const defaultOrder = sortBy === 'title' || sortBy === 'slug' ? 'asc' : 'desc';
+    const sortOrderCandidate = options.sortOrder ?? defaultOrder;
+    const sortOrder = sortOrderCandidate === 'asc' ? 'ASC' : 'DESC';
 
     const orderClause = `ORDER BY ${sortBy} ${sortOrder}`;
 
@@ -334,6 +353,46 @@ export default class BlogRepository {
 
     const { rows } = await pool.query<BlogPostRow>(query, params);
     return rows;
+  }
+
+  async countPosts(options: {
+    search?: string | null;
+    tags?: string[] | null;
+    onlyPublished?: boolean;
+  } = {}): Promise<number> {
+    const pool = await this.getPool();
+    if (!pool) {
+      return 0;
+    }
+
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
+    if (options.onlyPublished !== false) {
+      conditions.push('published_at <= NOW()');
+    }
+
+    if (options.search) {
+      params.push(`%${options.search}%`);
+      const index = params.length;
+      conditions.push(`(title ILIKE $${index} OR excerpt ILIKE $${index} OR content_markdown ILIKE $${index})`);
+    }
+
+    if (options.tags && options.tags.length > 0) {
+      params.push(options.tags);
+      const index = params.length;
+      conditions.push(`tags && $${index}::text[]`);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const { rows } = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text as count FROM blog_posts ${whereClause}`,
+      params,
+    );
+
+    const raw = rows.length > 0 ? Number.parseInt(rows[0].count, 10) : 0;
+    return Number.isFinite(raw) ? raw : 0;
   }
 
   async listTags(): Promise<string[]> {
@@ -385,6 +444,16 @@ export default class BlogRepository {
     return rows.length > 0 ? rows[0] : null;
   }
 
+  async deletePostBySlug(slug: string): Promise<boolean> {
+    const pool = await this.getPool();
+    if (!pool) {
+      return false;
+    }
+
+    const result = await pool.query('DELETE FROM blog_posts WHERE slug = $1', [slug]);
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async getProposalBySlug(slug: string): Promise<BlogPostProposalRow | null> {
     const pool = await this.getPool();
     if (!pool) {
@@ -396,6 +465,14 @@ export default class BlogRepository {
         SELECT
           id,
           slug,
+          title,
+          excerpt,
+          content_markdown,
+          cover_image_url,
+          tags,
+          seo_description,
+          author_name,
+          author_contact,
           reference,
           submitted_at
         FROM blog_post_proposals
@@ -406,6 +483,91 @@ export default class BlogRepository {
     );
 
     return rows.length > 0 ? rows[0] : null;
+  }
+
+  async listProposals(options: BlogPostProposalListOptions = {}): Promise<BlogPostProposalRow[]> {
+    const pool = await this.getPool();
+    if (!pool) {
+      return [];
+    }
+
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
+    if (options.search) {
+      params.push(`%${options.search}%`);
+      const index = params.length;
+      conditions.push(
+        `(title ILIKE $${index} OR excerpt ILIKE $${index} OR content_markdown ILIKE $${index} OR author_name ILIKE $${index})`,
+      );
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const sortOrder = options.sortOrder === 'asc' ? 'ASC' : 'DESC';
+
+    let limitClause = '';
+    if (options.limit && Number.isFinite(options.limit) && options.limit > 0) {
+      params.push(options.limit);
+      limitClause = `LIMIT $${params.length}`;
+    }
+
+    let offsetClause = '';
+    if (options.offset && Number.isFinite(options.offset) && options.offset > 0) {
+      params.push(options.offset);
+      offsetClause = `OFFSET $${params.length}`;
+    }
+
+    const query = `
+      SELECT
+        id,
+        slug,
+        title,
+        excerpt,
+        content_markdown,
+        cover_image_url,
+        tags,
+        seo_description,
+        author_name,
+        author_contact,
+        reference,
+        submitted_at
+      FROM blog_post_proposals
+      ${whereClause}
+      ORDER BY submitted_at ${sortOrder}
+      ${limitClause}
+      ${offsetClause}
+    `;
+
+    const { rows } = await pool.query<BlogPostProposalRow>(query, params);
+    return rows;
+  }
+
+  async countProposals(options: { search?: string | null } = {}): Promise<number> {
+    const pool = await this.getPool();
+    if (!pool) {
+      return 0;
+    }
+
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
+    if (options.search) {
+      params.push(`%${options.search}%`);
+      const index = params.length;
+      conditions.push(
+        `(title ILIKE $${index} OR excerpt ILIKE $${index} OR content_markdown ILIKE $${index} OR author_name ILIKE $${index})`,
+      );
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const { rows } = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text as count FROM blog_post_proposals ${whereClause}`,
+      params,
+    );
+
+    const raw = rows.length > 0 ? Number.parseInt(rows[0].count, 10) : 0;
+    return Number.isFinite(raw) ? raw : 0;
   }
 
   async createProposal(input: BlogPostProposalInput): Promise<void> {

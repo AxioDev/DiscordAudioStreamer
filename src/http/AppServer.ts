@@ -24,7 +24,10 @@ import BlogService, {
   type BlogPostDetail,
   type BlogPostSummary,
 } from '../services/BlogService';
-import BlogRepository from '../services/BlogRepository';
+import BlogRepository, {
+  type BlogPostProposalRow,
+  type BlogPostRow,
+} from '../services/BlogRepository';
 import BlogProposalService, { BlogProposalError } from '../services/BlogProposalService';
 import type {
   HypeLeaderboardQueryOptions,
@@ -40,7 +43,11 @@ import HypeLeaderboardService, {
   type HypeLeaderboardResult,
   type NormalizedHypeLeaderboardQueryOptions,
 } from '../services/HypeLeaderboardService';
-import SeoRenderer, { type AssetManifest, type SeoPageMetadata } from './SeoRenderer';
+import SeoRenderer, {
+  type AssetManifest,
+  type AssetScriptDescriptor,
+  type SeoPageMetadata,
+} from './SeoRenderer';
 import AdminService, { type HiddenMemberRecord } from '../services/AdminService';
 import DailyArticleService, { type DailyArticleServiceStatus } from '../services/DailyArticleService';
 
@@ -116,6 +123,44 @@ interface ListenerStatsBootstrap {
   count: number;
   history: ListenerStatsEntry[];
 }
+
+interface AdminBlogPostRecord {
+  id: string;
+  slug: string;
+  title: string;
+  excerpt: string | null;
+  contentMarkdown: string;
+  coverImageUrl: string | null;
+  tags: string[];
+  seoDescription: string | null;
+  publishedAt: string | null;
+  updatedAt: string | null;
+}
+
+interface AdminBlogProposalRecord {
+  id: string;
+  slug: string;
+  title: string;
+  excerpt: string | null;
+  contentMarkdown: string;
+  coverImageUrl: string | null;
+  tags: string[];
+  seoDescription: string | null;
+  authorName: string | null;
+  authorContact: string | null;
+  reference: string;
+  submittedAt: string | null;
+}
+
+interface AdminListRequestParams {
+  page: number;
+  perPage: number;
+  sortField: string | null;
+  sortOrder: 'asc' | 'desc';
+  filters: Record<string, unknown>;
+}
+
+type AdminHiddenMemberRecord = HiddenMemberRecord & { id: string };
 
 interface HomePageBootstrap {
   listenerCount: number;
@@ -914,6 +959,378 @@ export default class AppServer {
     }
     lines.push('</urlset>');
     return lines.join('\n');
+  }
+
+  private parseAdminListRequest(req: Request): AdminListRequestParams {
+    const extractSingle = (value: unknown): string | null => {
+      if (Array.isArray(value)) {
+        return value.length > 0 ? extractSingle(value[0]) : null;
+      }
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        return trimmed.length > 0 ? trimmed : null;
+      }
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return String(value);
+      }
+      return null;
+    };
+
+    const rawPage = extractSingle(req.query?.page);
+    const parsedPage = rawPage ? Number.parseInt(rawPage, 10) : NaN;
+    const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+
+    const rawPerPage = extractSingle(req.query?.perPage);
+    const parsedPerPage = rawPerPage ? Number.parseInt(rawPerPage, 10) : NaN;
+    const perPage = Math.min(Math.max(Number.isFinite(parsedPerPage) && parsedPerPage > 0 ? parsedPerPage : 25, 1), 100);
+
+    const rawSort = extractSingle(req.query?.sort);
+    const sortField = rawSort && rawSort.length > 0 ? rawSort : null;
+
+    const rawOrder = extractSingle(req.query?.order);
+    const normalizedOrder = rawOrder ? rawOrder.toLowerCase() : null;
+    const sortOrder = normalizedOrder === 'asc' ? 'asc' : 'desc';
+
+    const rawFilter = extractSingle(req.query?.filter);
+    let filters: Record<string, unknown> = {};
+    if (rawFilter) {
+      try {
+        const parsed = JSON.parse(rawFilter);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          filters = parsed as Record<string, unknown>;
+        }
+      } catch (error) {
+        console.warn('Failed to parse admin filter query', error);
+      }
+    }
+
+    return { page, perPage, sortField, sortOrder, filters };
+  }
+
+  private extractAdminSearchFilter(filters: Record<string, unknown>): string | null {
+    const candidates = ['q', 'query', 'search'];
+    for (const key of candidates) {
+      const value = filters?.[key];
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed.length > 0) {
+          return trimmed;
+        }
+      }
+    }
+    return null;
+  }
+
+  private extractAdminTagsFilter(filters: Record<string, unknown>): string[] | null {
+    const raw = filters?.tags;
+    if (!raw) {
+      return null;
+    }
+
+    const normalize = (value: unknown): string | null => {
+      if (typeof value !== 'string') {
+        return null;
+      }
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    };
+
+    if (Array.isArray(raw)) {
+      const tags = raw.map((entry) => normalize(entry)).filter((entry): entry is string => Boolean(entry));
+      return tags.length > 0 ? tags : null;
+    }
+
+    if (typeof raw === 'string') {
+      const tags = raw
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0);
+      return tags.length > 0 ? tags : null;
+    }
+
+    return null;
+  }
+
+  private extractAdminOnlyPublishedFilter(filters: Record<string, unknown>): boolean {
+    const raw = filters?.onlyPublished;
+    if (typeof raw === 'boolean') {
+      return raw;
+    }
+    if (typeof raw === 'string') {
+      const normalized = raw.trim().toLowerCase();
+      return normalized === 'true' || normalized === '1';
+    }
+    return false;
+  }
+
+  private parseAdminBlogPostInput(
+    raw: unknown,
+    options: { slugFallback?: string | null; allowSlugOverride?: boolean } = {},
+  ): {
+    ok: true;
+    data: {
+      slug: string;
+      title: string;
+      excerpt: string | null;
+      contentMarkdown: string;
+      coverImageUrl: string | null;
+      tags: string[];
+      seoDescription: string | null;
+      publishedAt: Date;
+      updatedAt: Date;
+    };
+  } | {
+    ok: false;
+    status: number;
+    error: string;
+    message: string;
+  } {
+    const body = (raw && typeof raw === 'object') ? (raw as Record<string, unknown>) : {};
+
+    const slugSource =
+      options.allowSlugOverride && typeof body.slug === 'string'
+        ? body.slug
+        : typeof body.slug === 'string' && options.slugFallback == null
+          ? body.slug
+          : options.slugFallback ?? (typeof body.slug === 'string' ? body.slug : null);
+
+    const slug = this.normalizeSlug(slugSource);
+    if (!slug) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'SLUG_REQUIRED',
+        message: 'Un slug valide est requis pour cet article.',
+      };
+    }
+
+    const title = typeof body.title === 'string' ? body.title.trim() : '';
+    if (!title) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'TITLE_REQUIRED',
+        message: "Le titre de l’article est obligatoire.",
+      };
+    }
+
+    const contentMarkdown = typeof body.contentMarkdown === 'string' ? body.contentMarkdown : '';
+    if (!contentMarkdown || contentMarkdown.trim().length === 0) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'CONTENT_REQUIRED',
+        message: "Le contenu de l’article est obligatoire.",
+      };
+    }
+
+    const excerpt = typeof body.excerpt === 'string' ? body.excerpt.trim() : null;
+    const coverImageUrl = typeof body.coverImageUrl === 'string' ? body.coverImageUrl.trim() || null : null;
+    const seoDescription = typeof body.seoDescription === 'string' ? body.seoDescription.trim() || null : null;
+    const tags = this.normalizeAdminTags(body.tags);
+    const publishedAt = this.parseDateInput(body.publishedAt) ?? new Date();
+    const updatedAt = this.parseDateInput(body.updatedAt) ?? new Date();
+
+    return {
+      ok: true,
+      data: {
+        slug,
+        title,
+        excerpt,
+        contentMarkdown,
+        coverImageUrl,
+        tags,
+        seoDescription,
+        publishedAt,
+        updatedAt,
+      },
+    };
+  }
+
+  private normalizeAdminTags(input: unknown): string[] {
+    if (!input) {
+      return [];
+    }
+    if (Array.isArray(input)) {
+      return input
+        .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+        .filter((entry) => entry.length > 0);
+    }
+    if (typeof input === 'string') {
+      return input
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0);
+    }
+    return [];
+  }
+
+  private parseDateInput(value: unknown): Date | null {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value;
+    }
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const fromNumber = new Date(value);
+      return Number.isNaN(fromNumber.getTime()) ? null : fromNumber;
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return null;
+      }
+      const numeric = Number(trimmed);
+      if (Number.isFinite(numeric)) {
+        const fromNumeric = new Date(numeric);
+        if (!Number.isNaN(fromNumeric.getTime())) {
+          return fromNumeric;
+        }
+      }
+      const fromString = new Date(trimmed);
+      return Number.isNaN(fromString.getTime()) ? null : fromString;
+    }
+
+    return null;
+  }
+
+  private normalizeSlug(value: string | null | undefined): string | null {
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const lowered = trimmed.toLowerCase().replace(/\s+/g, '-');
+    const sanitized = lowered.replace(/[^a-z0-9\-_/]+/g, '-').replace(/-{2,}/g, '-').replace(/^[-_]+|[-_]+$/g, '');
+    return sanitized.length > 0 ? sanitized : null;
+  }
+
+  private mapBlogPostRowToAdmin(row: BlogPostRow): AdminBlogPostRecord {
+    const toIso = (value: Date | string | null | undefined): string | null => {
+      if (!value) {
+        return null;
+      }
+      if (value instanceof Date) {
+        return Number.isNaN(value.getTime()) ? null : value.toISOString();
+      }
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+    };
+
+    const normalizeArray = (value: string[] | null | undefined): string[] =>
+      Array.isArray(value)
+        ? value.map((entry) => (typeof entry === 'string' ? entry.trim() : '')).filter((entry) => entry.length > 0)
+        : [];
+
+    return {
+      id: row.slug,
+      slug: row.slug,
+      title: row.title,
+      excerpt: row.excerpt ?? null,
+      contentMarkdown: row.content_markdown,
+      coverImageUrl: row.cover_image_url ?? null,
+      tags: normalizeArray(row.tags),
+      seoDescription: row.seo_description ?? null,
+      publishedAt: toIso(row.published_at),
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
+  private mapBlogProposalRowToAdmin(row: BlogPostProposalRow): AdminBlogProposalRecord {
+    const toIso = (value: Date | string | null | undefined): string | null => {
+      if (!value) {
+        return null;
+      }
+      if (value instanceof Date) {
+        return Number.isNaN(value.getTime()) ? null : value.toISOString();
+      }
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+    };
+
+    const tags = Array.isArray(row.tags)
+      ? row.tags.map((entry) => (typeof entry === 'string' ? entry.trim() : '')).filter((entry) => entry.length > 0)
+      : [];
+
+    return {
+      id: row.slug,
+      slug: row.slug,
+      title: row.title,
+      excerpt: row.excerpt ?? null,
+      contentMarkdown: row.content_markdown,
+      coverImageUrl: row.cover_image_url ?? null,
+      tags,
+      seoDescription: row.seo_description ?? null,
+      authorName: row.author_name ?? null,
+      authorContact: row.author_contact ?? null,
+      reference: row.reference,
+      submittedAt: toIso(row.submitted_at),
+    };
+  }
+
+  private mapHiddenMemberRecord(record: HiddenMemberRecord): AdminHiddenMemberRecord {
+    return {
+      ...record,
+      id: record.userId,
+    };
+  }
+
+  private renderAdminAppShell(): string | null {
+    const metadata: SeoPageMetadata = {
+      title: `${this.config.siteName} · Administration`,
+      description: 'Interface de gestion des contenus et des membres pour Libre Antenne.',
+      path: '/admin',
+      canonicalUrl: this.toAbsoluteUrl('/admin'),
+      robots: 'noindex,nofollow',
+      breadcrumbs: [
+        { name: 'Accueil', path: '/' },
+        { name: 'Administration', path: '/admin' },
+      ],
+    };
+
+    const shell = this.seoRenderer.render(metadata, {
+      appHtml: '<div id="admin-root" class="min-h-screen bg-slate-950 text-slate-100"></div>',
+    });
+
+    const manifest = this.seoRenderer.getAssetManifest();
+    const descriptor = manifest?.entries?.admin;
+    if (!descriptor) {
+      return null;
+    }
+
+    const scriptTag = this.serializeScriptDescriptor(descriptor);
+    return this.injectHtmlBeforeBodyClose(shell, `    ${scriptTag}\n`);
+  }
+
+  private serializeScriptDescriptor(descriptor: AssetScriptDescriptor): string {
+    const attrs: string[] = [];
+    const type = (descriptor.type ?? 'module').trim() || 'module';
+    attrs.push(`type="${this.escapeHtml(type)}"`);
+    attrs.push(`src="${this.escapeHtml(descriptor.src)}"`);
+    if (descriptor.defer) {
+      attrs.push('defer');
+    }
+    if (descriptor.async) {
+      attrs.push('async');
+    }
+    if (descriptor.crossorigin) {
+      attrs.push(`crossorigin="${this.escapeHtml(descriptor.crossorigin)}"`);
+    }
+    if (descriptor.integrity) {
+      attrs.push(`integrity="${this.escapeHtml(descriptor.integrity)}"`);
+    }
+    return `<script ${attrs.join(' ')}></script>`;
+  }
+
+  private injectHtmlBeforeBodyClose(html: string, snippet: string): string {
+    const closingTag = '</body>';
+    const index = html.lastIndexOf(closingTag);
+    if (index === -1) {
+      return `${html}${snippet}`;
+    }
+    return `${html.slice(0, index)}${snippet}${html.slice(index)}`;
   }
 
   private loadAssetManifest(manifestPath: string): AssetManifest | null {
@@ -2619,6 +3036,29 @@ export default class AppServer {
       }
     });
 
+    this.app.get('/admin', (req, res, next) => {
+      const accept = req.header('accept') ?? req.header('Accept') ?? '';
+      if (typeof accept === 'string' && accept.toLowerCase().includes('application/json')) {
+        next();
+        return;
+      }
+
+      if (!this.requireAdminAuth(req, res)) {
+        return;
+      }
+
+      const html = this.renderAdminAppShell();
+      if (!html) {
+        res
+          .status(503)
+          .type('text/plain')
+          .send('ADMIN_ASSETS_UNAVAILABLE');
+        return;
+      }
+
+      res.type('text/html').send(html);
+    });
+
     adminRouter.use((req, res, next) => {
       if (!this.requireAdminAuth(req, res)) {
         return;
@@ -2639,6 +3079,313 @@ export default class AppServer {
       }
     });
 
+    adminRouter.get('/blog/posts', async (req, res) => {
+      if (!this.blogRepository) {
+        res.status(503).json({
+          error: 'BLOG_REPOSITORY_DISABLED',
+          message: "La gestion des articles est indisponible sur ce serveur.",
+        });
+        return;
+      }
+
+      const listRequest = this.parseAdminListRequest(req);
+      const sortFieldMap: Record<string, string> = {
+        publishedAt: 'published_at',
+        updatedAt: 'updated_at',
+        title: 'title',
+        slug: 'slug',
+      };
+      const sortBy = (sortFieldMap[listRequest.sortField ?? ''] ?? 'published_at') as 'published_at' | 'updated_at' | 'title' | 'slug';
+      const searchFilter = this.extractAdminSearchFilter(listRequest.filters);
+      const tagsFilter = this.extractAdminTagsFilter(listRequest.filters);
+      const onlyPublished = this.extractAdminOnlyPublishedFilter(listRequest.filters);
+      const limit = listRequest.perPage;
+      const offset = (listRequest.page - 1) * listRequest.perPage;
+
+      try {
+        const [rows, total] = await Promise.all([
+          this.blogRepository.listPosts({
+            search: searchFilter,
+            tags: tagsFilter,
+            limit,
+            offset,
+            sortBy,
+            sortOrder: listRequest.sortOrder,
+            onlyPublished,
+          }),
+          this.blogRepository.countPosts({
+            search: searchFilter,
+            tags: tagsFilter,
+            onlyPublished,
+          }),
+        ]);
+
+        res.json({
+          data: rows.map((row) => this.mapBlogPostRowToAdmin(row)),
+          total,
+        });
+      } catch (error) {
+        console.error('Failed to list admin blog posts', error);
+        res.status(500).json({
+          error: 'ADMIN_BLOG_POSTS_LIST_FAILED',
+          message: "Impossible de récupérer les articles du blog.",
+        });
+      }
+    });
+
+    adminRouter.get('/blog/posts/:slug', async (req, res) => {
+      if (!this.blogRepository) {
+        res.status(503).json({
+          error: 'BLOG_REPOSITORY_DISABLED',
+          message: "La gestion des articles est indisponible sur ce serveur.",
+        });
+        return;
+      }
+
+      const slug = this.normalizeSlug(typeof req.params.slug === 'string' ? req.params.slug : null);
+      if (!slug) {
+        res.status(400).json({ error: 'SLUG_REQUIRED', message: 'Le slug de l’article est requis.' });
+        return;
+      }
+
+      try {
+        const row = await this.blogRepository.getPostBySlug(slug);
+        if (!row) {
+          res.status(404).json({ error: 'ADMIN_BLOG_POST_NOT_FOUND', message: "Article introuvable." });
+          return;
+        }
+        res.json({ data: this.mapBlogPostRowToAdmin(row) });
+      } catch (error) {
+        console.error('Failed to retrieve admin blog post', error);
+        res.status(500).json({
+          error: 'ADMIN_BLOG_POST_LOAD_FAILED',
+          message: "Impossible de charger cet article.",
+        });
+      }
+    });
+
+    adminRouter.post('/blog/posts', async (req, res) => {
+      if (!this.blogRepository) {
+        res.status(503).json({
+          error: 'BLOG_REPOSITORY_DISABLED',
+          message: "La gestion des articles est indisponible sur ce serveur.",
+        });
+        return;
+      }
+
+      const parsed = this.parseAdminBlogPostInput(req.body, { allowSlugOverride: true });
+      if (!parsed.ok) {
+        res.status(parsed.status).json({ error: parsed.error, message: parsed.message });
+        return;
+      }
+
+      try {
+        const existing = await this.blogRepository.getPostBySlug(parsed.data.slug);
+        if (existing) {
+          res.status(409).json({ error: 'ADMIN_BLOG_POST_CONFLICT', message: 'Un article utilise déjà ce slug.' });
+          return;
+        }
+
+        await this.blogRepository.upsertPost(parsed.data);
+        const saved = await this.blogRepository.getPostBySlug(parsed.data.slug);
+        if (!saved) {
+          throw new Error('BLOG_POST_NOT_FOUND_AFTER_CREATE');
+        }
+        res.status(201).json({ data: this.mapBlogPostRowToAdmin(saved) });
+      } catch (error) {
+        console.error('Failed to create admin blog post', error);
+        res.status(500).json({
+          error: 'ADMIN_BLOG_POST_CREATE_FAILED',
+          message: "Impossible de créer l’article.",
+        });
+      }
+    });
+
+    adminRouter.put('/blog/posts/:slug', async (req, res) => {
+      if (!this.blogRepository) {
+        res.status(503).json({
+          error: 'BLOG_REPOSITORY_DISABLED',
+          message: "La gestion des articles est indisponible sur ce serveur.",
+        });
+        return;
+      }
+
+      const slugParam = this.normalizeSlug(typeof req.params.slug === 'string' ? req.params.slug : null);
+      if (!slugParam) {
+        res.status(400).json({ error: 'SLUG_REQUIRED', message: 'Le slug de l’article est requis.' });
+        return;
+      }
+
+      const parsed = this.parseAdminBlogPostInput(req.body, { slugFallback: slugParam });
+      if (!parsed.ok) {
+        res.status(parsed.status).json({ error: parsed.error, message: parsed.message });
+        return;
+      }
+
+      if (parsed.data.slug !== slugParam) {
+        res.status(400).json({
+          error: 'ADMIN_BLOG_POST_SLUG_IMMUTABLE',
+          message: 'Le slug ne peut pas être modifié via cette opération.',
+        });
+        return;
+      }
+
+      try {
+        const existing = await this.blogRepository.getPostBySlug(slugParam);
+        if (!existing) {
+          res.status(404).json({ error: 'ADMIN_BLOG_POST_NOT_FOUND', message: "Article introuvable." });
+          return;
+        }
+
+        await this.blogRepository.upsertPost(parsed.data);
+        const saved = await this.blogRepository.getPostBySlug(slugParam);
+        if (!saved) {
+          throw new Error('BLOG_POST_NOT_FOUND_AFTER_UPDATE');
+        }
+        res.json({ data: this.mapBlogPostRowToAdmin(saved) });
+      } catch (error) {
+        console.error('Failed to update admin blog post', error);
+        res.status(500).json({
+          error: 'ADMIN_BLOG_POST_UPDATE_FAILED',
+          message: "Impossible de mettre à jour l’article.",
+        });
+      }
+    });
+
+    adminRouter.delete('/blog/posts/:slug', async (req, res) => {
+      if (!this.blogRepository) {
+        res.status(503).json({
+          error: 'BLOG_REPOSITORY_DISABLED',
+          message: "La gestion des articles est indisponible sur ce serveur.",
+        });
+        return;
+      }
+
+      const slug = this.normalizeSlug(typeof req.params.slug === 'string' ? req.params.slug : null);
+      if (!slug) {
+        res.status(400).json({ error: 'SLUG_REQUIRED', message: 'Le slug de l’article est requis.' });
+        return;
+      }
+
+      try {
+        const deleted = await this.blogRepository.deletePostBySlug(slug);
+        if (!deleted) {
+          res.status(404).json({ error: 'ADMIN_BLOG_POST_NOT_FOUND', message: "Article introuvable." });
+          return;
+        }
+        res.json({ data: { id: slug } });
+      } catch (error) {
+        console.error('Failed to delete admin blog post', error);
+        res.status(500).json({
+          error: 'ADMIN_BLOG_POST_DELETE_FAILED',
+          message: "Impossible de supprimer l’article.",
+        });
+      }
+    });
+
+    adminRouter.get('/blog/proposals', async (req, res) => {
+      if (!this.blogRepository) {
+        res.status(503).json({
+          error: 'BLOG_REPOSITORY_DISABLED',
+          message: "La gestion des propositions est indisponible sur ce serveur.",
+        });
+        return;
+      }
+
+      const listRequest = this.parseAdminListRequest(req);
+      const searchFilter = this.extractAdminSearchFilter(listRequest.filters);
+      const limit = listRequest.perPage;
+      const offset = (listRequest.page - 1) * listRequest.perPage;
+
+      try {
+        const [rows, total] = await Promise.all([
+          this.blogRepository.listProposals({
+            search: searchFilter,
+            limit,
+            offset,
+            sortOrder: listRequest.sortOrder,
+          }),
+          this.blogRepository.countProposals({ search: searchFilter }),
+        ]);
+        res.json({ data: rows.map((row) => this.mapBlogProposalRowToAdmin(row)), total });
+      } catch (error) {
+        console.error('Failed to list admin blog proposals', error);
+        res.status(500).json({
+          error: 'ADMIN_BLOG_PROPOSALS_LIST_FAILED',
+          message: 'Impossible de récupérer les propositions.',
+        });
+      }
+    });
+
+    adminRouter.get('/blog/proposals/:slug', async (req, res) => {
+      if (!this.blogRepository) {
+        res.status(503).json({
+          error: 'BLOG_REPOSITORY_DISABLED',
+          message: "La gestion des propositions est indisponible sur ce serveur.",
+        });
+        return;
+      }
+
+      const slug = this.normalizeSlug(typeof req.params.slug === 'string' ? req.params.slug : null);
+      if (!slug) {
+        res.status(400).json({ error: 'SLUG_REQUIRED', message: 'Le slug de la proposition est requis.' });
+        return;
+      }
+
+      try {
+        const proposal = await this.blogRepository.getProposalBySlug(slug);
+        if (!proposal) {
+          res.status(404).json({ error: 'ADMIN_BLOG_PROPOSAL_NOT_FOUND', message: 'Proposition introuvable.' });
+          return;
+        }
+        res.json({ data: this.mapBlogProposalRowToAdmin(proposal) });
+      } catch (error) {
+        console.error('Failed to load admin blog proposal', error);
+        res.status(500).json({
+          error: 'ADMIN_BLOG_PROPOSAL_LOAD_FAILED',
+          message: 'Impossible de charger cette proposition.',
+        });
+      }
+    });
+
+    adminRouter.get('/members/hidden', async (_req, res) => {
+      try {
+        const members = await this.adminService.listHiddenMembers();
+        const mapped = members.map((record) => this.mapHiddenMemberRecord(record));
+        res.json({ data: mapped, total: mapped.length });
+      } catch (error) {
+        console.error('Failed to list hidden members', error);
+        res.status(500).json({
+          error: 'ADMIN_HIDDEN_MEMBERS_LIST_FAILED',
+          message: 'Impossible de récupérer les membres masqués.',
+        });
+      }
+    });
+
+    adminRouter.get('/members/hidden/:userId', async (req, res) => {
+      const userId = typeof req.params.userId === 'string' ? req.params.userId.trim() : '';
+      if (!userId) {
+        res.status(400).json({ error: 'USER_ID_REQUIRED', message: "L'identifiant utilisateur est requis." });
+        return;
+      }
+
+      try {
+        const members = await this.adminService.listHiddenMembers();
+        const match = members.find((member) => member.userId === userId);
+        if (!match) {
+          res.status(404).json({ error: 'MEMBER_NOT_HIDDEN', message: 'Ce membre est visible.' });
+          return;
+        }
+        res.json({ data: this.mapHiddenMemberRecord(match) });
+      } catch (error) {
+        console.error('Failed to load hidden member', error);
+        res.status(500).json({
+          error: 'ADMIN_HIDDEN_MEMBER_LOAD_FAILED',
+          message: 'Impossible de récupérer ce membre.',
+        });
+      }
+    });
+
     adminRouter.post('/members/:userId/hide', async (req, res) => {
       const rawUserId = typeof req.params.userId === 'string' ? req.params.userId.trim() : '';
       if (!rawUserId) {
@@ -2650,7 +3397,7 @@ export default class AppServer {
 
       try {
         const record = await this.adminService.hideMember(rawUserId, idea);
-        res.status(201).json({ member: record });
+        res.status(201).json({ data: this.mapHiddenMemberRecord(record) });
       } catch (error) {
         if ((error as Error)?.message === 'USER_ID_REQUIRED') {
           res.status(400).json({ error: 'USER_ID_REQUIRED', message: "L'identifiant utilisateur est requis." });
@@ -2677,7 +3424,7 @@ export default class AppServer {
           res.status(404).json({ error: 'MEMBER_NOT_HIDDEN', message: 'Ce membre est déjà visible.' });
           return;
         }
-        res.json({ success: true });
+        res.json({ data: { id: rawUserId } });
       } catch (error) {
         if ((error as Error)?.message === 'USER_ID_REQUIRED') {
           res.status(400).json({ error: 'USER_ID_REQUIRED', message: "L'identifiant utilisateur est requis." });

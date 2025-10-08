@@ -49,18 +49,19 @@ Leaving these variables undefined disables the CoinGate (and thus SEPA transfer)
 
 ### Interface administrateur
 
-Un panneau minimaliste est disponible à l'adresse `/admin`. Il est protégé par une authentification HTTP basique ; définissez les variables d'environnement suivantes pour l'activer :
+Un tableau de bord complet est disponible à l'adresse `/admin`. Il est protégé par une authentification HTTP basique ; définissez les variables d'environnement suivantes pour l'activer :
 
 ```env
 ADMIN_USERNAME=alice
 ADMIN_PASSWORD=motdepasseSuperSecret
 ```
 
-Une fois authentifié, ce point d'entrée expose plusieurs actions :
+Une fois authentifié, ce point d'entrée propose :
 
-- récupérer un état synthétique du service (auditeurs en direct, orateurs suivis, configuration OpenAI, membres masqués, prochaine génération d'article) ;
-- masquer la fiche d'un membre (`POST /admin/members/{userId}/hide` avec un champ optionnel `idea`) ou la ré-afficher (`DELETE /admin/members/{userId}/hide`) ;
-- déclencher manuellement la génération de l'article quotidien (`POST /admin/articles/daily`).
+- un tableau de bord React Admin pour gérer les articles du blog (création, édition, suppression), suivre les propositions en attente et administrer les membres masqués ;
+- une API JSON pour récupérer un état synthétique du service (auditeurs en direct, orateurs suivis, configuration OpenAI, membres masqués, prochaine génération d'article) ;
+- des points d'accès pour masquer la fiche d'un membre (`POST /admin/members/{userId}/hide` avec un champ optionnel `idea`) ou la ré-afficher (`DELETE /admin/members/{userId}/hide`) ;
+- la possibilité de déclencher manuellement la génération de l'article quotidien (`POST /admin/articles/daily`).
 
 Les profils masqués ne sont plus renvoyés par les API publiques et leur page dédiée affiche un message de confidentialité.
 
