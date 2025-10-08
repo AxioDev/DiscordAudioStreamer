@@ -2188,69 +2188,6 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
   `;
 };
 
-const createBeerCanTexture = () => {
-  const canvas = document.createElement('canvas');
-  canvas.width = 1024;
-  canvas.height = 512;
-  const context = canvas.getContext('2d');
-  if (!context) {
-    return null;
-  }
-
-  const texture = new THREE.CanvasTexture(canvas);
-
-  const paintNightGradient = () => {
-    context.clearRect(0, 0, canvas.width, canvas.height);
-
-    const baseGradient = context.createLinearGradient(0, 0, 0, canvas.height);
-    baseGradient.addColorStop(0, '#020617');
-    baseGradient.addColorStop(0.35, '#0b1120');
-    baseGradient.addColorStop(0.7, '#0f172a');
-    baseGradient.addColorStop(1, '#0a1022');
-    context.fillStyle = baseGradient;
-    context.fillRect(0, 0, canvas.width, canvas.height);
-
-    context.save();
-    context.globalAlpha = 0.2;
-    for (let index = 0; index < 32; index += 1) {
-      const x = (index / 32) * canvas.width;
-      const brightness = 0.45 + 0.55 * Math.sin(index * 0.55);
-      const channel = Math.floor(120 + brightness * 70);
-      context.fillStyle = `rgba(${channel}, ${channel + 10}, ${channel + 25}, 0.55)`;
-      context.fillRect(x, 0, canvas.width / 64, canvas.height);
-    }
-    context.restore();
-  };
-
-  paintNightGradient();
-  texture.needsUpdate = true;
-
-  const referenceImage = new Image();
-  referenceImage.crossOrigin = 'anonymous';
-  referenceImage.decoding = 'async';
-  referenceImage.src = 'https://i.ibb.co/Z1LyfZmh/image.png';
-  referenceImage.onload = () => {
-    paintNightGradient();
-    context.drawImage(referenceImage, 0, 0, canvas.width, canvas.height);
-
-    const blueOverlay = context.createLinearGradient(0, 0, 0, canvas.height);
-    blueOverlay.addColorStop(0, 'rgba(15, 23, 42, 0.55)');
-    blueOverlay.addColorStop(0.5, 'rgba(11, 17, 32, 0.45)');
-    blueOverlay.addColorStop(1, 'rgba(15, 23, 42, 0.65)');
-    context.fillStyle = blueOverlay;
-    context.fillRect(0, 0, canvas.width, canvas.height);
-
-    texture.needsUpdate = true;
-  };
-
-  referenceImage.onerror = () => {
-    paintNightGradient();
-    texture.needsUpdate = true;
-  };
-
-  return texture;
-};
-
 const formatDurationLabel = (ms) => {
   if (!Number.isFinite(ms) || ms <= 0) {
     return '—';
@@ -3721,10 +3658,11 @@ const DailyBreakdown = ({
   `;
 };
 
-const initializeBeerCanScene = (THREE, container) => {
+
+const initializeMicrophoneScene = (THREE, container) => {
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 20);
-  camera.position.set(0, 0, 4);
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 25);
+  camera.position.set(0, 0.4, 4.8);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   const setRendererSize = () => {
@@ -3745,117 +3683,338 @@ const initializeBeerCanScene = (THREE, container) => {
   container.style.touchAction = 'none';
   container.style.cursor = 'grab';
 
-  const ambientLight = new THREE.AmbientLight(0xffffff, 1.1);
+  const ambientLight = new THREE.AmbientLight(0xffffff, 1.05);
   scene.add(ambientLight);
 
-  const keyLight = new THREE.DirectionalLight(0xf8fafc, 1.35);
-  keyLight.position.set(1.5, 2.5, 2.5);
+  const keyLight = new THREE.DirectionalLight(0xf8fafc, 1.45);
+  keyLight.position.set(1.8, 2.6, 2.2);
   keyLight.castShadow = false;
   scene.add(keyLight);
 
-  const rimLight = new THREE.PointLight(0x6366f1, 1.2, 8, 2);
-  rimLight.position.set(-2.5, 1.2, -1.5);
+  const rimLight = new THREE.PointLight(0x6366f1, 1.3, 9, 2);
+  rimLight.position.set(-2.6, 1.5, -1.2);
   scene.add(rimLight);
 
-  const fillLight = new THREE.PointLight(0x38bdf8, 1.1, 10, 2);
-  fillLight.position.set(2.5, -0.8, 2.0);
+  const fillLight = new THREE.PointLight(0x38bdf8, 1.2, 12, 2.2);
+  fillLight.position.set(2.4, -0.4, 3.1);
   scene.add(fillLight);
 
-  const glowLight = new THREE.PointLight(0xa855f7, 1.4, 6, 2.5);
-  glowLight.position.set(0.8, 2.8, 2.8);
+  const glowLight = new THREE.SpotLight(0xa855f7, 1.6, 12, Math.PI / 3, 0.45, 1.2);
+  glowLight.position.set(-1.5, 3.2, 2.6);
+  glowLight.target.position.set(0, 0.6, 0);
   scene.add(glowLight);
+  scene.add(glowLight.target);
 
-  const canGroup = new THREE.Group();
-  scene.add(canGroup);
+  const geometries = [];
+  const materials = [];
+  const textures = [];
+  const trackGeometry = (geometry) => {
+    geometries.push(geometry);
+    return geometry;
+  };
+  const trackMaterial = (material) => {
+    materials.push(material);
+    return material;
+  };
+  const trackTexture = (texture) => {
+    textures.push(texture);
+    return texture;
+  };
 
-  const canvas = document.createElement('canvas');
-  canvas.width = 1024;
-  canvas.height = 512;
-  const ctx = canvas.getContext('2d');
-  if (ctx) {
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+  const microphoneGroup = new THREE.Group();
+  microphoneGroup.position.y = 0.1;
+  scene.add(microphoneGroup);
+
+  const baseGeometry = trackGeometry(new THREE.CylinderGeometry(1.15, 1.35, 0.25, 64));
+  const baseMaterial = trackMaterial(
+    new THREE.MeshStandardMaterial({
+      color: 0x0f172a,
+      metalness: 0.92,
+      roughness: 0.35,
+      emissive: new THREE.Color(0x1e3a8a).multiplyScalar(0.45),
+    }),
+  );
+  const base = new THREE.Mesh(baseGeometry, baseMaterial);
+  base.position.y = -1.35;
+  microphoneGroup.add(base);
+
+  const baseInsetGeometry = trackGeometry(new THREE.CylinderGeometry(0.95, 1.05, 0.08, 64));
+  const baseInsetMaterial = trackMaterial(
+    new THREE.MeshStandardMaterial({
+      color: 0x111827,
+      metalness: 0.85,
+      roughness: 0.25,
+    }),
+  );
+  const baseInset = new THREE.Mesh(baseInsetGeometry, baseInsetMaterial);
+  baseInset.position.y = -1.27;
+  microphoneGroup.add(baseInset);
+
+  const haloGeometry = trackGeometry(new THREE.TorusGeometry(0.98, 0.05, 28, 90));
+  const haloMaterial = trackMaterial(
+    new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      emissive: new THREE.Color(0x38bdf8).multiplyScalar(0.8),
+      metalness: 0.55,
+      roughness: 0.18,
+      transparent: true,
+      opacity: 0.85,
+    }),
+  );
+  const halo = new THREE.Mesh(haloGeometry, haloMaterial);
+  halo.position.y = -1.18;
+  halo.rotation.x = Math.PI / 2;
+  microphoneGroup.add(halo);
+
+  const standGeometry = trackGeometry(new THREE.CylinderGeometry(0.22, 0.28, 1.5, 48));
+  const standMaterial = trackMaterial(
+    new THREE.MeshStandardMaterial({
+      color: 0x1f2937,
+      metalness: 0.95,
+      roughness: 0.22,
+      emissive: new THREE.Color(0x312e81).multiplyScalar(0.3),
+    }),
+  );
+  const stand = new THREE.Mesh(standGeometry, standMaterial);
+  stand.position.y = -0.55;
+  microphoneGroup.add(stand);
+
+  const hingeGeometry = trackGeometry(new THREE.CylinderGeometry(0.26, 0.26, 0.4, 48));
+  const hingeMaterial = trackMaterial(
+    new THREE.MeshStandardMaterial({
+      color: 0xcbd5f5,
+      metalness: 0.9,
+      roughness: 0.18,
+    }),
+  );
+  const hinge = new THREE.Mesh(hingeGeometry, hingeMaterial);
+  hinge.position.y = 0.2;
+  microphoneGroup.add(hinge);
+
+  const yokeGeometry = trackGeometry(new THREE.CylinderGeometry(0.065, 0.065, 1.15, 32));
+  const leftYoke = new THREE.Mesh(yokeGeometry, hingeMaterial);
+  leftYoke.rotation.z = Math.PI / 2;
+  leftYoke.position.set(-0.43, 0.2, 0);
+  microphoneGroup.add(leftYoke);
+  const rightYoke = leftYoke.clone();
+  rightYoke.position.x = 0.43;
+  microphoneGroup.add(rightYoke);
+
+  const yokeCapGeometry = trackGeometry(new THREE.CylinderGeometry(0.12, 0.12, 0.18, 32));
+  const yokeCapMaterial = trackMaterial(
+    new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      metalness: 0.6,
+      roughness: 0.25,
+      emissive: new THREE.Color(0x38bdf8).multiplyScalar(0.5),
+    }),
+  );
+  const leftCap = new THREE.Mesh(yokeCapGeometry, yokeCapMaterial);
+  leftCap.position.set(-0.97, 0.2, 0);
+  leftCap.rotation.z = Math.PI / 2;
+  microphoneGroup.add(leftCap);
+  const rightCap = leftCap.clone();
+  rightCap.position.x = 0.97;
+  microphoneGroup.add(rightCap);
+
+  const capsuleGroup = new THREE.Group();
+  capsuleGroup.position.y = 0.8;
+  microphoneGroup.add(capsuleGroup);
+
+  const bodyCanvas = document.createElement('canvas');
+  bodyCanvas.width = 1024;
+  bodyCanvas.height = 512;
+  const bodyCtx = bodyCanvas.getContext('2d');
+  if (bodyCtx) {
+    bodyCtx.fillStyle = '#111827';
+    bodyCtx.fillRect(0, 0, bodyCanvas.width, bodyCanvas.height);
+    const gradient = bodyCtx.createLinearGradient(0, 0, bodyCanvas.width, 0);
     gradient.addColorStop(0, '#38bdf8');
     gradient.addColorStop(0.5, '#a855f7');
     gradient.addColorStop(1, '#f97316');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(60, 60, canvas.width - 120, canvas.height - 120);
-    ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 120px "Inter", system-ui';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('Libre', canvas.width / 2, canvas.height / 2 - 70);
-    ctx.fillText('Antenne', canvas.width / 2, canvas.height / 2 + 70);
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-    ctx.font = '36px "Inter", system-ui';
-    ctx.fillText('Radio Libre', canvas.width / 2, canvas.height / 2 + 150);
+    bodyCtx.globalAlpha = 0.7;
+    bodyCtx.fillStyle = gradient;
+    bodyCtx.fillRect(140, 60, bodyCanvas.width - 280, bodyCanvas.height - 120);
+    bodyCtx.globalAlpha = 1;
+    bodyCtx.fillStyle = 'rgba(148, 163, 184, 0.25)';
+    for (let index = 0; index < bodyCanvas.width; index += 28) {
+      bodyCtx.fillRect(index, 0, 6, bodyCanvas.height);
+    }
+    bodyCtx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+    bodyCtx.fillRect(140, 196, bodyCanvas.width - 280, 12);
+    bodyCtx.fillRect(140, 304, bodyCanvas.width - 280, 12);
   }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.anisotropy = 16;
-  texture.rotation = Math.PI / 2;
-  texture.wrapS = THREE.MirroredRepeatWrapping;
-  texture.wrapT = THREE.MirroredRepeatWrapping;
+  const bodyTexture = trackTexture(new THREE.CanvasTexture(bodyCanvas));
+  bodyTexture.anisotropy = 16;
+  bodyTexture.wrapS = THREE.MirroredRepeatWrapping;
+  bodyTexture.wrapT = THREE.MirroredRepeatWrapping;
 
-  const canGeometry = new THREE.CylinderGeometry(0.6, 0.6, 2, 128, 1, false);
-  const sideMaterial = new THREE.MeshStandardMaterial({
-    map: texture,
-    metalness: 0.65,
-    roughness: 0.35,
-    emissive: new THREE.Color(0x1e3a8a).multiplyScalar(0.18),
-  });
-  const topMaterial = new THREE.MeshStandardMaterial({
-    color: 0xe2e8f0,
-    metalness: 0.85,
-    roughness: 0.18,
-    emissive: new THREE.Color(0x312e81).multiplyScalar(0.22),
-  });
-  const canMesh = new THREE.Mesh(canGeometry, [sideMaterial, topMaterial, topMaterial]);
-  canGroup.add(canMesh);
+  const bodyGeometry = trackGeometry(new THREE.CylinderGeometry(0.32, 0.36, 1.18, 64));
+  const bodyMaterial = trackMaterial(
+    new THREE.MeshStandardMaterial({
+      map: bodyTexture,
+      metalness: 0.88,
+      roughness: 0.32,
+      emissive: new THREE.Color(0x1e3a8a).multiplyScalar(0.28),
+    }),
+  );
+  const bodyMesh = new THREE.Mesh(bodyGeometry, bodyMaterial);
+  bodyMesh.position.y = 0.1;
+  capsuleGroup.add(bodyMesh);
 
-  const lipGeometry = new THREE.TorusGeometry(0.58, 0.025, 22, 100);
-  const lipMaterial = new THREE.MeshStandardMaterial({
-    color: 0xf1f5f9,
-    metalness: 0.9,
-    roughness: 0.2,
-  });
-  const topLip = new THREE.Mesh(lipGeometry, lipMaterial);
-  topLip.position.y = 1;
-  topLip.rotation.x = Math.PI / 2;
-  canGroup.add(topLip);
-  const bottomLip = topLip.clone();
-  bottomLip.position.y = -1;
-  canGroup.add(bottomLip);
+  const bodyBaseGeometry = trackGeometry(new THREE.CylinderGeometry(0.36, 0.42, 0.25, 48));
+  const bodyBaseMaterial = trackMaterial(
+    new THREE.MeshStandardMaterial({
+      color: 0x0f172a,
+      metalness: 0.92,
+      roughness: 0.28,
+    }),
+  );
+  const bodyBase = new THREE.Mesh(bodyBaseGeometry, bodyBaseMaterial);
+  bodyBase.position.y = -0.44;
+  capsuleGroup.add(bodyBase);
 
-  const topCapGeometry = new THREE.CircleGeometry(0.35, 48);
-  const topCapMaterial = new THREE.MeshStandardMaterial({
-    color: 0xcbd5f5,
-    metalness: 0.95,
-    roughness: 0.28,
-  });
-  const topCap = new THREE.Mesh(topCapGeometry, topCapMaterial);
-  topCap.position.y = 1.01;
-  topCap.rotation.x = -Math.PI / 2;
-  canGroup.add(topCap);
+  const accentGeometry = trackGeometry(new THREE.TorusGeometry(0.34, 0.025, 24, 64));
+  const accentMaterial = trackMaterial(
+    new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      emissive: new THREE.Color(0x38bdf8).multiplyScalar(0.5),
+      metalness: 0.6,
+      roughness: 0.25,
+    }),
+  );
+  const lowerAccent = new THREE.Mesh(accentGeometry, accentMaterial);
+  lowerAccent.rotation.x = Math.PI / 2;
+  lowerAccent.position.y = -0.1;
+  capsuleGroup.add(lowerAccent);
+  const upperAccent = lowerAccent.clone();
+  upperAccent.position.y = 0.34;
+  capsuleGroup.add(upperAccent);
+
+  const grillCanvas = document.createElement('canvas');
+  grillCanvas.width = 256;
+  grillCanvas.height = 256;
+  const grillCtx = grillCanvas.getContext('2d');
+  if (grillCtx) {
+    grillCtx.fillStyle = '#1f2937';
+    grillCtx.fillRect(0, 0, grillCanvas.width, grillCanvas.height);
+    grillCtx.strokeStyle = 'rgba(226, 232, 240, 0.45)';
+    grillCtx.lineWidth = 6;
+    for (let offset = -64; offset < grillCanvas.width + 64; offset += 32) {
+      grillCtx.beginPath();
+      grillCtx.moveTo(offset, -16);
+      grillCtx.lineTo(offset + grillCanvas.height, grillCanvas.height + 16);
+      grillCtx.stroke();
+      grillCtx.beginPath();
+      grillCtx.moveTo(offset, grillCanvas.height + 16);
+      grillCtx.lineTo(offset + grillCanvas.height, -16);
+      grillCtx.stroke();
+    }
+  }
+  const grillTexture = trackTexture(new THREE.CanvasTexture(grillCanvas));
+  grillTexture.wrapS = THREE.RepeatWrapping;
+  grillTexture.wrapT = THREE.RepeatWrapping;
+  grillTexture.repeat.set(6, 6);
+  grillTexture.anisotropy = 8;
+
+  const headGeometry = trackGeometry(new THREE.SphereGeometry(0.42, 48, 32, 0, Math.PI * 2, 0, Math.PI / 1.35));
+  const headMaterial = trackMaterial(
+    new THREE.MeshStandardMaterial({
+      map: grillTexture,
+      color: 0xe2e8f0,
+      metalness: 0.5,
+      roughness: 0.5,
+      emissive: new THREE.Color(0x1d4ed8).multiplyScalar(0.18),
+    }),
+  );
+  const headMesh = new THREE.Mesh(headGeometry, headMaterial);
+  headMesh.position.y = 0.65;
+  capsuleGroup.add(headMesh);
+
+  const headBandGeometry = trackGeometry(new THREE.TorusGeometry(0.37, 0.03, 32, 72));
+  const headBandMaterial = trackMaterial(
+    new THREE.MeshStandardMaterial({
+      color: 0xcbd5f5,
+      metalness: 0.8,
+      roughness: 0.28,
+    }),
+  );
+  const headBand = new THREE.Mesh(headBandGeometry, headBandMaterial);
+  headBand.rotation.x = Math.PI / 2;
+  headBand.position.y = 0.48;
+  capsuleGroup.add(headBand);
+
+  const ledGeometry = trackGeometry(new THREE.SphereGeometry(0.045, 24, 24));
+  const ledMaterial = trackMaterial(
+    new THREE.MeshStandardMaterial({
+      color: 0x22d3ee,
+      emissive: new THREE.Color(0x22d3ee).multiplyScalar(1.2),
+      emissiveIntensity: 1.4,
+      metalness: 0.3,
+      roughness: 0.1,
+    }),
+  );
+  const led = new THREE.Mesh(ledGeometry, ledMaterial);
+  led.position.set(0.28, 0.12, 0.32);
+  capsuleGroup.add(led);
+
+  const knobGeometry = trackGeometry(new THREE.CylinderGeometry(0.06, 0.06, 0.18, 32));
+  const knobMaterial = trackMaterial(
+    new THREE.MeshStandardMaterial({
+      color: 0xf8fafc,
+      metalness: 0.9,
+      roughness: 0.22,
+    }),
+  );
+  const upperKnob = new THREE.Mesh(knobGeometry, knobMaterial);
+  upperKnob.rotation.x = Math.PI / 2;
+  upperKnob.position.set(0.26, 0.05, 0.24);
+  capsuleGroup.add(upperKnob);
+  const lowerKnob = upperKnob.clone();
+  lowerKnob.position.y = -0.22;
+  capsuleGroup.add(lowerKnob);
+
+  const cableCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, -0.2, -0.4),
+    new THREE.Vector3(0.3, -0.8, -0.3),
+    new THREE.Vector3(-0.4, -1.4, 0.2),
+    new THREE.Vector3(0.2, -1.8, 0.6),
+    new THREE.Vector3(0.1, -2.2, 0.8),
+  ]);
+  const cableGeometry = trackGeometry(new THREE.TubeGeometry(cableCurve, 40, 0.04, 14, false));
+  const cableMaterial = trackMaterial(
+    new THREE.MeshStandardMaterial({
+      color: 0x0f172a,
+      metalness: 0.25,
+      roughness: 0.55,
+      emissive: new THREE.Color(0x111827).multiplyScalar(0.45),
+    }),
+  );
+  const cable = new THREE.Mesh(cableGeometry, cableMaterial);
+  cable.position.y = -0.85;
+  cable.position.z = -0.05;
+  microphoneGroup.add(cable);
 
   const waveGroup = new THREE.Group();
-  waveGroup.position.y = -0.15;
+  waveGroup.position.y = -1.3;
   scene.add(waveGroup);
 
   const waveMeshes = [];
   const waveMaterials = [];
   const waveGeometries = [];
-  for (let index = 0; index < 3; index += 1) {
-    const innerRadius = 0.75 + index * 0.03;
-    const ringGeometry = new THREE.RingGeometry(innerRadius, innerRadius + 0.02, 128);
-    const ringMaterial = new THREE.MeshBasicMaterial({
-      color: index % 2 === 0 ? 0x60a5fa : 0xa855f7,
-      transparent: true,
-      opacity: 0,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    });
+  for (let index = 0; index < 5; index += 1) {
+    const innerRadius = 1 + index * 0.28;
+    const ringGeometry = trackGeometry(new THREE.RingGeometry(innerRadius, innerRadius + 0.18, 128, 1));
+    const ringMaterial = trackMaterial(
+      new THREE.MeshBasicMaterial({
+        color: index % 2 === 0 ? 0x38bdf8 : 0xa855f7,
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
     const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
     ringMesh.rotation.x = Math.PI / 2;
     waveGroup.add(ringMesh);
@@ -3864,45 +4023,47 @@ const initializeBeerCanScene = (THREE, container) => {
     waveGeometries.push(ringGeometry);
   }
 
-  const particleCount = 180;
-  const particleGeometry = new THREE.BufferGeometry();
+  const particleCount = 220;
+  const particleGeometry = trackGeometry(new THREE.BufferGeometry());
   const particlePositions = new Float32Array(particleCount * 3);
   const particleSpeeds = new Float32Array(particleCount);
   for (let index = 0; index < particleCount; index += 1) {
     const angle = Math.random() * Math.PI * 2;
-    const radius = 0.35 + Math.random() * 0.6;
-    const height = (Math.random() - 0.3) * 1.2;
+    const radius = 0.5 + Math.random() * 0.75;
+    const height = (Math.random() - 0.2) * 1.6;
     particlePositions[index * 3] = Math.cos(angle) * radius;
     particlePositions[index * 3 + 1] = height;
     particlePositions[index * 3 + 2] = Math.sin(angle) * radius;
-    particleSpeeds[index] = 0.00035 + Math.random() * 0.00055;
+    particleSpeeds[index] = 0.0003 + Math.random() * 0.0006;
   }
   particleGeometry.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
 
-  const particleMaterial = new THREE.PointsMaterial({
-    color: 0x7c3aed,
-    size: 0.06,
-    transparent: true,
-    opacity: 0.85,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    sizeAttenuation: true,
-  });
+  const particleMaterial = trackMaterial(
+    new THREE.PointsMaterial({
+      color: 0x7c3aed,
+      size: 0.055,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      sizeAttenuation: true,
+    }),
+  );
   const particles = new THREE.Points(particleGeometry, particleMaterial);
   particles.position.y = -0.2;
   scene.add(particles);
 
-  const defaultRotation = { x: 0.35, y: -0.4 };
+  const defaultRotation = { x: 0.28, y: -0.35 };
   const targetRotation = { ...defaultRotation };
   const currentRotation = { ...defaultRotation };
-  canGroup.rotation.set(defaultRotation.x, defaultRotation.y, 0);
+  microphoneGroup.rotation.set(defaultRotation.x, defaultRotation.y, 0);
 
   const updateRotationFromPointer = (clientX, clientY) => {
     const rect = container.getBoundingClientRect();
     const relativeX = (clientX - rect.left) / rect.width - 0.5;
     const relativeY = (clientY - rect.top) / rect.height - 0.5;
-    targetRotation.y = THREE.MathUtils.clamp(relativeX * 1.2, -1.1, 1.1);
-    targetRotation.x = THREE.MathUtils.clamp(defaultRotation.x - relativeY * 1.2, -0.2, 0.85);
+    targetRotation.y = THREE.MathUtils.clamp(relativeX * 1.2, -1.05, 1.05);
+    targetRotation.x = THREE.MathUtils.clamp(defaultRotation.x - relativeY * 1.2, -0.05, 0.95);
   };
 
   const handlePointerMove = (event) => {
@@ -3926,37 +4087,41 @@ const initializeBeerCanScene = (THREE, container) => {
     animationFrameId = requestAnimationFrame(animate);
     currentRotation.x += (targetRotation.x - currentRotation.x) * 0.075;
     currentRotation.y += (targetRotation.y - currentRotation.y) * 0.075;
-    canGroup.rotation.x = currentRotation.x + Math.sin(time * 0.00045) * 0.05;
-    canGroup.rotation.y = currentRotation.y + Math.cos(time * 0.00035) * 0.04;
-    canGroup.position.y = Math.sin(time * 0.0006) * 0.05;
+    microphoneGroup.rotation.x = currentRotation.x + Math.sin(time * 0.00045) * 0.04;
+    microphoneGroup.rotation.y = currentRotation.y + Math.cos(time * 0.00035) * 0.04;
+    microphoneGroup.position.y = 0.1 + Math.sin(time * 0.0006) * 0.08;
+
+    capsuleGroup.rotation.z = Math.sin(time * 0.0005) * 0.08;
 
     const elapsed = time - startTime;
     waveMeshes.forEach((mesh, index) => {
       const material = waveMaterials[index];
-      const progress = ((elapsed / 1800 + index / waveMeshes.length) % 1 + 1) % 1;
-      const scale = 1 + progress * 1.85;
+      const progress = ((elapsed / 2000 + index / waveMeshes.length) % 1 + 1) % 1;
+      const scale = 1 + progress * 1.9;
       mesh.scale.setScalar(scale);
-      material.opacity = 0.65 * (1 - progress);
+      material.opacity = 0.6 * (1 - progress);
     });
 
     const positions = particleGeometry.attributes.position.array;
     for (let index = 0; index < particleCount; index += 1) {
       const yIndex = index * 3 + 1;
       positions[yIndex] += particleSpeeds[index] * Math.max(1, 1 + Math.sin(time * 0.0015));
-      if (positions[yIndex] > 1.6) {
-        positions[yIndex] = -0.8 + Math.random() * 0.4;
+      if (positions[yIndex] > 1.8) {
+        positions[yIndex] = -1 + Math.random() * 0.6;
         const angle = Math.random() * Math.PI * 2;
-        const radius = 0.35 + Math.random() * 0.6;
+        const radius = 0.5 + Math.random() * 0.75;
         positions[index * 3] = Math.cos(angle) * radius;
         positions[index * 3 + 2] = Math.sin(angle) * radius;
       }
     }
     particleGeometry.attributes.position.needsUpdate = true;
 
-    const pulse = 0.9 + Math.sin(time * 0.0012) * 0.25;
-    rimLight.intensity = 0.9 * pulse;
-    fillLight.intensity = 0.75 * pulse + 0.55;
+    const pulse = 0.95 + Math.sin(time * 0.0011) * 0.22;
+    rimLight.intensity = 0.85 * pulse;
+    fillLight.intensity = 0.7 * pulse + 0.6;
     glowLight.intensity = 1.1 * pulse;
+    haloMaterial.opacity = 0.65 + Math.sin(time * 0.0022) * 0.2;
+    halo.rotation.z += 0.0025;
 
     renderer.render(scene, camera);
   };
@@ -3966,18 +4131,9 @@ const initializeBeerCanScene = (THREE, container) => {
     cancelAnimationFrame(animationFrameId);
     window.removeEventListener('resize', handleResize);
     window.removeEventListener('pointermove', handlePointerMove);
-    canGeometry.dispose();
-    lipGeometry.dispose();
-    topCapGeometry.dispose();
-    sideMaterial.dispose();
-    topMaterial.dispose();
-    lipMaterial.dispose();
-    topCapMaterial.dispose();
-    waveGeometries.forEach((geometry) => geometry.dispose());
-    waveMaterials.forEach((material) => material.dispose());
-    particleGeometry.dispose();
-    particleMaterial.dispose();
-    texture?.dispose?.();
+    geometries.forEach((geometry) => geometry.dispose());
+    materials.forEach((material) => material.dispose());
+    textures.forEach((texture) => texture?.dispose?.());
     renderer.dispose();
     container.style.touchAction = '';
     container.style.cursor = '';
@@ -3985,7 +4141,7 @@ const initializeBeerCanScene = (THREE, container) => {
   };
 };
 
-const BeerCanDisplay = () => {
+const MicrophoneDisplay = () => {
   const containerRef = useRef(null);
 
   useEffect(() => {
@@ -4005,7 +4161,7 @@ const BeerCanDisplay = () => {
         if (!target) {
           return;
         }
-        cleanup = initializeBeerCanScene(THREE, target);
+        cleanup = initializeMicrophoneScene(THREE, target);
       })
       .catch((error) => {
         console.error('Failed to load 3D renderer', error);
@@ -4025,13 +4181,11 @@ const BeerCanDisplay = () => {
           class="pointer-events-auto h-48 w-48 -translate-x-2 sm:h-60 sm:w-60 sm:-translate-x-3 lg:h-72 lg:w-72 lg:-translate-x-4 xl:h-80 xl:w-80 xl:-translate-x-6"
           role="presentation"
         ></div>
-        <span class="sr-only">Canette de bière interactive qui réagit aux mouvements de la souris.</span>
+        <span class="sr-only">Microphone 3D interactif qui réagit aux mouvements de la souris.</span>
       </div>
     </div>
   `;
 };
-
-
 export {
   StatusBadge,
   SpeakersSection,
@@ -4042,7 +4196,7 @@ export {
   ShopProductCard,
   MemberAvatar,
   AudioPlayer,
-  BeerCanDisplay,
+  MicrophoneDisplay,
   ProfileIdentityCard,
   ProfilePersonaCard,
   ProfileSummaryCards,
