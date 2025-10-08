@@ -481,7 +481,11 @@ const ClassementsPage = ({ params = {}, onSyncRoute, bootstrap = null }) => {
           })();
 
           return html`
-            <article key=${key} class=${`leader-card relative overflow-hidden rounded-3xl border ${highlight}`}>
+            <article
+              key=${key}
+              class=${`leader-card relative overflow-hidden rounded-3xl border ${highlight}`}
+              style=${{ '--leader-index': String(index) }}
+            >
               <div class=${`absolute inset-0 bg-gradient-to-r ${accent} opacity-[0.22]`}></div>
               <div class="relative flex flex-col gap-6 p-6">
                 <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

@@ -274,6 +274,7 @@ const App = () => {
   const [now, setNow] = useState(Date.now());
   const [menuOpen, setMenuOpen] = useState(false);
   const [route, setRoute] = useState(() => BOOTSTRAP_ROUTE ?? initializeRoute());
+  const [routeTransitionPhase, setRouteTransitionPhase] = useState(0);
   const [anonymousSlot, setAnonymousSlot] = useState(() => normalizeAnonymousSlot());
   const [listenerStats, setListenerStats] = useState(() => (
     BOOTSTRAP_LISTENER_STATS ? { count: BOOTSTRAP_LISTENER_STATS.count, history: BOOTSTRAP_LISTENER_STATS.history.slice() } : { count: 0, history: [] }
@@ -283,6 +284,7 @@ const App = () => {
   const sidebarTouchStartRef = useRef(null);
   const asyncPagesRef = useRef(asyncPages);
   const pendingPageLoadsRef = useRef(new Map());
+  const initialRouteRef = useRef(true);
 
   useEffect(() => {
     asyncPagesRef.current = asyncPages;
@@ -553,6 +555,14 @@ const App = () => {
   useEffect(() => {
     closeMenu();
   }, [route, closeMenu]);
+
+  useEffect(() => {
+    if (initialRouteRef.current) {
+      initialRouteRef.current = false;
+      return;
+    }
+    setRouteTransitionPhase((phase) => (phase + 1) % 2);
+  }, [route]);
 
   useEffect(() => {
     participantsRef.current = participantsMap;
@@ -1082,9 +1092,22 @@ const App = () => {
     return null;
   };
 
+  const routeTransitionActive = !initialRouteRef.current;
+  const headerAnimationClass = routeTransitionActive
+    ? `route-transition-shell route-transition-shell-${routeTransitionPhase}`
+    : '';
+  const navAnimationClass = routeTransitionActive
+    ? `route-link-animate route-link-animate-${routeTransitionPhase}`
+    : '';
+  const routePhaseValue = routeTransitionActive ? String(routeTransitionPhase) : 'initial';
+
   return html`
     <div class="flex min-h-screen flex-col bg-slate-950 text-slate-100">
-      <header class="sticky top-0 z-20 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
+      <header
+        class=${[`sticky top-0 z-20 border-b border-slate-800 bg-slate-900/80 backdrop-blur`, headerAnimationClass]
+          .filter(Boolean)
+          .join(' ')}
+      >
         <div class="mx-auto flex max-w-5xl items-center gap-3 px-4 py-4">
           <button
             class="flex items-center gap-2 rounded-lg border border-slate-700 p-2 text-slate-200 transition hover:border-slate-500 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 lg:hidden"
@@ -1129,21 +1152,23 @@ const App = () => {
             </span>
           </a>
           <nav class="hidden items-center gap-6 lg:flex">
-          ${NAV_LINKS.map((link) => {
+          ${NAV_LINKS.map((link, index) => {
             const isActive =
               route.name === link.route || (link.route === 'blog' && route.name === 'blog-proposal');
             const href = link.href;
             const baseClasses = 'text-sm font-medium transition hover:text-white';
             const stateClass = isActive ? 'text-white' : 'text-slate-300';
+            const animationClass = navAnimationClass;
             return html`
               <a
                 key=${link.route}
-                class=${[baseClasses, stateClass].join(' ')}
+                class=${[baseClasses, stateClass, animationClass].filter(Boolean).join(' ')}
                 href=${href}
                 onClick=${(event) => handleNavigate(event, link.route)}
                 onMouseEnter=${() => prefetchRoute(link.route)}
                 onFocus=${() => prefetchRoute(link.route)}
                 aria-current=${isActive ? 'page' : undefined}
+                style=${routeTransitionActive ? { '--route-index': String(index) } : null}
               >
                 ${link.label}
               </a>
@@ -1214,7 +1239,7 @@ const App = () => {
           </button>
         </div>
         <nav class="mt-8 flex flex-col gap-1" aria-label="Navigation mobile">
-          ${NAV_LINKS.map((link) => {
+          ${NAV_LINKS.map((link, index) => {
             const isActive =
               route.name === link.route || (link.route === 'blog' && route.name === 'blog-proposal');
             const href = link.href;
@@ -1224,16 +1249,18 @@ const App = () => {
               : 'text-slate-200 hover:bg-white/5';
             const Icon = link.icon;
             const iconClass = isActive ? 'text-amber-300' : 'text-slate-400';
+            const animationClass = navAnimationClass;
             return html`
               <a
                 key=${`sidebar-${link.route}`}
-                class=${[baseClasses, stateClass].join(' ')}
+                class=${[baseClasses, stateClass, animationClass].filter(Boolean).join(' ')}
                 href=${href}
                 onClick=${(event) => handleNavigate(event, link.route)}
                 onMouseEnter=${() => prefetchRoute(link.route)}
                 onFocus=${() => prefetchRoute(link.route)}
                 onTouchStart=${() => prefetchRoute(link.route)}
                 aria-current=${isActive ? 'page' : undefined}
+                style=${routeTransitionActive ? { '--route-index': String(index) } : null}
               >
                 ${Icon ? html`<${Icon} class=${`h-5 w-5 ${iconClass}`} aria-hidden="true" />` : null}
                 <span>${link.label}</span>
@@ -1242,7 +1269,7 @@ const App = () => {
         </nav>
       </aside>
 
-      <main class="flex-1">
+      <main class="flex-1" data-route-phase=${routePhaseValue}>
         <div class="mx-auto flex w-full max-w-5xl flex-col gap-10 px-4 py-10 sm:px-6 lg:px-0">
           ${
             route.name === 'cgu'
