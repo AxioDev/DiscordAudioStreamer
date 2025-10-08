@@ -415,7 +415,7 @@ export default class HypeLeaderboardService {
 
         const snapshotUsername = this.normalizeString(entry.username);
         const snapshotDisplayName =
-          this.normalizeString(entry.displayName)
+          this.normalizeDisplayName(entry.displayName)
           ?? snapshotUsername
           ?? 'Anonyme';
 
@@ -485,8 +485,8 @@ export default class HypeLeaderboardService {
       const avatarUrl = identity?.avatarUrl ?? null;
       const username = this.normalizeString(leader.username) ?? this.normalizeString(identity?.username);
       const displayName =
-        this.normalizeString(leader.displayName)
-        ?? this.normalizeString(identity?.displayName)
+        this.normalizeDisplayName(leader.displayName)
+        ?? this.normalizeDisplayName(identity?.displayName)
         ?? username
         ?? 'Anonyme';
 
@@ -740,6 +740,24 @@ export default class HypeLeaderboardService {
     }
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private normalizeDisplayName(value: string | null | undefined): string | null {
+    const normalized = this.normalizeString(value);
+    if (!normalized) {
+      return null;
+    }
+
+    const simplified = normalized
+      .toLowerCase()
+      .replace(/\s+/g, '')
+      .replace(/[·\-]/g, '');
+
+    if (simplified === 'anonyme' || simplified === 'inconnu' || simplified === 'inconnue') {
+      return null;
+    }
+
+    return normalized;
   }
 
   private cloneLeaders(leaders: HypeLeaderWithTrend[], limit: number): HypeLeaderWithTrend[] {
