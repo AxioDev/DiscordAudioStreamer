@@ -2915,7 +2915,6 @@ ${limitClause}`;
 
       const queryParams = [...voiceFilters.params, ...textParams];
       const voiceParamCount = voiceFilters.params.length;
-      const textParamOffset = voiceParamCount + 1;
 
       const voiceClause = voiceFilters.clause;
       const adjustedTextClause = hasTextMessages && activityTypes.has('text')
@@ -3574,7 +3573,6 @@ ${limitClause}`;
         if (!channelId) {
           continue;
         }
-        const voiceMinutes = Number(parseNumber(row.voice_minutes).toFixed(2));
         const activityScore = Number(parseNumber(row.activity_score).toFixed(2));
         suggestions.push({
           channelId,
