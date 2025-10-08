@@ -100,6 +100,7 @@ export interface Config {
   botToken: string;
   guildId?: string;
   voiceChannelId?: string;
+  timezone?: string;
   port: number;
   ffmpegPath: string;
   outputFormat: 'opus' | 'mp3' | string;
@@ -130,6 +131,11 @@ const config: Config = {
   botToken: process.env.BOT_TOKEN ?? '',
   guildId: process.env.GUILD_ID,
   voiceChannelId: process.env.VOICE_CHANNEL_ID,
+  timezone: (() => {
+    const value = process.env.TIMEZONE ?? '';
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  })(),
   port: parseInteger(process.env.PORT, 3000),
   ffmpegPath: process.env.FFMPEG_PATH || 'ffmpeg',
   outputFormat,
