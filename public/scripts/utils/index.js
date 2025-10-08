@@ -80,6 +80,31 @@ export const buildRoutePath = (name, params = {}) => {
       return '/about';
     case 'cgu':
       return '/cgu';
+    case 'statistiques': {
+      const paramsSource = params && typeof params === 'object' ? params : {};
+      const searchParams = new URLSearchParams();
+      const setParam = (key) => {
+        const raw = paramsSource[key];
+        if (raw == null) {
+          return;
+        }
+        const value = String(raw).trim();
+        if (value.length > 0) {
+          searchParams.set(key, value);
+        }
+      };
+      setParam('range');
+      setParam('since');
+      setParam('until');
+      setParam('granularity');
+      setParam('activity');
+      setParam('channels');
+      setParam('userId');
+      setParam('heatmap');
+      setParam('hype');
+      const query = searchParams.toString();
+      return query ? `/statistiques?${query}` : '/statistiques';
+    }
     case 'profile': {
       const userId = params.userId ? String(params.userId).trim() : '';
       const base = userId ? `/profil/${encodeURIComponent(userId)}` : '/profil';
@@ -155,6 +180,22 @@ export const parseRouteFromLocation = (location) => {
   }
   if (BAN_ALIASES.has(head)) {
     return { name: 'ban', params: {} };
+  }
+  if (head === 'statistiques') {
+    return {
+      name: 'statistiques',
+      params: {
+        range: searchParams.get('range'),
+        since: searchParams.get('since'),
+        until: searchParams.get('until'),
+        granularity: searchParams.get('granularity'),
+        activity: searchParams.get('activity'),
+        channels: searchParams.get('channels'),
+        userId: searchParams.get('userId'),
+        heatmap: searchParams.get('heatmap'),
+        hype: searchParams.get('hype'),
+      },
+    };
   }
   if (PROFILE_ALIASES.has(head)) {
     const userId = decodePathSegment(segments[1]);

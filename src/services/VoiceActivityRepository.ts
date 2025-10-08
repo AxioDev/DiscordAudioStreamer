@@ -196,6 +196,118 @@ export interface UserPersonaCandidateRecord {
   personaVersion: string | null;
 }
 
+export type CommunityStatisticsActivityType =
+  | 'voice'
+  | 'text'
+  | 'arrivals'
+  | 'departures'
+  | 'mentions'
+  | 'hype';
+
+export type CommunityStatisticsGranularity = 'day' | 'week' | 'month' | 'year';
+
+export interface CommunityStatisticsQueryOptions {
+  since?: Date | null;
+  until?: Date | null;
+  granularity?: CommunityStatisticsGranularity | null;
+  activityTypes?: CommunityStatisticsActivityType[] | ReadonlyArray<CommunityStatisticsActivityType> | null;
+  channelIds?: string[] | ReadonlyArray<string> | null;
+  userId?: string | null;
+  retentionWindows?: number[] | ReadonlyArray<number> | null;
+  limitTopMembers?: number | null;
+  limitChannels?: number | null;
+  includeHeatmap?: boolean | null;
+  includeHypeHistory?: boolean | null;
+  timezone?: string | null;
+}
+
+export interface CommunityStatisticsTotals {
+  totalMembers: number;
+  activeMembers: number;
+  newMembers: number;
+  voiceMinutes: number;
+  messageCount: number;
+  averageConnectedPerHour: number;
+  retentionRate: number | null;
+  growthRate: number | null;
+}
+
+export interface CommunityStatisticsSeriesPoint {
+  bucket: string;
+  voiceMinutes: number;
+  messageCount: number;
+  activeMembers: number;
+}
+
+export interface CommunityStatisticsNewMemberPoint {
+  bucket: string;
+  count: number;
+}
+
+export interface CommunityStatisticsTopMemberEntry {
+  userId: string;
+  displayName: string;
+  username: string | null;
+  voiceMinutes: number;
+  messageCount: number;
+  activityScore: number;
+}
+
+export interface CommunityStatisticsChannelActivityEntry {
+  channelId: string | null;
+  channelName: string | null;
+  voiceMinutes: number;
+  messageCount: number;
+}
+
+export interface CommunityStatisticsRetentionBucket {
+  windowDays: number;
+  returningUsers: number;
+  totalUsers: number;
+  rate: number | null;
+}
+
+export interface CommunityStatisticsHeatmapEntry {
+  source: 'voice' | 'text';
+  dayOfWeek: number;
+  hour: number;
+  value: number;
+}
+
+export interface CommunityStatisticsHypeHistoryEntry {
+  bucketStart: string;
+  averageSchScore: number | null;
+  leaderCount: number;
+}
+
+export interface CommunityStatisticsChannelSuggestion {
+  channelId: string;
+  channelName: string | null;
+  channelType: 'text' | 'voice' | 'unknown';
+  activityScore: number;
+}
+
+export interface CommunityStatisticsUserSuggestion {
+  userId: string;
+  displayName: string;
+  username: string | null;
+  avatarUrl: string | null;
+}
+
+export interface CommunityStatisticsResult {
+  totals: CommunityStatisticsTotals;
+  newMembers: CommunityStatisticsNewMemberPoint[];
+  activitySeries: CommunityStatisticsSeriesPoint[];
+  topMembers: CommunityStatisticsTopMemberEntry[];
+  channelActivity: {
+    voice: CommunityStatisticsChannelActivityEntry[];
+    text: CommunityStatisticsChannelActivityEntry[];
+  };
+  retention: CommunityStatisticsRetentionBucket[];
+  heatmap: CommunityStatisticsHeatmapEntry[];
+  hypeHistory: CommunityStatisticsHypeHistoryEntry[];
+}
+
 export interface VoiceActivityHistoryEntry {
   userId: string;
   channelId: string | null;
@@ -2579,6 +2691,939 @@ ${limitClause}`;
       console.error('Failed to load latest hype leaderboard snapshot', error);
       return null;
     }
+  }
+
+  public async getCommunityStatistics(
+    options: CommunityStatisticsQueryOptions = {},
+  ): Promise<CommunityStatisticsResult> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return {
+        totals: {
+          totalMembers: 0,
+          activeMembers: 0,
+          newMembers: 0,
+          voiceMinutes: 0,
+          messageCount: 0,
+          averageConnectedPerHour: 0,
+          retentionRate: null,
+          growthRate: null,
+        },
+        newMembers: [],
+        activitySeries: [],
+        topMembers: [],
+        channelActivity: { voice: [], text: [] },
+        retention: [],
+        heatmap: [],
+        hypeHistory: [],
+      };
+    }
+
+    const normalizeDate = (value: Date | null | undefined): Date | null => {
+      if (!(value instanceof Date)) {
+        return null;
+      }
+      return Number.isNaN(value.getTime()) ? null : value;
+    };
+
+    const parseNumber = (value: unknown): number => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : 0;
+    };
+
+    const parseString = (value: unknown): string | null => {
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        return trimmed.length > 0 ? trimmed : null;
+      }
+      return null;
+    };
+
+    const now = new Date();
+    const sinceDate = normalizeDate(options.since ?? null);
+    const untilDate = normalizeDate(options.until ?? null) ?? now;
+    const safeUntil = Number.isNaN(untilDate.getTime()) ? now : untilDate;
+    let safeSince = sinceDate && !Number.isNaN(sinceDate.getTime()) ? sinceDate : null;
+    if (!safeSince) {
+      safeSince = new Date(safeUntil.getTime() - 30 * 24 * 60 * 60 * 1000);
+    }
+    if (safeSince.getTime() > safeUntil.getTime()) {
+      safeSince = new Date(safeUntil.getTime() - 24 * 60 * 60 * 1000);
+    }
+
+    const sinceIso = safeSince.toISOString();
+    const untilIso = safeUntil.toISOString();
+
+    const activityTypes = new Set<CommunityStatisticsActivityType>(
+      Array.isArray(options.activityTypes) && options.activityTypes.length > 0
+        ? (options.activityTypes as CommunityStatisticsActivityType[])
+        : ['voice', 'text', 'arrivals', 'departures', 'mentions', 'hype'],
+    );
+
+    const channelIds = Array.isArray(options.channelIds)
+      ? Array.from(
+          new Set(
+            (options.channelIds as string[])
+              .map((id) => (typeof id === 'string' ? id.trim() : ''))
+              .filter((id): id is string => id.length > 0),
+          ),
+        )
+      : [];
+
+    const userId = parseString(options.userId);
+
+    const retentionWindows = (() => {
+      const values = Array.isArray(options.retentionWindows)
+        ? options.retentionWindows
+        : typeof options.retentionWindows === 'number'
+          ? [options.retentionWindows]
+          : [7, 30, 90];
+      const normalized = Array.from(
+        new Set(
+          values
+            .map((value) => Math.max(1, Math.floor(Number(value))))
+            .filter((value) => Number.isFinite(value) && value > 0),
+        ),
+      ).sort((a, b) => a - b);
+      return normalized.slice(0, 5);
+    })();
+
+    const limitTopMembers = (() => {
+      const candidate = Number(options.limitTopMembers);
+      if (!Number.isFinite(candidate)) {
+        return 15;
+      }
+      return Math.min(Math.max(Math.floor(candidate), 5), 100);
+    })();
+
+    const limitChannels = (() => {
+      const candidate = Number(options.limitChannels);
+      if (!Number.isFinite(candidate)) {
+        return 12;
+      }
+      return Math.min(Math.max(Math.floor(candidate), 5), 50);
+    })();
+
+    const includeHeatmap = options.includeHeatmap !== false;
+    const includeHypeHistory = options.includeHypeHistory !== false;
+
+    await this.ensureSchemaIntrospection(pool);
+
+    const hasTextMessages = Boolean(this.textMessagesColumns && this.textMessagesColumns.size > 0);
+    const hasUsersTable = Boolean(this.usersColumns && this.usersColumns.size > 0);
+    const hasFirstSeenColumn = Boolean(this.usersColumns?.has('first_seen'));
+    const hasLastSeenColumn = Boolean(this.usersColumns?.has('last_seen'));
+
+    const buildFilters = (
+      alias: string,
+      timestampColumn: string,
+      { includeChannel = true }: { includeChannel?: boolean } = {},
+    ): { clause: string; params: unknown[] } => {
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+      let index = 1;
+      if (sinceIso) {
+        conditions.push(`${timestampColumn} >= $${index}`);
+        params.push(sinceIso);
+        index += 1;
+      }
+      if (untilIso) {
+        conditions.push(`${timestampColumn} <= $${index}`);
+        params.push(untilIso);
+        index += 1;
+      }
+      if (userId) {
+        conditions.push(`${alias}.user_id::text = $${index}`);
+        params.push(userId);
+        index += 1;
+      }
+      if (includeChannel && channelIds.length > 0) {
+        conditions.push(`${alias}.channel_id::text = ANY($${index}::text[])`);
+        params.push(channelIds);
+        index += 1;
+      }
+      const clause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      return { clause, params };
+    };
+
+    const buildPresenceFilters = (): { clause: string; params: unknown[] } => {
+      const conditions: string[] = ['vp.joined_at <= $1::timestamptz', '($2::timestamptz IS NULL OR vp.left_at IS NULL OR vp.left_at >= $2::timestamptz)'];
+      const params: unknown[] = [untilIso, sinceIso];
+      let index = 3;
+      if (userId) {
+        conditions.push(`vp.user_id::text = $${index}`);
+        params.push(userId);
+        index += 1;
+      }
+      if (channelIds.length > 0) {
+        conditions.push(`vp.channel_id::text = ANY($${index}::text[])`);
+        params.push(channelIds);
+        index += 1;
+      }
+      const clause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      return { clause, params };
+    };
+
+    const totals: CommunityStatisticsTotals = {
+      totalMembers: 0,
+      activeMembers: 0,
+      newMembers: 0,
+      voiceMinutes: 0,
+      messageCount: 0,
+      averageConnectedPerHour: 0,
+      retentionRate: null,
+      growthRate: null,
+    };
+
+    let voiceDurationMs = 0;
+    let messageCount = 0;
+    let activeMembers = 0;
+    let presenceSeconds = 0;
+
+    // Voice totals
+    try {
+      const filters = buildFilters('va', 'va.timestamp');
+      const query = `SELECT COALESCE(SUM(va.duration_ms), 0) AS voice_ms FROM voice_activity va ${filters.clause}`;
+      const result = await pool.query(query, filters.params);
+      voiceDurationMs = parseNumber(result.rows?.[0]?.voice_ms);
+    } catch (error) {
+      console.error('Failed to aggregate voice activity for statistics', error);
+    }
+
+    // Message totals
+    if (hasTextMessages && activityTypes.has('text')) {
+      try {
+        const filters = buildFilters('tm', 'tm.timestamp');
+        const query = `SELECT COUNT(*) AS message_count FROM text_messages tm ${filters.clause}`;
+        const result = await pool.query(query, filters.params);
+        messageCount = parseNumber(result.rows?.[0]?.message_count);
+      } catch (error) {
+        const code = (error as { code?: string })?.code;
+        if (code !== '42P01') {
+          console.error('Failed to aggregate text messages for statistics', error);
+        }
+        messageCount = 0;
+      }
+    }
+
+    // Active members (voice + text)
+    try {
+      const voiceFilters = buildFilters('va', 'va.timestamp');
+      const textFilters = buildFilters('tm', 'tm.timestamp');
+      const textClause = hasTextMessages && activityTypes.has('text') ? textFilters.clause : 'WHERE FALSE';
+      const textParams = hasTextMessages && activityTypes.has('text') ? textFilters.params : [];
+
+      const queryParams = [...voiceFilters.params, ...textParams];
+      const voiceParamCount = voiceFilters.params.length;
+      const textParamOffset = voiceParamCount + 1;
+
+      const voiceClause = voiceFilters.clause;
+      const adjustedTextClause = hasTextMessages && activityTypes.has('text')
+        ? textClause.replace(/\$(\d+)/g, (_match, group) => `$${Number(group) + voiceParamCount}`)
+        : textClause;
+
+      const query = `
+        WITH voice AS (
+          SELECT DISTINCT va.user_id::text AS user_id
+            FROM voice_activity va
+            ${voiceClause}
+        ), messages AS (
+          SELECT DISTINCT tm.user_id::text AS user_id
+            FROM text_messages tm
+            ${adjustedTextClause}
+        ), combined AS (
+          SELECT user_id FROM voice
+          UNION
+          SELECT user_id FROM messages
+        )
+        SELECT COUNT(*) AS active_members FROM combined
+      `;
+
+      const result = await pool.query(query, queryParams);
+      activeMembers = parseNumber(result.rows?.[0]?.active_members);
+    } catch (error) {
+      console.error('Failed to compute active member count for statistics', error);
+    }
+
+    // Presence duration
+    try {
+      const filters = buildPresenceFilters();
+      const params = [...filters.params, sinceIso, untilIso];
+      const sinceIndex = filters.params.length + 1;
+      const untilIndex = filters.params.length + 2;
+      const adjustedClause = filters.clause.replace('$1', `$${untilIndex}`).replace('$2', `$${sinceIndex}`);
+      const query = `
+        SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (
+            LEAST(COALESCE(vp.left_at, $${untilIndex}::timestamptz), $${untilIndex}::timestamptz)
+            - GREATEST(vp.joined_at, $${sinceIndex}::timestamptz)
+        ))), 0) AS seconds
+          FROM voice_presence vp
+          ${adjustedClause}
+      `;
+      const result = await pool.query(query, params);
+      presenceSeconds = parseNumber(result.rows?.[0]?.seconds);
+    } catch (error) {
+      console.error('Failed to compute presence duration for statistics', error);
+    }
+
+    totals.voiceMinutes = Math.round(voiceDurationMs / 60000);
+    totals.messageCount = Math.max(0, Math.floor(messageCount));
+    totals.activeMembers = Math.max(0, Math.floor(activeMembers));
+    const hoursSpan = Math.max((safeUntil.getTime() - safeSince.getTime()) / (60 * 60 * 1000), 1);
+    totals.averageConnectedPerHour = Number((presenceSeconds / 3600 / hoursSpan).toFixed(2));
+
+    const newMembersSeries: CommunityStatisticsNewMemberPoint[] = [];
+    const activitySeries: CommunityStatisticsSeriesPoint[] = [];
+    const topMembers: CommunityStatisticsTopMemberEntry[] = [];
+    const channelVoice: CommunityStatisticsChannelActivityEntry[] = [];
+    const channelText: CommunityStatisticsChannelActivityEntry[] = [];
+    const retentionBuckets: CommunityStatisticsRetentionBucket[] = [];
+    const heatmap: CommunityStatisticsHeatmapEntry[] = [];
+    const hypeHistory: CommunityStatisticsHypeHistoryEntry[] = [];
+
+    const granularity = options.granularity ?? 'week';
+
+    if (hasUsersTable) {
+      // Members totals and growth
+      try {
+        const params: unknown[] = [sinceIso, untilIso];
+        let index = 3;
+        let userClause = '';
+        if (userId) {
+          params.push(userId);
+          userClause = ` AND user_id::text = $${index}`;
+          index += 1;
+        }
+        const result = await pool.query(
+          `SELECT
+             COUNT(*) FILTER (WHERE first_seen < $1::timestamptz) AS existing_before,
+             COUNT(*) FILTER (WHERE first_seen <= $2::timestamptz) AS existing_after,
+             COUNT(*) FILTER (WHERE first_seen >= $1::timestamptz AND first_seen <= $2::timestamptz) AS new_members,
+             COUNT(*) FILTER (WHERE $2::timestamptz - first_seen >= interval '30 days' AND ($2::timestamptz <= COALESCE(last_seen, $2::timestamptz))) AS retained_members
+           FROM users
+          WHERE first_seen IS NOT NULL${userClause}`,
+          params,
+        );
+
+        const row = result.rows?.[0];
+        const before = parseNumber(row?.existing_before);
+        const after = parseNumber(row?.existing_after);
+        const newMembersCount = parseNumber(row?.new_members);
+        totals.totalMembers = Math.max(after, 0);
+        totals.newMembers = Math.max(newMembersCount, 0);
+        const growthBase = Math.max(before, 1);
+        totals.growthRate = Number(((after - before) / growthBase).toFixed(3));
+        const retainedMembers = parseNumber(row?.retained_members);
+        totals.retentionRate = after > 0 ? Number((retainedMembers / after).toFixed(3)) : null;
+      } catch (error) {
+        console.error('Failed to compute member totals for statistics', error);
+      }
+
+      if (hasFirstSeenColumn) {
+        try {
+          const params: unknown[] = [sinceIso, untilIso];
+          let index = 3;
+          let userClause = '';
+          if (userId) {
+            params.push(userId);
+            userClause = ` AND user_id::text = $${index}`;
+            index += 1;
+          }
+
+          const result = await pool.query(
+            `SELECT date_trunc('${granularity}', first_seen) AS bucket, COUNT(*) AS count
+               FROM users
+              WHERE first_seen >= $1::timestamptz AND first_seen <= $2::timestamptz${userClause}
+              GROUP BY bucket
+              ORDER BY bucket`,
+            params,
+          );
+
+          for (const row of result.rows ?? []) {
+            const bucket = row.bucket instanceof Date ? row.bucket.toISOString() : parseString(row.bucket) ?? sinceIso;
+            newMembersSeries.push({ bucket, count: Math.max(0, Math.floor(parseNumber(row.count))) });
+          }
+        } catch (error) {
+          console.error('Failed to build new member series for statistics', error);
+        }
+      }
+
+      if (hasFirstSeenColumn && hasLastSeenColumn) {
+        try {
+          const selectFragments: string[] = [];
+          retentionWindows.forEach((window, windowIndex) => {
+            selectFragments.push(
+              `COUNT(*) FILTER (WHERE last_seen IS NOT NULL AND last_seen >= first_seen + interval '${window} days') AS returning_${windowIndex}`,
+            );
+          });
+
+          const params: unknown[] = [sinceIso, untilIso];
+          let index = 3;
+          let userClause = '';
+          if (userId) {
+            params.push(userId);
+            userClause = ` AND user_id::text = $${index}`;
+            index += 1;
+          }
+
+          const query = `
+            SELECT
+              COUNT(*) AS total,
+              ${selectFragments.join(',\n              ')}
+              FROM users
+             WHERE first_seen IS NOT NULL
+               AND first_seen >= $1::timestamptz
+               AND first_seen <= $2::timestamptz${userClause}
+          `;
+
+          const result = await pool.query(query, params);
+          const row = result.rows?.[0];
+          const total = Math.max(0, Math.floor(parseNumber(row?.total)));
+          retentionWindows.forEach((window, windowIndex) => {
+            const returning = Math.max(0, Math.floor(parseNumber(row?.[`returning_${windowIndex}`])));
+            const rate = total > 0 ? Number((returning / total).toFixed(3)) : null;
+            retentionBuckets.push({ windowDays: window, returningUsers: returning, totalUsers: total, rate });
+          });
+        } catch (error) {
+          console.error('Failed to compute retention metrics for statistics', error);
+        }
+      }
+    }
+
+    // Voice activity series
+    try {
+      const filters = buildFilters('va', 'va.timestamp');
+      const result = await pool.query(
+        `SELECT date_trunc('${granularity}', va.timestamp) AS bucket,
+                SUM(va.duration_ms) AS voice_ms,
+                COUNT(DISTINCT va.user_id) AS active_members
+           FROM voice_activity va
+          ${filters.clause}
+          GROUP BY bucket
+          ORDER BY bucket`,
+        filters.params,
+      );
+
+      for (const row of result.rows ?? []) {
+        const bucket = row.bucket instanceof Date ? row.bucket.toISOString() : parseString(row.bucket) ?? sinceIso;
+        const voiceMs = parseNumber(row.voice_ms);
+        const active = parseNumber(row.active_members);
+        activitySeries.push({
+          bucket,
+          voiceMinutes: Math.round(voiceMs / 60000),
+          messageCount: 0,
+          activeMembers: Math.max(0, Math.floor(active)),
+        });
+      }
+    } catch (error) {
+      console.error('Failed to build voice activity series for statistics', error);
+    }
+
+    if (hasTextMessages && activityTypes.has('text')) {
+      try {
+        const filters = buildFilters('tm', 'tm.timestamp');
+        const result = await pool.query(
+          `SELECT date_trunc('${granularity}', tm.timestamp) AS bucket,
+                  COUNT(*) AS messages
+             FROM text_messages tm
+            ${filters.clause}
+            GROUP BY bucket
+            ORDER BY bucket`,
+          filters.params,
+        );
+
+        const bucketMap = new Map<string, CommunityStatisticsSeriesPoint>();
+        for (const entry of activitySeries) {
+          bucketMap.set(entry.bucket, entry);
+        }
+
+        for (const row of result.rows ?? []) {
+          const bucket = row.bucket instanceof Date ? row.bucket.toISOString() : parseString(row.bucket) ?? sinceIso;
+          const messages = Math.max(0, Math.floor(parseNumber(row.messages)));
+          const point = bucketMap.get(bucket);
+          if (point) {
+            point.messageCount = messages;
+          } else {
+            bucketMap.set(bucket, {
+              bucket,
+              voiceMinutes: 0,
+              messageCount: messages,
+              activeMembers: 0,
+            });
+          }
+        }
+
+        activitySeries.splice(0, activitySeries.length, ...Array.from(bucketMap.values()).sort((a, b) => a.bucket.localeCompare(b.bucket)));
+      } catch (error) {
+        console.error('Failed to build text activity series for statistics', error);
+      }
+    }
+
+    // Top members
+    try {
+      const voiceFilters = buildFilters('va', 'va.timestamp');
+      const textFilters = buildFilters('tm', 'tm.timestamp');
+
+      const voiceClause = activityTypes.has('voice')
+        ? voiceFilters.clause
+        : 'WHERE FALSE';
+      const voiceParams = activityTypes.has('voice') ? voiceFilters.params : [];
+
+      const voiceParamCount = voiceParams.length;
+      const adjustedTextClause = hasTextMessages && activityTypes.has('text')
+        ? textFilters.clause.replace(/\$(\d+)/g, (_match, group) => `$${Number(group) + voiceParamCount}`)
+        : 'WHERE FALSE';
+      const textParams = hasTextMessages && activityTypes.has('text') ? textFilters.params : [];
+
+      const params = [...voiceParams, ...textParams, limitTopMembers];
+      const limitIndex = params.length;
+
+      const query = `
+        WITH voice AS (
+          SELECT va.user_id::text AS user_id, SUM(va.duration_ms) AS voice_ms
+            FROM voice_activity va
+            ${voiceClause}
+            GROUP BY va.user_id
+        ), messages AS (
+          SELECT tm.user_id::text AS user_id, COUNT(*) AS message_count
+            FROM text_messages tm
+            ${adjustedTextClause}
+            GROUP BY tm.user_id
+        ), merged AS (
+          SELECT
+            COALESCE(voice.user_id, messages.user_id) AS user_id,
+            COALESCE(voice.voice_ms, 0) AS voice_ms,
+            COALESCE(messages.message_count, 0) AS message_count
+          FROM voice
+          FULL OUTER JOIN messages ON messages.user_id = voice.user_id
+        )
+        SELECT
+          merged.user_id,
+          COALESCE(u.nickname, u.username, u.pseudo, 'Anonyme') AS display_name,
+          u.username,
+          merged.voice_ms,
+          merged.message_count,
+          (COALESCE(merged.voice_ms, 0) / 60000.0 + COALESCE(merged.message_count, 0)) AS activity_score
+        FROM merged
+        LEFT JOIN users u ON u.user_id::text = merged.user_id
+        ORDER BY activity_score DESC
+        LIMIT $${limitIndex}
+      `;
+
+      const result = await pool.query(query, params);
+      for (const row of result.rows ?? []) {
+        const userIdValue = parseString(row.user_id);
+        if (!userIdValue) {
+          continue;
+        }
+        topMembers.push({
+          userId: userIdValue,
+          displayName: parseString(row.display_name) ?? 'Anonyme',
+          username: parseString(row.username),
+          voiceMinutes: Math.round(parseNumber(row.voice_ms) / 60000),
+          messageCount: Math.max(0, Math.floor(parseNumber(row.message_count))),
+          activityScore: Number(parseNumber(row.activity_score).toFixed(2)),
+        });
+      }
+    } catch (error) {
+      console.error('Failed to compute top member statistics', error);
+    }
+
+    // Channel activity
+    try {
+      const filters = buildFilters('va', 'va.timestamp');
+      const result = await pool.query(
+        `SELECT va.channel_id::text AS channel_id, SUM(va.duration_ms) AS voice_ms
+           FROM voice_activity va
+          ${filters.clause}
+          GROUP BY va.channel_id
+          ORDER BY SUM(va.duration_ms) DESC
+          LIMIT $${filters.params.length + 1}`,
+        [...filters.params, limitChannels],
+      );
+
+      for (const row of result.rows ?? []) {
+        const channelId = parseString(row.channel_id);
+        const voiceMinutes = Math.round(parseNumber(row.voice_ms) / 60000);
+        channelVoice.push({
+          channelId,
+          channelName: channelId ? `Salon vocal ${channelId}` : 'Salon inconnu',
+          voiceMinutes,
+          messageCount: 0,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to compute voice channel activity for statistics', error);
+    }
+
+    if (hasTextMessages && activityTypes.has('text')) {
+      try {
+        const filters = buildFilters('tm', 'tm.timestamp');
+        const result = await pool.query(
+          `SELECT tm.channel_id::text AS channel_id, COUNT(*) AS messages
+             FROM text_messages tm
+            ${filters.clause}
+            GROUP BY tm.channel_id
+            ORDER BY COUNT(*) DESC
+            LIMIT $${filters.params.length + 1}`,
+          [...filters.params, limitChannels],
+        );
+
+        for (const row of result.rows ?? []) {
+          const channelId = parseString(row.channel_id);
+          const messages = Math.max(0, Math.floor(parseNumber(row.messages)));
+          channelText.push({
+            channelId,
+            channelName: channelId ? `Salon textuel ${channelId}` : 'Salon textuel',
+            voiceMinutes: 0,
+            messageCount: messages,
+          });
+        }
+      } catch (error) {
+        console.error('Failed to compute text channel activity for statistics', error);
+      }
+    }
+
+    if (includeHeatmap) {
+      try {
+        const voiceFilters = buildFilters('va', 'va.timestamp');
+        const textFilters = buildFilters('tm', 'tm.timestamp');
+        const voiceClause = activityTypes.has('voice') ? voiceFilters.clause : 'WHERE FALSE';
+        const textClause = hasTextMessages && activityTypes.has('text') ? textFilters.clause : 'WHERE FALSE';
+        const params = [...voiceFilters.params, ...textFilters.params];
+        const textOffset = voiceFilters.params.length;
+        const adjustedTextClause = textClause.replace(/\$(\d+)/g, (_match, group) => `$${Number(group) + textOffset}`);
+
+        const query = `
+          WITH voice AS (
+            SELECT date_trunc('hour', va.timestamp) AS bucket, SUM(va.duration_ms) AS voice_ms
+              FROM voice_activity va
+              ${voiceClause}
+              GROUP BY bucket
+          ), messages AS (
+            SELECT date_trunc('hour', tm.timestamp) AS bucket, COUNT(*) AS message_count
+              FROM text_messages tm
+              ${adjustedTextClause}
+              GROUP BY bucket
+          )
+          SELECT bucket, voice_ms, NULL::bigint AS message_count, 'voice'::text AS source FROM voice
+          UNION ALL
+          SELECT bucket, NULL::bigint AS voice_ms, message_count, 'text'::text AS source FROM messages
+        `;
+
+        const result = await pool.query(query, params);
+        for (const row of result.rows ?? []) {
+          const bucketDate = row.bucket instanceof Date ? row.bucket : new Date(row.bucket);
+          if (!(bucketDate instanceof Date) || Number.isNaN(bucketDate.getTime())) {
+            continue;
+          }
+          const source = row.source === 'text' ? 'text' : 'voice';
+          const day = bucketDate.getUTCDay();
+          const hour = bucketDate.getUTCHours();
+          const value = source === 'voice'
+            ? Number((parseNumber(row.voice_ms) / 60000).toFixed(2))
+            : parseNumber(row.message_count);
+          heatmap.push({ source, dayOfWeek: day, hour, value });
+        }
+      } catch (error) {
+        console.error('Failed to compute activity heatmap for statistics', error);
+      }
+    }
+
+    if (includeHypeHistory && activityTypes.has('hype')) {
+      try {
+        await this.ensureLeaderboardSnapshotTable(pool);
+        const result = await pool.query(
+          `SELECT bucket_start, leaders
+             FROM hype_leaderboard_snapshots
+            WHERE bucket_start >= $1::timestamptz AND bucket_start <= $2::timestamptz
+            ORDER BY bucket_start ASC`,
+          [sinceIso, untilIso],
+        );
+
+        for (const row of result.rows ?? []) {
+          const bucketStart = row.bucket_start instanceof Date
+            ? row.bucket_start.toISOString()
+            : parseString(row.bucket_start) ?? sinceIso;
+          let averageScore: number | null = null;
+          let leaderCount = 0;
+          try {
+            const leadersRaw = row.leaders;
+            const leaders = Array.isArray(leadersRaw)
+              ? leadersRaw
+              : typeof leadersRaw === 'string'
+                ? (JSON.parse(leadersRaw) as Array<Record<string, unknown>>)
+                : [];
+            if (Array.isArray(leaders)) {
+              const scores: number[] = [];
+              for (const leader of leaders as Array<Record<string, unknown>>) {
+                const score = parseNumber((leader as { sch_score_norm?: unknown })?.sch_score_norm);
+                if (Number.isFinite(score)) {
+                  scores.push(score);
+                }
+              }
+              if (scores.length > 0) {
+                const sum = scores.reduce((acc, value) => acc + value, 0);
+                averageScore = Number((sum / scores.length).toFixed(3));
+                leaderCount = scores.length;
+              }
+            }
+          } catch (error) {
+            console.error('Failed to parse hype leaderboard snapshot for statistics', error);
+          }
+          hypeHistory.push({ bucketStart, averageSchScore: averageScore, leaderCount });
+        }
+      } catch (error) {
+        console.error('Failed to collect hype history for statistics', error);
+      }
+    }
+
+    totals.voiceMinutes = Math.max(totals.voiceMinutes, 0);
+    totals.messageCount = Math.max(totals.messageCount, 0);
+    totals.activeMembers = Math.max(totals.activeMembers, 0);
+
+    return {
+      totals,
+      newMembers: newMembersSeries,
+      activitySeries,
+      topMembers,
+      channelActivity: { voice: channelVoice, text: channelText },
+      retention: retentionBuckets,
+      heatmap,
+      hypeHistory,
+    };
+  }
+
+  public async searchUsersByName({
+    query,
+    limit = 6,
+  }: {
+    query: string;
+    limit?: number;
+  }): Promise<CommunityStatisticsUserSuggestion[]> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return [];
+    }
+
+    const trimmed = typeof query === 'string' ? query.trim() : '';
+    if (!trimmed) {
+      return [];
+    }
+
+    await this.ensureSchemaIntrospection(pool);
+    if (!this.usersColumns || !this.usersColumns.has('user_id')) {
+      return [];
+    }
+
+    const searchableColumns = ['nickname', 'pseudo', 'username'].filter((column) => this.usersColumns?.has(column));
+    if (searchableColumns.length === 0) {
+      return [];
+    }
+
+    const likeValue = `%${trimmed.replace(/[%_]/g, (match) => `\\${match}`)}%`;
+    const conditions = searchableColumns.map((column, index) => `${column} ILIKE $${index + 1} ESCAPE '\\'`);
+    const params: unknown[] = Array.from({ length: conditions.length }, () => likeValue);
+    const boundedLimit = (() => {
+      const candidate = Number(limit);
+      if (!Number.isFinite(candidate)) {
+        return 6;
+      }
+      return Math.min(Math.max(Math.floor(candidate), 1), 25);
+    })();
+
+    const orderColumn = this.usersColumns.has('last_seen')
+      ? 'last_seen'
+      : this.usersColumns.has('first_seen')
+        ? 'first_seen'
+        : 'user_id';
+    const hasMetadata = this.usersColumns.has('metadata');
+    const metadataSelect = hasMetadata ? ', metadata' : '';
+
+    const queryText = `
+      SELECT user_id::text AS user_id,
+             COALESCE(nickname, pseudo, username, 'Anonyme') AS display_name,
+             username${metadataSelect}
+        FROM users
+       WHERE ${conditions.join(' OR ')}
+       ORDER BY ${orderColumn} DESC NULLS LAST
+       LIMIT $${conditions.length + 1}
+    `;
+
+    params.push(boundedLimit);
+
+    const suggestions: CommunityStatisticsUserSuggestion[] = [];
+    try {
+      const result = await pool.query(queryText, params);
+      for (const row of result.rows ?? []) {
+        const userId = typeof row.user_id === 'string' ? row.user_id : String(row.user_id ?? '');
+        if (!userId) {
+          continue;
+        }
+        const displayName = typeof row.display_name === 'string' && row.display_name.trim().length > 0
+          ? row.display_name.trim()
+          : 'Anonyme';
+        const username = typeof row.username === 'string' ? row.username : null;
+        let avatarUrl: string | null = null;
+        if (hasMetadata && row.metadata) {
+          if (typeof row.metadata === 'object') {
+            const candidate = (row.metadata as { avatarUrl?: unknown })?.avatarUrl;
+            if (typeof candidate === 'string' && candidate.trim().length > 0) {
+              avatarUrl = candidate.trim();
+            }
+          } else if (typeof row.metadata === 'string') {
+            try {
+              const parsed = JSON.parse(row.metadata) as { avatarUrl?: unknown };
+              const candidate = parsed?.avatarUrl;
+              if (typeof candidate === 'string' && candidate.trim().length > 0) {
+                avatarUrl = candidate.trim();
+              }
+            } catch (error) {
+              console.error('Failed to parse user metadata while building suggestions', error);
+            }
+          }
+        }
+
+        suggestions.push({
+          userId,
+          displayName,
+          username: username?.trim() || null,
+          avatarUrl,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to search users for statistics filters', error);
+    }
+
+    return suggestions;
+  }
+
+  public async listActiveChannels({
+    since = null,
+    until = null,
+    limit = 12,
+  }: {
+    since?: Date | null;
+    until?: Date | null;
+    limit?: number;
+  }): Promise<CommunityStatisticsChannelSuggestion[]> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return [];
+    }
+
+    await this.ensureSchemaIntrospection(pool);
+
+    const sinceIso = since instanceof Date && !Number.isNaN(since.getTime()) ? since.toISOString() : null;
+    const untilIso = until instanceof Date && !Number.isNaN(until.getTime()) ? until.toISOString() : null;
+    const boundedLimit = (() => {
+      const candidate = Number(limit);
+      if (!Number.isFinite(candidate)) {
+        return 12;
+      }
+      return Math.min(Math.max(Math.floor(candidate), 5), 50);
+    })();
+
+    const parseNumber = (value: unknown): number => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : 0;
+    };
+
+    const filters = (alias: string, column: string): { clause: string; params: unknown[] } => {
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+      let index = 1;
+      if (sinceIso) {
+        conditions.push(`${column} >= $${index}`);
+        params.push(sinceIso);
+        index += 1;
+      }
+      if (untilIso) {
+        conditions.push(`${column} <= $${index}`);
+        params.push(untilIso);
+        index += 1;
+      }
+      const clause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      return { clause, params };
+    };
+
+    const voiceFilters = filters('va', 'va.timestamp');
+    const textFilters = filters('tm', 'tm.timestamp');
+
+    const hasTextMessages = Boolean(this.textMessagesColumns && this.textMessagesColumns.size > 0);
+    const voiceParams = [...voiceFilters.params, boundedLimit];
+    const voiceQuery = `
+      SELECT va.channel_id::text AS channel_id,
+             'voice'::text AS channel_type,
+             SUM(va.duration_ms) / 60000.0 AS voice_minutes,
+             0::bigint AS message_count,
+             SUM(va.duration_ms) / 60000.0 AS activity_score
+        FROM voice_activity va
+       ${voiceFilters.clause}
+       GROUP BY va.channel_id
+       ORDER BY SUM(va.duration_ms) DESC
+       LIMIT $${voiceFilters.params.length + 1}
+    `;
+
+    const suggestions: CommunityStatisticsChannelSuggestion[] = [];
+
+    try {
+      const result = await pool.query(voiceQuery, voiceParams);
+      for (const row of result.rows ?? []) {
+        const channelId = typeof row.channel_id === 'string' ? row.channel_id : String(row.channel_id ?? '');
+        if (!channelId) {
+          continue;
+        }
+        const voiceMinutes = Number(parseNumber(row.voice_minutes).toFixed(2));
+        const activityScore = Number(parseNumber(row.activity_score).toFixed(2));
+        suggestions.push({
+          channelId,
+          channelName: `Salon vocal ${channelId}`,
+          channelType: 'voice',
+          activityScore,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to list voice channels for statistics filters', error);
+    }
+
+    if (hasTextMessages) {
+      const textParams = [...textFilters.params, boundedLimit];
+      const textQuery = `
+        SELECT tm.channel_id::text AS channel_id,
+               'text'::text AS channel_type,
+               0::double precision AS voice_minutes,
+               COUNT(*) AS message_count,
+               COUNT(*)::double precision AS activity_score
+          FROM text_messages tm
+         ${textFilters.clause}
+         GROUP BY tm.channel_id
+         ORDER BY COUNT(*) DESC
+         LIMIT $${textFilters.params.length + 1}
+      `;
+
+      try {
+        const result = await pool.query(textQuery, textParams);
+        for (const row of result.rows ?? []) {
+          const channelId = typeof row.channel_id === 'string' ? row.channel_id : String(row.channel_id ?? '');
+          if (!channelId) {
+            continue;
+          }
+          const activityScore = Number(parseNumber(row.activity_score).toFixed(2));
+          suggestions.push({
+            channelId,
+            channelName: `Salon textuel ${channelId}`,
+            channelType: 'text',
+            activityScore,
+          });
+        }
+      } catch (error) {
+        console.error('Failed to list text channels for statistics filters', error);
+      }
+    }
+
+    suggestions.sort((a, b) => b.activityScore - a.activityScore);
+    return suggestions.slice(0, boundedLimit);
   }
 
   public async close(): Promise<void> {

@@ -17,6 +17,7 @@ import DailyArticleService from './services/DailyArticleService';
 import KaldiTranscriptionService from './services/KaldiTranscriptionService';
 import UserPersonaService from './services/UserPersonaService';
 import AdminService from './services/AdminService';
+import StatisticsService from './services/StatisticsService';
 
 const mixer = new AudioMixer({
   frameBytes: config.audio.frameBytes,
@@ -65,6 +66,11 @@ const listenerStatsService = new ListenerStatsService();
 const voiceActivityRepository = new VoiceActivityRepository({
   url: config.database.url,
   ssl: config.database.ssl,
+});
+
+const statisticsService = new StatisticsService({
+  repository: voiceActivityRepository,
+  config,
 });
 
 const kaldiTranscriptionService =
@@ -166,6 +172,7 @@ const appServer = new AppServer({
   blogProposalService,
   dailyArticleService,
   adminService,
+  statisticsService,
 });
 appServer.start();
 

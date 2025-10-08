@@ -16,6 +16,7 @@ import {
   MessageSquare,
   ShieldCheck,
   Sparkles,
+  Activity,
 } from './core/deps.js';
 import {
   DEFAULT_WINDOW_MINUTES,
@@ -41,6 +42,7 @@ import { ProfilePage } from './pages/profile.js';
 import { BanPage } from './pages/ban.js';
 import { AboutPage } from './pages/about.js';
 import { ClassementsPage } from './pages/classements.js';
+import { StatistiquesPage } from './pages/statistiques.js';
 import { BlogPage } from './pages/blog.js';
 import { BlogProposalPage } from './pages/blog-proposal.js';
 import { CguPage } from './pages/cgu.js';
@@ -50,6 +52,7 @@ const NAV_LINKS = [
   { label: 'Membres', route: 'members', href: '/membres', icon: Users },
   { label: 'Boutique', route: 'shop', href: '/boutique', icon: ShoppingBag },
   { label: 'Classements', route: 'classements', href: '/classements', icon: BadgeCheck },
+  { label: 'Statistiques', route: 'statistiques', href: '/statistiques', icon: Activity },
   { label: 'Blog', route: 'blog', href: '/blog', icon: MessageSquare },
   { label: 'Modération', route: 'ban', href: '/bannir', icon: ShieldCheck },
   { label: 'À propos', route: 'about', href: '/about', icon: Sparkles },
@@ -1054,6 +1057,16 @@ const App = () => {
                   params=${route.params}
                   onNavigateHome=${() => navigateToRoute('home', {}, { scrollToTop: true })}
                   onUpdateRange=${updateProfileRoute}
+                />`
+              : route.name === 'statistiques'
+              ? html`<${StatistiquesPage}
+                  params=${route.params}
+                  bootstrap=${BOOTSTRAP_PAGES.statistiques ?? null}
+                  onSyncRoute=${(nextParams, options = {}) =>
+                    navigateToRoute('statistiques', nextParams, {
+                      replace: true,
+                      scrollToTop: options.scrollToTop ?? false,
+                    })}
                 />`
               : route.name === 'classements'
               ? html`<${ClassementsPage}
