@@ -52,6 +52,10 @@ import SeoRenderer, {
 import AdminService, { type HiddenMemberRecord } from '../services/AdminService';
 import DailyArticleService, { type DailyArticleServiceStatus } from '../services/DailyArticleService';
 import SitemapLastModStore from './SitemapLastModStore';
+import StatisticsService, {
+  type CommunityStatisticsSnapshot,
+  type StatisticsQueryOptions,
+} from '../services/StatisticsService';
 
 export interface AppServerOptions {
   config: Config;
@@ -68,6 +72,7 @@ export interface AppServerOptions {
   blogProposalService?: BlogProposalService | null;
   dailyArticleService?: DailyArticleService | null;
   adminService: AdminService;
+  statisticsService: StatisticsService;
 }
 
 type FlushCapableResponse = Response & {
@@ -225,6 +230,10 @@ interface ShopPageBootstrap {
   products: PublicProduct[];
 }
 
+interface StatisticsPageBootstrap {
+  snapshot: CommunityStatisticsSnapshot;
+}
+
 interface AppPreloadState {
   route?: AppRouteDescriptor;
   participants?: Participant[];
@@ -234,6 +243,7 @@ interface AppPreloadState {
     blog?: BlogPageBootstrap;
     classements?: ClassementsPageBootstrap;
     shop?: ShopPageBootstrap;
+    statistiques?: StatisticsPageBootstrap;
   };
 }
 
@@ -294,6 +304,8 @@ export default class AppServer {
 
   private readonly sitemapLastModStore: SitemapLastModStore;
 
+  private readonly statisticsService: StatisticsService;
+
   constructor({
     config,
     transcoder,
@@ -309,6 +321,7 @@ export default class AppServer {
     blogProposalService = null,
     dailyArticleService = null,
     adminService,
+    statisticsService,
   }: AppServerOptions) {
     this.config = config;
     this.transcoder = transcoder;
@@ -320,6 +333,7 @@ export default class AppServer {
     this.voiceActivityRepository = voiceActivityRepository;
     this.dailyArticleService = dailyArticleService ?? null;
     this.adminService = adminService;
+    this.statisticsService = statisticsService;
     const adminUsername = this.config.admin?.username ?? null;
     const adminPassword = this.config.admin?.password ?? null;
     this.adminCredentials =
@@ -567,6 +581,135 @@ export default class AppServer {
     return options;
   }
 
+  private parseStatisticsQuery(query: Request['query']): StatisticsQueryOptions {
+    const source = (query && typeof query === 'object' ? query : {}) as Record<string, unknown>;
+
+    const extractString = (value: unknown): string | null => {
+      if (Array.isArray(value)) {
+        for (const entry of value) {
+          const candidate = extractString(entry);
+          if (candidate) {
+            return candidate;
+          }
+        }
+        return null;
+      }
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        return trimmed.length > 0 ? trimmed : null;
+      }
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return String(value);
+      }
+      return null;
+    };
+
+    const extractStringArray = (value: unknown): string[] => {
+      const result: string[] = [];
+      const visit = (input: unknown): void => {
+        if (Array.isArray(input)) {
+          for (const item of input) {
+            visit(item);
+          }
+          return;
+        }
+        if (typeof input === 'string') {
+          input
+            .split(/[;,]/)
+            .map((segment) => segment.trim())
+            .filter((segment) => segment.length > 0)
+            .forEach((segment) => {
+              if (!result.includes(segment)) {
+                result.push(segment);
+              }
+            });
+        }
+      };
+      visit(value);
+      return result;
+    };
+
+    const parseDate = (value: string | null): Date | null => {
+      if (!value) {
+        return null;
+      }
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    const parseNumber = (value: string | null): number | null => {
+      if (!value) {
+        return null;
+      }
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : null;
+    };
+
+    const parseBoolean = (value: string | null): boolean | null => {
+      if (!value) {
+        return null;
+      }
+      const normalized = value.trim().toLowerCase();
+      if (['true', '1', 'yes', 'on', 'vrai'].includes(normalized)) {
+        return true;
+      }
+      if (['false', '0', 'no', 'off', 'faux'].includes(normalized)) {
+        return false;
+      }
+      return null;
+    };
+
+    const sinceRaw = extractString(source.since ?? source.from ?? source.start);
+    const untilRaw = extractString(source.until ?? source.to ?? source.end);
+    const granularity = extractString(source.granularity ?? source.range ?? source.interval ?? source.bucket);
+
+    const activityTypes = extractStringArray(source.activity ?? source.activities ?? source.type ?? source.types);
+    const channelIds = extractStringArray(source.channel ?? source.channelId ?? source.channels);
+    const retentionValues = extractStringArray(source.retention ?? source.retentionDays ?? source.retention_window);
+    const retentionWindows = retentionValues
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value > 0);
+
+    const limitTopMembers = parseNumber(extractString(source.limitTop ?? source.top ?? source.limit));
+    const limitChannels = parseNumber(
+      extractString(source.limitChannels ?? source.channelsLimit ?? source.limitChannelsTop),
+    );
+
+    const includeHeatmap = parseBoolean(extractString(source.heatmap ?? source.includeHeatmap));
+    const includeHypeHistory = parseBoolean(
+      extractString(source.hype ?? source.includeHype ?? source.hypeHistory),
+    );
+
+    const userSearch = extractString(source.userSearch ?? source.searchUser ?? source.search);
+    const userId = extractString(source.userId ?? source.member ?? source.user);
+
+    const options: StatisticsQueryOptions = {
+      since: parseDate(sinceRaw),
+      until: parseDate(untilRaw),
+      granularity: granularity ?? undefined,
+      activityTypes: activityTypes.length > 0 ? activityTypes : undefined,
+      channelIds: channelIds.length > 0 ? channelIds : undefined,
+      userId: userId ?? undefined,
+      retentionWindowDays: retentionWindows.length > 0 ? retentionWindows : undefined,
+      userSearch: userSearch ?? undefined,
+    };
+
+    if (Number.isFinite(limitTopMembers)) {
+      options.limitTopMembers = limitTopMembers ?? undefined;
+    }
+    if (Number.isFinite(limitChannels)) {
+      options.limitChannels = limitChannels ?? undefined;
+    }
+    if (includeHeatmap !== null) {
+      options.includeHeatmap = includeHeatmap;
+    }
+    if (includeHypeHistory !== null) {
+      options.includeHypeHistory = includeHypeHistory;
+    }
+
+    return options;
+  }
+
   private extractString(value: unknown): string | null {
     if (typeof value !== 'string') {
       return null;
@@ -732,6 +875,7 @@ export default class AppServer {
       { path: '/membres', changeFreq: 'daily', priority: 0.8 },
       { path: '/members', changeFreq: 'daily', priority: 0.8 },
       { path: '/boutique', changeFreq: 'weekly', priority: 0.6 },
+      { path: '/statistiques', changeFreq: 'hourly', priority: 0.75 },
       { path: '/classements', changeFreq: 'hourly', priority: 0.7 },
       { path: '/blog', changeFreq: 'daily', priority: 0.7 },
       { path: '/blog/proposer', changeFreq: 'monthly', priority: 0.5 },
@@ -3882,6 +4026,21 @@ export default class AppServer {
       }
     });
 
+    this.app.get('/api/statistiques', async (req, res) => {
+      try {
+        const options = this.parseStatisticsQuery(req.query);
+        const snapshot = await this.statisticsService.getStatistics(options);
+        res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=90');
+        res.json({ statistics: snapshot });
+      } catch (error) {
+        console.error('Failed to build statistics snapshot', error);
+        res.status(500).json({
+          error: 'STATISTICS_FAILED',
+          message: 'Impossible de charger les statistiques communautaires.',
+        });
+      }
+    });
+
     this.app.get('/api/blog/posts', async (req, res) => {
       try {
         const options = this.parseBlogListOptions(req.query);
@@ -4464,6 +4623,59 @@ export default class AppServer {
             },
           },
         });
+      }
+    });
+
+    this.app.get('/statistiques', async (req, res) => {
+      this.setClientNoCache(res);
+      const metadata: SeoPageMetadata = {
+        title: `${this.config.siteName} · Statistiques du serveur Discord`,
+        description:
+          'Visualise la croissance de Libre Antenne : membres actifs, nouveaux arrivants, temps passé en vocal et messages envoyés.',
+        path: '/statistiques',
+        canonicalUrl: this.toAbsoluteUrl('/statistiques'),
+        keywords: this.combineKeywords(
+          this.config.siteName,
+          'statistiques Discord',
+          'analytics communauté',
+          'activité vocale',
+          'temps de présence',
+          'messages Discord',
+        ),
+        openGraphType: 'website',
+        breadcrumbs: [
+          { name: 'Accueil', path: '/' },
+          { name: 'Statistiques', path: '/statistiques' },
+        ],
+        structuredData: [
+          {
+            '@context': 'https://schema.org',
+            '@type': 'Dataset',
+            name: `${this.config.siteName} · Tableau de bord communautaire`,
+            description:
+              'Indicateurs agrégés du serveur Discord Libre Antenne : croissance des membres, activité vocale et échanges textuels.',
+            license: 'https://creativecommons.org/licenses/by/4.0/',
+            url: this.toAbsoluteUrl('/statistiques'),
+            creator: {
+              '@type': 'Organization',
+              name: this.config.siteName,
+              url: this.config.publicBaseUrl,
+            },
+          },
+        ],
+      };
+
+      try {
+        const options = this.parseStatisticsQuery(req.query);
+        const snapshot = await this.statisticsService.getStatistics(options);
+        const preloadState: AppPreloadState = {
+          route: { name: 'statistiques', params: {} },
+          pages: { statistiques: { snapshot } },
+        };
+        this.respondWithAppShell(res, metadata, { preloadState });
+      } catch (error) {
+        console.error('Failed to prerender statistics page', error);
+        this.respondWithAppShell(res, metadata);
       }
     });
 
