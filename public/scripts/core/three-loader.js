@@ -1,4 +1,5 @@
 let threePromise = null;
+let gltfLoaderPromise = null;
 
 export const loadThree = async () => {
   if (!threePromise) {
@@ -10,4 +11,15 @@ export const loadThree = async () => {
       });
   }
   return threePromise;
+};
+
+export const loadGLTFLoader = async () => {
+  if (!gltfLoaderPromise) {
+    gltfLoaderPromise = import('three/examples/jsm/loaders/GLTFLoader.js')
+      .catch((error) => {
+        gltfLoaderPromise = null;
+        throw error;
+      });
+  }
+  return gltfLoaderPromise;
 };

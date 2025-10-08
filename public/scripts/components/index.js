@@ -43,7 +43,7 @@ import {
   X,
 } from '../core/deps.js';
 import { loadChart } from '../core/chart-loader.js';
-import { loadThree } from '../core/three-loader.js';
+import { loadGLTFLoader, loadThree } from '../core/three-loader.js';
 import {
   STATUS_LABELS,
   TALK_WINDOW_OPTIONS,
@@ -3809,14 +3809,18 @@ const initializeMicrophoneScene = (THREE, container) => {
   };
   updateEnvironmentOffsets();
 
-  import('three/examples/jsm/loaders/GLTFLoader.js')
+  const modelUrl = typeof window !== 'undefined'
+    ? new URL('/08_10_2025.glb', window.location.origin).toString()
+    : '/08_10_2025.glb';
+
+  loadGLTFLoader()
     .then(({ GLTFLoader }) => {
       if (isDisposed) {
         return;
       }
       const loader = new GLTFLoader();
       loader.load(
-        '/08_10_2025.glb',
+        modelUrl,
         (gltf) => {
           if (isDisposed) {
             return;
