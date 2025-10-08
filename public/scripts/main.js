@@ -15,7 +15,6 @@ import {
   BadgeCheck,
   MessageSquare,
   ShieldCheck,
-  Sparkles,
   Activity,
 } from './core/deps.js';
 import {
@@ -61,7 +60,6 @@ const NAV_LINKS = [
   { label: 'Statistiques', route: 'statistiques', href: '/statistiques', icon: Activity },
   { label: 'Blog', route: 'blog', href: '/blog', icon: MessageSquare },
   { label: 'Modération', route: 'ban', href: '/bannir', icon: ShieldCheck },
-  { label: 'À propos', route: 'about', href: '/about', icon: Sparkles },
 ];
 
 const readBootstrapState = () => {
@@ -1328,6 +1326,17 @@ const App = () => {
             }}
           >
             Conditions générales d’utilisation
+          </a>
+          <span class="hidden sm:inline">•</span>
+          <a
+            class="text-slate-300 transition hover:text-white hover:underline"
+            href="/about"
+            onClick=${(event) => {
+              event.preventDefault();
+              navigateToRoute('about', {}, { scrollToTop: true });
+            }}
+          >
+            À propos
           </a>
         </div>
       </footer>
