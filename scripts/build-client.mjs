@@ -108,7 +108,10 @@ async function buildClient() {
   await ensureDir(jsOutDir);
 
   const result = await build({
-    entryPoints: [path.join(publicDir, 'scripts', 'main.js')],
+    entryPoints: [
+      path.join(publicDir, 'scripts', 'main.js'),
+      path.join(publicDir, 'scripts', 'admin.tsx'),
+    ],
     outdir: jsOutDir,
     format: 'esm',
     bundle: true,
@@ -124,15 +127,34 @@ async function buildClient() {
     define: {
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
     },
+    loader: {
+      '.ts': 'ts',
+      '.tsx': 'tsx',
+    },
+    jsx: 'automatic',
+    jsxImportSource: 'react',
   });
 
   const scripts = [];
+  const entryScripts = {};
   for (const [outputPath, metadata] of Object.entries(result.metafile.outputs)) {
     if (!metadata.entryPoint) {
       continue;
     }
     const relative = toPosixPath(path.relative(publicDir, path.join(rootDir, outputPath)));
-    scripts.push({ src: `/${relative}`, type: 'module' });
+    const entryName = path.basename(metadata.entryPoint, path.extname(metadata.entryPoint));
+    const descriptor = { src: `/${relative}`, type: 'module' };
+    entryScripts[entryName] = descriptor;
+    if (entryName === 'main') {
+      scripts.push(descriptor);
+    }
+  }
+
+  if (scripts.length === 0) {
+    const fallbackEntry = Object.values(entryScripts)[0];
+    if (fallbackEntry) {
+      scripts.push(fallbackEntry);
+    }
   }
 
   if (scripts.length === 0) {
@@ -154,6 +176,7 @@ async function buildClient() {
     scripts,
     styles,
     preloads,
+    entries: entryScripts,
   };
 
   const manifestPath = path.join(assetsDir, 'manifest.json');

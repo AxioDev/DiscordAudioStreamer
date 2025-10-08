@@ -86,6 +86,7 @@ export interface AssetManifest {
   scripts?: AssetScriptDescriptor[] | null;
   styles?: AssetStyleDescriptor[] | null;
   preloads?: AssetPreloadDescriptor[] | null;
+  entries?: Record<string, AssetScriptDescriptor> | null;
 }
 
 export interface SeoRendererOptions {
@@ -176,6 +177,42 @@ export default class SeoRenderer {
     }
 
     this.assetManifest = this.normalizeAssetManifest(this.buildFallbackAssetManifest());
+  }
+
+  public getAssetManifest(): AssetManifest | null {
+    if (!this.assetManifest) {
+      return null;
+    }
+
+    const cloneScripts = (items: AssetScriptDescriptor[] | null | undefined) =>
+      Array.isArray(items) ? items.map((entry) => ({ ...entry })) : undefined;
+
+    const cloneStyles = (items: AssetStyleDescriptor[] | null | undefined) =>
+      Array.isArray(items) ? items.map((entry) => ({ ...entry })) : undefined;
+
+    const clonePreloads = (items: AssetPreloadDescriptor[] | null | undefined) =>
+      Array.isArray(items) ? items.map((entry) => ({ ...entry })) : undefined;
+
+    const cloneEntries = (entries: Record<string, AssetScriptDescriptor> | null | undefined) => {
+      if (!entries) {
+        return undefined;
+      }
+      const cloned: Record<string, AssetScriptDescriptor> = {};
+      for (const [name, descriptor] of Object.entries(entries)) {
+        if (!descriptor) {
+          continue;
+        }
+        cloned[name] = { ...descriptor };
+      }
+      return cloned;
+    };
+
+    return {
+      scripts: cloneScripts(this.assetManifest.scripts),
+      styles: cloneStyles(this.assetManifest.styles),
+      preloads: clonePreloads(this.assetManifest.preloads),
+      entries: cloneEntries(this.assetManifest.entries ?? undefined) ?? undefined,
+    };
   }
 
   public render(metadata: SeoPageMetadata, options: RenderOptions = {}): string {
@@ -624,10 +661,38 @@ export default class SeoRenderer {
         }));
     };
 
+    const normalizeEntries = (
+      entries: Record<string, AssetScriptDescriptor> | null | undefined,
+    ): Record<string, AssetScriptDescriptor> => {
+      if (!entries || typeof entries !== 'object') {
+        return {};
+      }
+
+      const normalized: Record<string, AssetScriptDescriptor> = {};
+      for (const [name, descriptor] of Object.entries(entries)) {
+        if (typeof name !== 'string' || name.trim().length === 0) {
+          continue;
+        }
+        if (!descriptor || typeof descriptor.src !== 'string') {
+          continue;
+        }
+        normalized[name.trim()] = {
+          src: descriptor.src,
+          type: descriptor.type,
+          integrity: descriptor.integrity,
+          crossorigin: descriptor.crossorigin,
+          defer: Boolean(descriptor.defer),
+          async: Boolean(descriptor.async),
+        };
+      }
+      return normalized;
+    };
+
     return {
       scripts: normalizeScripts(manifest.scripts),
       styles: normalizeStyles(manifest.styles),
       preloads: normalizePreloads(manifest.preloads),
+      entries: normalizeEntries(manifest.entries),
     };
   }
 
@@ -657,6 +722,12 @@ export default class SeoRenderer {
         },
       ],
       preloads: [],
+      entries: {
+        main: {
+          src: '/scripts/main.js',
+          type: 'module',
+        },
+      },
     };
   }
 
