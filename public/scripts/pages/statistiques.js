@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  Chart,
   Activity,
   Users,
   Clock3,
@@ -16,6 +15,7 @@ import {
   MessageSquare,
   RefreshCcw,
 } from '../core/deps.js';
+import { loadChart } from '../core/chart-loader.js';
 
 const RANGE_PRESETS = [
   { value: '7d', label: '7 jours' },
@@ -271,13 +271,37 @@ const StatisticsChart = ({ type = 'line', data, options, height = 320 }) => {
     if (!canvasRef.current || !data) {
       return undefined;
     }
-    const context = canvasRef.current.getContext('2d');
-    const chart = new Chart(context, {
-      type,
-      data,
-      options,
-    });
-    return () => chart.destroy();
+
+    const canvas = canvasRef.current;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      return undefined;
+    }
+
+    let chartInstance = null;
+    let isActive = true;
+
+    loadChart()
+      .then((Chart) => {
+        if (!isActive) {
+          return;
+        }
+        chartInstance = new Chart(context, {
+          type,
+          data,
+          options,
+        });
+      })
+      .catch((error) => {
+        console.error('Failed to load chart library', error);
+      });
+
+    return () => {
+      isActive = false;
+      if (chartInstance) {
+        chartInstance.destroy();
+      }
+    };
   }, [chartKey]);
   return html`<div class="w-full overflow-hidden rounded-xl bg-slate-900/70 p-4 shadow-inner shadow-slate-950/40">
     <canvas ref=${canvasRef} height=${height}></canvas>
