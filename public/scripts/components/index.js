@@ -3716,14 +3716,18 @@ const initializeMicrophoneScene = (THREE, container) => {
     return material;
   };
 
+  let baseHeight = 0;
+
+  const MICROPHONE_VERTICAL_OFFSET = 0.46;
+
   const microphoneGroup = new THREE.Group();
-  microphoneGroup.position.y = 0.1;
+  const computeMicrophoneBaseY = () => baseHeight - MICROPHONE_VERTICAL_OFFSET;
+  microphoneGroup.position.y = computeMicrophoneBaseY();
   scene.add(microphoneGroup);
 
   let microphoneModel = null;
   let modelCleanup = () => {};
   let isDisposed = false;
-  let baseHeight = 0;
 
   const disposeModel = () => {
     if (microphoneModel) {
@@ -3929,7 +3933,7 @@ const initializeMicrophoneScene = (THREE, container) => {
     currentRotation.y += (targetRotation.y - currentRotation.y) * 0.075;
     microphoneGroup.rotation.x = currentRotation.x + Math.sin(time * 0.00045) * 0.04;
     microphoneGroup.rotation.y = currentRotation.y + Math.cos(time * 0.00035) * 0.04;
-    microphoneGroup.position.y = 0.1 + Math.sin(time * 0.0006) * 0.08;
+    microphoneGroup.position.y = computeMicrophoneBaseY() + Math.sin(time * 0.0006) * 0.05;
 
     const elapsed = time - startTime;
     waveMeshes.forEach((mesh, index) => {
