@@ -115,7 +115,9 @@ const HomePage = ({
   onViewProfile,
   listenerStats = { count: 0, history: [] },
   guildSummary = null,
+  bridgeStatus = { serverDeafened: false, selfDeafened: false, updatedAt: Date.now() },
 }) => {
+  const effectiveStatus = bridgeStatus?.serverDeafened ? 'muted' : status;
   const connectedCount = speakers.length;
   const activeSpeakersCount = speakers.reduce(
     (count, speaker) => count + (speaker?.isSpeaking ? 1 : 0),
@@ -152,7 +154,7 @@ const HomePage = ({
     >
       <div class="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-fuchsia-500/25 blur-3xl"></div>
       <${StatusBadge}
-        status=${status}
+        status=${effectiveStatus}
         className="absolute right-4 top-4 sm:right-6 sm:top-6"
       />
       <div class="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
@@ -277,7 +279,12 @@ const HomePage = ({
           </p>
         </div>
       </div>
-    <${AudioPlayer} streamInfo=${streamInfo} audioKey=${audioKey} status=${status} />
+    <${AudioPlayer}
+      streamInfo=${streamInfo}
+      audioKey=${audioKey}
+      status=${effectiveStatus}
+      bridgeStatus=${bridgeStatus}
+    />
   </section>
 
   <${DailyActivityChart}

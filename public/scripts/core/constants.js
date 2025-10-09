@@ -1,4 +1,4 @@
-import { Activity } from './deps.js';
+import { Activity, AlertCircle } from './deps.js';
 
 export const TALK_WINDOW_OPTIONS = [5, 10, 15, 30, 60];
 export const DEFAULT_WINDOW_MINUTES = TALK_WINDOW_OPTIONS.includes(15)
@@ -36,6 +36,13 @@ export const STATUS_LABELS = {
   },
   error: {
     label: 'Hors ligne',
+    ring: 'bg-rose-500/20 text-rose-100 border-rose-400/50',
+    dot: 'bg-rose-300',
+  },
+  muted: {
+    label: 'Bot mute',
+    srLabel: 'Bot mute casque serveur',
+    Icon: AlertCircle,
     ring: 'bg-rose-500/20 text-rose-100 border-rose-400/50',
     dot: 'bg-rose-300',
   },

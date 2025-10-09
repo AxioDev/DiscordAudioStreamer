@@ -8,7 +8,7 @@ import type { Server } from 'http';
 import { icons as lucideIcons, type IconNode } from 'lucide';
 import type FfmpegTranscoder from '../audio/FfmpegTranscoder';
 import type SpeakerTracker from '../services/SpeakerTracker';
-import type { Participant } from '../services/SpeakerTracker';
+import type { Participant, BridgeStatus } from '../services/SpeakerTracker';
 import type SseService from '../services/SseService';
 import type AnonymousSpeechManager from '../services/AnonymousSpeechManager';
 import type { Config } from '../config';
@@ -247,6 +247,7 @@ interface AppPreloadState {
     shop?: ShopPageBootstrap;
     statistiques?: StatisticsPageBootstrap;
   };
+  bridgeStatus?: BridgeStatus;
 }
 
 export default class AppServer {
@@ -757,9 +758,13 @@ export default class AppServer {
   ): void {
     try {
       const options = typeof statusOrOptions === 'number' ? { status: statusOrOptions } : statusOrOptions ?? {};
+      const preloadState: AppPreloadState | undefined = {
+        ...(options.preloadState ?? {}),
+        bridgeStatus: this.speakerTracker.getBridgeStatus(),
+      };
       const html = this.seoRenderer.render(metadata, {
         appHtml: options.appHtml ?? null,
-        preloadState: options.preloadState,
+        preloadState,
       });
       const status = options.status ?? 200;
       res.status(status);

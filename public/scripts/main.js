@@ -139,10 +139,22 @@ const normalizeBootstrapListenerStats = (value) => {
   return { count: safeCount, history };
 };
 
+const normalizeBootstrapBridgeStatus = (value) => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const serverDeafened = Boolean(value.serverDeafened);
+  const selfDeafened = Boolean(value.selfDeafened);
+  const updatedAtValue = Number(value.updatedAt);
+  const updatedAt = Number.isFinite(updatedAtValue) ? updatedAtValue : Date.now();
+  return { serverDeafened, selfDeafened, updatedAt };
+};
+
 const RAW_BOOTSTRAP_STATE = readBootstrapState();
 const BOOTSTRAP_ROUTE = cloneRouteDescriptor(RAW_BOOTSTRAP_STATE?.route);
 const BOOTSTRAP_PARTICIPANTS = normalizeBootstrapParticipants(RAW_BOOTSTRAP_STATE?.participants);
 const BOOTSTRAP_LISTENER_STATS = normalizeBootstrapListenerStats(RAW_BOOTSTRAP_STATE?.listenerStats);
+const BOOTSTRAP_BRIDGE_STATUS = normalizeBootstrapBridgeStatus(RAW_BOOTSTRAP_STATE?.bridgeStatus);
 const BOOTSTRAP_PAGES =
   RAW_BOOTSTRAP_STATE?.pages && typeof RAW_BOOTSTRAP_STATE.pages === 'object' && RAW_BOOTSTRAP_STATE.pages !== null
     ? RAW_BOOTSTRAP_STATE.pages
@@ -280,6 +292,11 @@ const App = () => {
     BOOTSTRAP_LISTENER_STATS ? { count: BOOTSTRAP_LISTENER_STATS.count, history: BOOTSTRAP_LISTENER_STATS.history.slice() } : { count: 0, history: [] }
   ));
   const [guildSummary, setGuildSummary] = useState(null);
+  const [bridgeStatus, setBridgeStatus] = useState(() =>
+    BOOTSTRAP_BRIDGE_STATUS
+      ? { ...BOOTSTRAP_BRIDGE_STATUS }
+      : { serverDeafened: false, selfDeafened: false, updatedAt: Date.now() },
+  );
   const [asyncPages, setAsyncPages] = useState({});
   const sidebarTouchStartRef = useRef(null);
   const asyncPagesRef = useRef(asyncPages);
@@ -847,6 +864,13 @@ const App = () => {
       if (Object.prototype.hasOwnProperty.call(payload, 'anonymousSlot')) {
         setAnonymousSlot(normalizeAnonymousSlot(payload.anonymousSlot));
       }
+
+      if (Object.prototype.hasOwnProperty.call(payload, 'bridgeStatus')) {
+        const normalizedBridgeStatus = normalizeBootstrapBridgeStatus(payload.bridgeStatus);
+        if (normalizedBridgeStatus) {
+          setBridgeStatus(normalizedBridgeStatus);
+        }
+      }
     };
 
     source.addEventListener('state', (event) => {
@@ -1335,6 +1359,7 @@ const App = () => {
                   onViewProfile: handleProfileOpen,
                   listenerStats,
                   guildSummary,
+                  bridgeStatus,
                 })
           }
         </div>
