@@ -3718,7 +3718,7 @@ const initializeMicrophoneScene = (THREE, container) => {
 
   let baseHeight = 0;
 
-  const MICROPHONE_VERTICAL_OFFSET = 0.38;
+  const MICROPHONE_VERTICAL_OFFSET = 0.52;
 
   const microphoneGroup = new THREE.Group();
   const computeMicrophoneBaseY = () => baseHeight - MICROPHONE_VERTICAL_OFFSET;
