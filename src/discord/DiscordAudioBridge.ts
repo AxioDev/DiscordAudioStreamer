@@ -836,6 +836,15 @@ export default class DiscordAudioBridge {
       return;
     }
 
+    const botUserId = this.client.user?.id;
+    if (botUserId && userId === botUserId) {
+      this.speakerTracker.updateBridgeStatus({
+        serverDeafened: Boolean(newState?.deaf),
+        selfDeafened: Boolean(newState?.selfDeaf),
+        updatedAt: Date.now(),
+      });
+    }
+
     if (this.isUserExcluded(userId)) {
       await this.speakerTracker.handleVoiceStateUpdate(userId, null);
       this.cleanupSubscriptionForUser(userId);

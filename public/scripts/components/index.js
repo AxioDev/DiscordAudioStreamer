@@ -70,6 +70,7 @@ const StatusBadge = ({ status, className = '' }) => {
   const rawLabel = typeof config.label === 'string' ? config.label : '';
   const trimmedLabel = rawLabel.trim();
   const srText = config.srLabel ?? (trimmedLabel ? trimmedLabel : 'Statut');
+
   return html`
     <div
       class=${`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium backdrop-blur ${config.ring} ${className}`}
@@ -1789,7 +1790,7 @@ const getRouteFromHash = () => {
   return parseRouteFromLocation(window.location);
 };
 
-const AudioPlayer = ({ streamInfo, audioKey, status }) => {
+const AudioPlayer = ({ streamInfo, audioKey, status, bridgeStatus = { serverDeafened: false, selfDeafened: false } }) => {
   const audioRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -1797,6 +1798,7 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(0.75);
   const lastVolumeRef = useRef(0.75);
+  const isBridgeServerDeafened = Boolean(bridgeStatus?.serverDeafened);
 
   const isIgnorablePlayError = (error) => {
     if (!error) return false;
@@ -1892,6 +1894,29 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
     };
   }, [audioKey, streamInfo.path]);
 
+  useEffect(() => {
+    if (!isBridgeServerDeafened) {
+      return;
+    }
+
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+
+    try {
+      if (!audio.paused) {
+        audio.pause();
+      }
+    } catch (error) {
+      console.warn('Impossible de mettre en pause le flux après mute casque serveur', error);
+    }
+
+    setIsPlaying(false);
+    setIsLoading(false);
+    setHasError(false);
+  }, [isBridgeServerDeafened]);
+
   const clearBrowserCaches = async () => {
     if (typeof window === 'undefined') {
       return;
@@ -1934,6 +1959,10 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
     const audio = audioRef.current;
     if (!audio) return;
 
+    if (isBridgeServerDeafened) {
+      return;
+    }
+
     if (hasError) {
       setHasError(false);
     }
@@ -1974,6 +2003,10 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
   const handleRetry = async () => {
     const audio = audioRef.current;
     if (!audio) return;
+
+    if (isBridgeServerDeafened) {
+      return;
+    }
 
     setHasError(false);
     setIsLoading(true);
@@ -2035,7 +2068,7 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
   };
 
   const renderVolumeIcon = () => {
-    if (hasError) {
+    if (hasError || isBridgeServerDeafened) {
       return html`<${AlertCircle} class="h-5 w-5" aria-hidden="true" />`;
     }
 
@@ -2054,14 +2087,23 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
     return html`<${Volume2} class="h-5 w-5" aria-hidden="true" />`;
   };
 
-  const statusConfig = STATUS_LABELS[status] ?? STATUS_LABELS.connecting;
-  const statusText = hasError
+  const statusKey = isBridgeServerDeafened ? 'muted' : status;
+  const statusConfig = STATUS_LABELS[statusKey] ?? STATUS_LABELS.connecting;
+  const statusText = isBridgeServerDeafened
+    ? 'Flux indisponible : le bot est mute casque serveur. Demande à un modérateur de le démute pour relancer le direct.'
+    : hasError
     ? 'Flux indisponible. Relance le flux pour réessayer.'
     : isLoading
     ? 'Connexion au flux…'
     : isPlaying
     ? 'Lecture en cours'
     : 'En pause';
+
+  const playButtonLabel = isBridgeServerDeafened
+    ? 'Lecture indisponible : le bot est mute casque serveur'
+    : isPlaying
+    ? 'Mettre le flux en pause'
+    : 'Lancer la lecture du flux';
 
   return html`
     <div class="relative mt-6 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/80 p-6 shadow-2xl shadow-slate-950/60 backdrop-blur">
@@ -2073,12 +2115,14 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
             <button
               type="button"
               class="relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-fuchsia-500 via-indigo-500 to-sky-400 text-white shadow-lg shadow-fuchsia-900/40 transition focus:outline-none focus:ring-2 focus:ring-fuchsia-300 focus:ring-offset-2 focus:ring-offset-slate-950 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
-              aria-label=${isPlaying ? 'Mettre le flux en pause' : 'Lancer la lecture du flux'}
+              aria-label=${playButtonLabel}
               onClick=${togglePlay}
-              disabled=${isLoading && !isPlaying && !hasError}
+              disabled=${isBridgeServerDeafened || (isLoading && !isPlaying && !hasError)}
             >
               ${
-                hasError
+                isBridgeServerDeafened
+                  ? html`<${AlertCircle} class="h-7 w-7" aria-hidden="true" />`
+                  : hasError
                   ? html`<${AlertCircle} class="h-7 w-7" aria-hidden="true" />`
                   : isLoading && !isPlaying
                   ? html`<span class="h-6 w-6 animate-spin rounded-full border-2 border-white/70 border-t-transparent"></span>`
@@ -2165,7 +2209,17 @@ const AudioPlayer = ({ streamInfo, audioKey, status }) => {
         </div>
       </div>
       ${
-        hasError
+        isBridgeServerDeafened
+          ? html`<div class="relative mt-5 flex flex-col gap-2 rounded-2xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+              <div class="flex items-center gap-2 font-semibold">
+                <${AlertCircle} class="h-5 w-5" aria-hidden="true" />
+                Flux indisponible
+              </div>
+              <p class="text-xs leading-relaxed text-rose-100/90">
+                Le bot a été mute casque serveur. Demande à un modérateur de le démute casque pour rétablir le direct.
+              </p>
+            </div>`
+          : hasError
           ? html`<div class="relative mt-5 flex flex-wrap items-center gap-3 rounded-2xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
               <div class="flex items-center gap-2 font-semibold">
                 <${AlertCircle} class="h-5 w-5" aria-hidden="true" />

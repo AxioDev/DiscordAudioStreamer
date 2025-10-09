@@ -23,6 +23,12 @@ export interface UserProfile {
   avatar: string;
 }
 
+export interface BridgeStatus {
+  serverDeafened: boolean;
+  selfDeafened: boolean;
+  updatedAt: number;
+}
+
 export interface Participant extends UserProfile {
   isSpeaking: boolean;
   startedAt: number | null;
@@ -55,6 +61,8 @@ export default class SpeakerTracker {
 
   private readonly voiceActivityRepository: VoiceActivityRepository | null;
 
+  private bridgeStatus: BridgeStatus;
+
   constructor({ sseService, voiceActivityRepository = null }: SpeakerTrackerOptions) {
     this.sseService = sseService;
     this.participants = new Map();
@@ -62,6 +70,11 @@ export default class SpeakerTracker {
     this.pendingProfileFetches = new Set();
     this.userFetcher = null;
     this.voiceActivityRepository = voiceActivityRepository;
+    this.bridgeStatus = {
+      serverDeafened: false,
+      selfDeafened: false,
+      updatedAt: Date.now(),
+    };
   }
 
   public setUserFetcher(fetcher: UserFetcher): void {
@@ -76,8 +89,40 @@ export default class SpeakerTracker {
     return this.participants.size;
   }
 
-  public getInitialState(): { speakers: Participant[] } {
-    return { speakers: this.getSpeakers() };
+  public getInitialState(): { speakers: Participant[]; bridgeStatus: BridgeStatus } {
+    return { speakers: this.getSpeakers(), bridgeStatus: this.getBridgeStatus() };
+  }
+
+  public getBridgeStatus(): BridgeStatus {
+    return {
+      serverDeafened: this.bridgeStatus.serverDeafened,
+      selfDeafened: this.bridgeStatus.selfDeafened,
+      updatedAt: this.bridgeStatus.updatedAt,
+    };
+  }
+
+  public updateBridgeStatus(status: Partial<BridgeStatus>): void {
+    const next: BridgeStatus = {
+      serverDeafened:
+        typeof status.serverDeafened === 'boolean' ? status.serverDeafened : this.bridgeStatus.serverDeafened,
+      selfDeafened:
+        typeof status.selfDeafened === 'boolean' ? status.selfDeafened : this.bridgeStatus.selfDeafened,
+      updatedAt:
+        typeof status.updatedAt === 'number' && Number.isFinite(status.updatedAt)
+          ? status.updatedAt
+          : Date.now(),
+    };
+
+    const hasChanged =
+      next.serverDeafened !== this.bridgeStatus.serverDeafened ||
+      next.selfDeafened !== this.bridgeStatus.selfDeafened;
+
+    if (!hasChanged) {
+      return;
+    }
+
+    this.bridgeStatus = next;
+    this.broadcastState();
   }
 
   private async ensureParticipant(userId: string): Promise<Participant> {
@@ -217,7 +262,10 @@ export default class SpeakerTracker {
   }
 
   private broadcastState(): void {
-    this.sseService.broadcast('state', { speakers: this.getSpeakers() });
+    this.sseService.broadcast('state', {
+      speakers: this.getSpeakers(),
+      bridgeStatus: this.getBridgeStatus(),
+    });
   }
 
   private async fetchUserProfile(userId: string): Promise<UserProfile> {
