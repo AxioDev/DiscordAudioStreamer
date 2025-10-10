@@ -7,6 +7,14 @@ function parseInteger(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function parseBoolean(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return ['1', 'true', 'yes', 'on'].includes(normalized);
+}
+
 function parseStringList(value: string | undefined): string[] {
   if (!value) {
     return [];
@@ -26,6 +34,9 @@ const excludedUserIds =
   excludedUserIdsEnv !== undefined
     ? parseStringList(excludedUserIdsEnv)
     : defaultExcludedUserIds;
+
+const databaseLogQueries =
+  parseBoolean(process.env.DATABASE_LOG_QUERIES) || parseBoolean(process.env.SUPABASE_DEBUG);
 
 export interface AudioConfig {
   sampleRate: number;
@@ -64,6 +75,7 @@ export interface ShopConfig {
 export interface DatabaseConfig {
   url?: string;
   ssl: boolean;
+  logQueries: boolean;
 }
 
 export interface OpenAIConfig {
@@ -191,6 +203,7 @@ const config: Config = {
     ssl:
       process.env.DATABASE_SSL === 'true' ||
       (process.env.NODE_ENV === 'production' && process.env.DATABASE_SSL !== 'false'),
+    logQueries: databaseLogQueries,
   },
   openAI: {
     apiKey: process.env.OPENAI_API_KEY || undefined,

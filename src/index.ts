@@ -66,6 +66,7 @@ const listenerStatsService = new ListenerStatsService();
 const voiceActivityRepository = new VoiceActivityRepository({
   url: config.database.url,
   ssl: config.database.ssl,
+  debug: config.database.logQueries,
 });
 
 const statisticsService = new StatisticsService({
@@ -95,7 +96,11 @@ const speakerTracker = new SpeakerTracker({
 });
 
 const blogRepository = config.database.url
-  ? new BlogRepository({ url: config.database.url, ssl: config.database.ssl })
+  ? new BlogRepository({
+      url: config.database.url,
+      ssl: config.database.ssl,
+      debug: config.database.logQueries,
+    })
   : null;
 
 const blogService = new BlogService({

@@ -1,9 +1,11 @@
 import { Pool, PoolConfig } from 'pg';
+import { attachPostgresQueryLogger } from './utils/PostgresQueryLogger';
 
 export interface VoiceActivityRepositoryOptions {
   url?: string;
   ssl?: boolean;
   poolConfig?: Omit<PoolConfig, 'connectionString'>;
+  debug?: boolean;
 }
 
 export interface VoiceActivityRecord {
@@ -413,6 +415,8 @@ export default class VoiceActivityRepository {
 
   private readonly poolConfig?: Omit<PoolConfig, 'connectionString'>;
 
+  private readonly debugQueries: boolean;
+
   private pool: Pool | null;
 
   private warnedAboutMissingConnection: boolean;
@@ -444,10 +448,11 @@ export default class VoiceActivityRepository {
 
   private userPersonasEnsured: boolean;
 
-  constructor({ url, ssl, poolConfig }: VoiceActivityRepositoryOptions) {
+  constructor({ url, ssl, poolConfig, debug }: VoiceActivityRepositoryOptions) {
     this.connectionString = url;
     this.ssl = Boolean(ssl);
     this.poolConfig = poolConfig;
+    this.debugQueries = Boolean(debug);
     this.pool = null;
     this.warnedAboutMissingConnection = false;
     this.schemaIntrospectionPromise = null;
@@ -486,6 +491,13 @@ export default class VoiceActivityRepository {
 
       this.pool.on('error', (error: unknown) => {
         console.error('Unexpected error from PostgreSQL connection pool', error);
+      });
+
+      attachPostgresQueryLogger(this.pool, {
+        context: 'VoiceActivityRepository',
+        debug: this.debugQueries,
+        connectionString: this.connectionString,
+        ssl: this.ssl,
       });
     }
 

@@ -1,9 +1,11 @@
 import { Pool, PoolConfig } from 'pg';
+import { attachPostgresQueryLogger } from './utils/PostgresQueryLogger';
 
 export interface BlogRepositoryOptions {
   url?: string;
   ssl?: boolean;
   poolConfig?: Omit<PoolConfig, 'connectionString'>;
+  debug?: boolean;
 }
 
 export type BlogPostSortBy = 'published_at' | 'title' | 'updated_at' | 'slug';
@@ -94,6 +96,8 @@ export default class BlogRepository {
 
   private readonly poolConfig?: Omit<PoolConfig, 'connectionString'>;
 
+  private readonly debugQueries: boolean;
+
   private pool: Pool | null = null;
 
   private warnedAboutMissingConnection = false;
@@ -102,6 +106,7 @@ export default class BlogRepository {
     this.connectionString = options.url;
     this.ssl = Boolean(options.ssl);
     this.poolConfig = options.poolConfig;
+    this.debugQueries = Boolean(options.debug);
   }
 
   private async getPool(): Promise<Pool | null> {
@@ -125,6 +130,13 @@ export default class BlogRepository {
 
     this.pool.on('error', (error) => {
       console.error('BlogRepository: erreur de connexion à la base de données', error);
+    });
+
+    attachPostgresQueryLogger(this.pool, {
+      context: 'BlogRepository',
+      debug: this.debugQueries,
+      connectionString: this.connectionString,
+      ssl: this.ssl,
     });
 
     return this.pool;
