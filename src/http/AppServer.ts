@@ -886,6 +886,7 @@ export default class AppServer {
       { path: '/membres', changeFreq: 'daily', priority: 0.8 },
       { path: '/members', changeFreq: 'daily', priority: 0.8 },
       { path: '/boutique', changeFreq: 'weekly', priority: 0.6 },
+      { path: '/premium', changeFreq: 'monthly', priority: 0.5 },
       { path: '/statistiques', changeFreq: 'hourly', priority: 0.75 },
       { path: '/classements', changeFreq: 'hourly', priority: 0.7 },
       { path: '/blog', changeFreq: 'daily', priority: 0.7 },
@@ -1003,6 +1004,8 @@ export default class AppServer {
           return [context.latestProfileActivityAt];
         case '/boutique':
           return [context.shopCatalogUpdatedAt, context.latestClassementsSnapshot];
+        case '/premium':
+          return [context.shopCatalogUpdatedAt];
         case '/classements':
           return [context.latestClassementsSnapshot];
         case '/blog':
@@ -2967,6 +2970,154 @@ export default class AppServer {
     parts.push('</div>');
 
     parts.push('</article>');
+    return parts.join('');
+  }
+
+  private buildPremiumPageHtml(): string {
+    const heroParagraphs = [
+      "Le programme premium finance l'infrastructure audio, la modération nocturne et les ateliers animés par la communauté.",
+      'Les abonnements sont sans engagement : chaque contribution débloque des accès dédiés et renforce la diffusion libre de la radio.',
+    ];
+    const benefits: Array<{ icon: string; title: string; description: string }> = [
+      {
+        icon: 'Sparkles',
+        title: 'Accès prioritaire',
+        description:
+          'Rejoins les masterclasses, sessions feedback et tests de nouveautés avant tout le monde avec un canal de coordination dédié.',
+      },
+      {
+        icon: 'ShieldCheck',
+        title: 'Coulisses & replays privés',
+        description:
+          'Retrouve les briefs d’émission, les replays audio en accès limité et les notes de modération pour approfondir chaque thème.',
+      },
+      {
+        icon: 'Users',
+        title: 'Soutien transparent',
+        description:
+          'Chaque contribution finance le serveur audio, la maintenance du bot et les outils de diffusion communautaires.',
+      },
+    ];
+    const inclusions = [
+      'Badge premium sur Discord et sur la plateforme web',
+      'Accès anticipé aux ateliers thématiques et aux tests techniques',
+      'Newsletter backstage avec récap des débats et coulisses du direct',
+      'Role spécial pour voter sur la programmation et les invités',
+    ];
+    const faqItems: Array<{ question: string; answer: string }> = [
+      {
+        question: 'Comment activer mon accès premium ?',
+        answer:
+          'Passe par la boutique Libre Antenne pour choisir une formule. Une fois le paiement confirmé, l’équipe ajoute ton rôle premium sur Discord dans les 24 heures.',
+      },
+      {
+        question: 'Puis-je arrêter mon soutien quand je veux ?',
+        answer:
+          'Oui. Les formules sont sans engagement : tu peux annuler ton abonnement depuis ton fournisseur de paiement et conserveras l’accès jusqu’à la fin de la période en cours.',
+      },
+      {
+        question: 'Que finance concrètement mon abonnement ?',
+        answer:
+          'Les contributions couvrent l’hébergement du serveur audio, les licences logicielles, la diffusion web en continu et une partie des goodies offerts aux bénévoles actifs.',
+      },
+    ];
+
+    const parts: string[] = [];
+    parts.push('<div class="premium-page flex flex-col gap-10">');
+    parts.push(
+      '<section class="space-y-6 rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/40 backdrop-blur-xl">',
+    );
+    parts.push('<p class="text-xs uppercase tracking-[0.35em] text-slate-300">Soutenir Libre Antenne</p>');
+    parts.push('<h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">Accès Premium & soutien communautaire</h1>');
+    for (const paragraph of heroParagraphs) {
+      parts.push(`<p class="text-base leading-relaxed text-slate-200">${this.escapeHtml(paragraph)}</p>`);
+    }
+    parts.push('<div class="flex flex-wrap gap-3">');
+    parts.push(
+      `<a class="inline-flex items-center gap-2 rounded-full border border-fuchsia-400/40 bg-fuchsia-500/20 px-4 py-2 text-sm font-semibold text-fuchsia-100 transition hover:bg-fuchsia-500/30 hover:text-white" href="/boutique">Choisir une formule${this.renderLucideIcon('ShoppingBag', 'h-4 w-4')}</a>`,
+    );
+    parts.push(
+      `<a class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/20 hover:text-white" href="https://discord.gg/" target="_blank" rel="noreferrer">Contacter l'équipe${this.renderLucideIcon('MessageSquare', 'h-4 w-4')}</a>`,
+    );
+    parts.push('</div>');
+    parts.push('</section>');
+
+    parts.push('<section class="grid gap-6 md:grid-cols-3">');
+    for (const benefit of benefits) {
+      parts.push(
+        '<article class="space-y-4 rounded-3xl border border-white/10 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">',
+      );
+      parts.push(
+        `<span class="inline-flex h-12 w-12 items-center justify-center rounded-full bg-fuchsia-500/15 text-fuchsia-200">${this.renderLucideIcon(benefit.icon, 'h-5 w-5')}</span>`,
+      );
+      parts.push(`<h2 class="text-xl font-semibold text-white">${this.escapeHtml(benefit.title)}</h2>`);
+      parts.push(`<p class="text-sm leading-relaxed text-slate-300">${this.escapeHtml(benefit.description)}</p>`);
+      parts.push('</article>');
+    }
+    parts.push('</section>');
+
+    parts.push('<section class="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">');
+    parts.push(
+      '<div class="space-y-5 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">',
+    );
+    parts.push('<h2 class="text-2xl font-semibold text-white">Ce que comprend l\'accès premium</h2>');
+    parts.push('<ul class="space-y-3 text-sm text-slate-200">');
+    for (const inclusion of inclusions) {
+      parts.push('<li class="flex items-start gap-3">');
+      parts.push(
+        `<span class="mt-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-fuchsia-500/20 text-fuchsia-200">${this.renderLucideIcon('ShieldCheck', 'h-3.5 w-3.5')}</span>`,
+      );
+      parts.push(`<span class="leading-relaxed">${this.escapeHtml(inclusion)}</span>`);
+      parts.push('</li>');
+    }
+    parts.push('</ul>');
+    parts.push('</div>');
+
+    parts.push(
+      '<div class="space-y-4 rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-inner shadow-slate-950/50">',
+    );
+    parts.push('<h2 class="text-2xl font-semibold text-white">Rythme & accompagnement</h2>');
+    parts.push(
+      '<p class="text-sm leading-relaxed text-slate-300">L\'équipe premium suit personnellement chaque nouveau membre : un brief Discord est organisé pour activer les rôles et présenter les prochains rendez-vous communautaires.</p>',
+    );
+    parts.push(
+      '<div class="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">',
+    );
+    parts.push(
+      `<span class="inline-flex h-10 w-10 items-center justify-center rounded-full bg-fuchsia-500/20 text-fuchsia-200">${this.renderLucideIcon('Clock3', 'h-5 w-5')}</span>`,
+    );
+    parts.push('<div>');
+    parts.push('<p class="font-semibold text-white">Activation sous 24h ouvrées</p>');
+    parts.push(
+      '<p class="text-xs text-slate-300">Un salon dédié permet de suivre l\'état de ton adhésion et d\'échanger avec l\'équipe support.</p>',
+    );
+    parts.push('</div>');
+    parts.push('</div>');
+    parts.push(
+      '<p class="text-sm leading-relaxed text-slate-300">Les contributions sont regroupées chaque mois dans un rapport transparent partagé sur le serveur : infrastructure, licences et dotations bénévoles.</p>',
+    );
+    parts.push('</div>');
+    parts.push('</section>');
+
+    parts.push(
+      '<section class="space-y-6 rounded-3xl border border-white/10 bg-white/5 px-6 py-8 shadow-xl shadow-slate-950/40 backdrop-blur">',
+    );
+    parts.push('<h2 class="text-2xl font-semibold text-white">Questions fréquentes</h2>');
+    parts.push('<div class="space-y-5">');
+    for (const item of faqItems) {
+      parts.push(
+        '<details class="group rounded-2xl border border-white/10 bg-slate-950/60 p-4 text-slate-200 shadow-sm shadow-slate-950/30">',
+      );
+      parts.push(
+        `<summary class="cursor-pointer select-none text-base font-semibold text-white">${this.escapeHtml(item.question)}</summary>`,
+      );
+      parts.push(`<p class="mt-3 text-sm leading-relaxed text-slate-300">${this.escapeHtml(item.answer)}</p>`);
+      parts.push('</details>');
+    }
+    parts.push('</div>');
+    parts.push('</section>');
+    parts.push('</div>');
+
     return parts.join('');
   }
 
@@ -4966,6 +5117,64 @@ export default class AppServer {
         console.error('Failed to prerender shop page', error);
         this.respondWithAppShell(res, metadata);
       }
+    });
+
+    this.app.get('/premium', (_req, res) => {
+      const metadata: SeoPageMetadata = {
+        title: `${this.config.siteName} · Accès premium & soutien communautaire`,
+        description:
+          'Soutiens la radio libre avec un abonnement premium : accès backstage, ateliers prioritaires et financements transparents pour la technique.',
+        path: '/premium',
+        canonicalUrl: this.toAbsoluteUrl('/premium'),
+        keywords: this.combineKeywords(
+          this.config.siteName,
+          'premium Libre Antenne',
+          'abonnement radio libre',
+          'soutien communautaire',
+          'backstage Discord',
+        ),
+        openGraphType: 'website',
+        breadcrumbs: [
+          { name: 'Accueil', path: '/' },
+          { name: 'Premium', path: '/premium' },
+        ],
+        structuredData: [
+          {
+            '@context': 'https://schema.org',
+            '@type': 'Service',
+            name: `${this.config.siteName} Premium`,
+            description:
+              'Programme premium Libre Antenne : accès privilégié aux ateliers, coulisses et décisions communautaires.',
+            url: this.toAbsoluteUrl('/premium'),
+            provider: {
+              '@type': 'Organization',
+              name: this.config.siteName,
+              url: this.config.publicBaseUrl,
+            },
+            serviceType: 'Community membership',
+            areaServed: 'FR',
+            offers: {
+              '@type': 'Offer',
+              url: this.toAbsoluteUrl('/boutique'),
+              availability: 'https://schema.org/InStock',
+              priceCurrency: this.config.shop.currency.toUpperCase(),
+              price: 0,
+              priceSpecification: {
+                '@type': 'UnitPriceSpecification',
+                price: 0,
+                priceCurrency: this.config.shop.currency.toUpperCase(),
+                description: 'Contribution libre selon la formule choisie sur la boutique Libre Antenne.',
+              },
+            },
+          },
+        ],
+      };
+
+      const appHtml = this.buildPremiumPageHtml();
+      const preloadState: AppPreloadState = {
+        route: { name: 'premium', params: {} },
+      };
+      this.respondWithAppShell(res, metadata, { appHtml, preloadState });
     });
 
     this.app.get(['/bannir', '/ban'], (_req, res) => {
