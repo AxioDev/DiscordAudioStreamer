@@ -367,7 +367,11 @@ export default class AppServer {
     this.blogRepository =
       blogRepository ??
       (config.database?.url
-        ? new BlogRepository({ url: config.database.url, ssl: config.database.ssl })
+        ? new BlogRepository({
+            url: config.database.url,
+            ssl: config.database.ssl,
+            debug: config.database.logQueries,
+          })
         : null);
 
     this.blogService =
