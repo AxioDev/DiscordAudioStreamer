@@ -2512,6 +2512,14 @@ export default class AppServer {
         return username || `profil ${padRank(rank)}`;
       })();
 
+      const userId = typeof leader.userId === 'string' ? leader.userId : '';
+      const profileHref = userId ? `/profil/${encodeURIComponent(userId)}` : null;
+      if (profileHref) {
+        parts.push(
+          `<a class="leader-card-link" href="${this.escapeHtml(profileHref)}" aria-label="Voir le profil de ${this.escapeHtml(altName)}">`,
+        );
+      }
+
       parts.push(
         `<article data-rank="${rank}" class="leader-card relative overflow-hidden rounded-3xl border ${highlight}">`,
       );
@@ -2578,6 +2586,9 @@ export default class AppServer {
       parts.push('</dl>');
       parts.push('</div>');
       parts.push('</article>');
+      if (profileHref) {
+        parts.push('</a>');
+      }
     }
     parts.push('</div>');
     parts.push('</section>');

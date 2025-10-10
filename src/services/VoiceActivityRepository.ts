@@ -2379,6 +2379,7 @@ export default class VoiceActivityRepository {
                     SELECT COUNT(DISTINCT vp3.user_id)
                     FROM voice_presence vp3
                     WHERE vp3.channel_id = vp.channel_id
+                      AND vp3.guild_id = vp.guild_id
                       AND vp3.joined_at <= vp.joined_at + interval '3 minutes'
                       AND (vp3.left_at IS NULL OR vp3.left_at > vp.joined_at + interval '3 minutes')
                       ${presenceAndClause('vp3')}
@@ -2387,6 +2388,7 @@ export default class VoiceActivityRepository {
                     SELECT COUNT(DISTINCT vp2.user_id)
                     FROM voice_presence vp2
                     WHERE vp2.channel_id = vp.channel_id
+                      AND vp2.guild_id = vp.guild_id
                       AND vp2.joined_at <= vp.joined_at
                       AND (vp2.left_at IS NULL OR vp2.left_at > vp.joined_at)
                       ${presenceAndClause('vp2')}
@@ -2406,6 +2408,7 @@ export default class VoiceActivityRepository {
                     SELECT COUNT(DISTINCT vp3.user_id)
                     FROM voice_presence vp3
                     WHERE vp3.channel_id = vp.channel_id
+                      AND vp3.guild_id = vp.guild_id
                       AND vp3.joined_at <= vp.left_at + interval '3 minutes'
                       AND (vp3.left_at IS NULL OR vp3.left_at > vp.left_at + interval '3 minutes')
                       ${presenceAndClause('vp3')}
@@ -2414,6 +2417,7 @@ export default class VoiceActivityRepository {
                     SELECT COUNT(DISTINCT vp2.user_id)
                     FROM voice_presence vp2
                     WHERE vp2.channel_id = vp.channel_id
+                      AND vp2.guild_id = vp.guild_id
                       AND vp2.joined_at <= vp.left_at
                       AND (vp2.left_at IS NULL OR vp2.left_at > vp.left_at)
                       ${presenceAndClause('vp2')}
