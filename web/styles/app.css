@@ -282,6 +282,25 @@
   z-index: 1;
 }
 
+.classements-page .leader-card-link {
+  display: block;
+  border-radius: 1.5rem;
+  text-decoration: none;
+}
+
+.classements-page .leader-card-link:focus-visible {
+  outline: none;
+}
+
+.classements-page .leader-card-link:focus-visible .leader-card {
+  border-color: rgba(125, 211, 252, 0.6);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.45);
+}
+
+.classements-page .leader-card-link .leader-card {
+  cursor: pointer;
+}
+
 .classements-page .hype-pulse {
   position: relative;
 }

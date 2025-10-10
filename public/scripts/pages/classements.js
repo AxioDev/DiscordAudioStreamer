@@ -480,9 +480,12 @@ const ClassementsPage = ({ params = {}, onSyncRoute, bootstrap = null }) => {
             return username || `profil ${pad(rank)}`;
           })();
 
-          return html`
+          const userId = typeof leader?.userId === 'string' ? leader.userId : '';
+          const profileHref = userId ? buildRoutePath('profile', { userId }) : null;
+
+          const card = html`
             <article
-              key=${key}
+              key=${profileHref ? null : key}
               class=${`leader-card relative overflow-hidden rounded-3xl border ${highlight}`}
               style=${{ '--leader-index': String(index) }}
             >
@@ -549,6 +552,16 @@ const ClassementsPage = ({ params = {}, onSyncRoute, bootstrap = null }) => {
               </div>
             </article>
           `;
+
+          if (profileHref) {
+            return html`
+              <a key=${key} class="leader-card-link" href=${profileHref} aria-label=${`Voir le profil de ${altName}`}>
+                ${card}
+              </a>
+            `;
+          }
+
+          return card;
         })}
       </${Fragment}>
     `;
