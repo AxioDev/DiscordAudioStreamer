@@ -76,10 +76,21 @@ export interface AssetStyleDescriptor {
 export interface AssetPreloadDescriptor {
   href: string;
   rel?: string;
-  as: string;
+  as?: string;
   type?: string;
   crossorigin?: string;
   media?: string;
+}
+
+export interface AssetPreconnectDescriptor {
+  href: string;
+  crossorigin?: string;
+}
+
+export interface AssetImageVariantDescriptor {
+  source: string;
+  webp?: string;
+  avif?: string;
 }
 
 export interface AssetManifest {
@@ -87,6 +98,10 @@ export interface AssetManifest {
   styles?: AssetStyleDescriptor[] | null;
   preloads?: AssetPreloadDescriptor[] | null;
   entries?: Record<string, AssetScriptDescriptor> | null;
+  preconnects?: AssetPreconnectDescriptor[] | null;
+  criticalCss?: string | null;
+  images?: AssetImageVariantDescriptor[] | null;
+  generatedAt?: string | null;
 }
 
 export interface SeoRendererOptions {
@@ -193,6 +208,12 @@ export default class SeoRenderer {
     const clonePreloads = (items: AssetPreloadDescriptor[] | null | undefined) =>
       Array.isArray(items) ? items.map((entry) => ({ ...entry })) : undefined;
 
+    const clonePreconnects = (items: AssetPreconnectDescriptor[] | null | undefined) =>
+      Array.isArray(items) ? items.map((entry) => ({ ...entry })) : undefined;
+
+    const cloneImages = (items: AssetImageVariantDescriptor[] | null | undefined) =>
+      Array.isArray(items) ? items.map((entry) => ({ ...entry })) : undefined;
+
     const cloneEntries = (entries: Record<string, AssetScriptDescriptor> | null | undefined) => {
       if (!entries) {
         return undefined;
@@ -211,7 +232,11 @@ export default class SeoRenderer {
       scripts: cloneScripts(this.assetManifest.scripts),
       styles: cloneStyles(this.assetManifest.styles),
       preloads: clonePreloads(this.assetManifest.preloads),
+      preconnects: clonePreconnects(this.assetManifest.preconnects),
       entries: cloneEntries(this.assetManifest.entries ?? undefined) ?? undefined,
+      criticalCss: this.assetManifest.criticalCss ?? undefined,
+      images: cloneImages(this.assetManifest.images),
+      generatedAt: this.assetManifest.generatedAt ?? undefined,
     };
   }
 
@@ -407,6 +432,7 @@ export default class SeoRenderer {
   private injectAppShell(template: string, options: RenderOptions): string {
     const appPlaceholder = '<!--APP_HTML-->';
     const statePlaceholder = '<!--APP_STATE-->';
+    const preconnectPlaceholder = '<!--ASSET_PRECONNECTS-->';
     const stylesPlaceholder = '<!--ASSET_STYLES-->';
     const scriptsPlaceholder = '<!--ASSET_SCRIPTS-->';
     const preloadPlaceholder = '<!--ASSET_PRELOADS-->';
@@ -426,6 +452,11 @@ export default class SeoRenderer {
     if (result.includes(preloadPlaceholder)) {
       const preloadTags = this.buildPreloadTags();
       result = result.replace(preloadPlaceholder, preloadTags);
+    }
+
+    if (result.includes(preconnectPlaceholder)) {
+      const preconnectTags = this.buildPreconnectTags();
+      result = result.replace(preconnectPlaceholder, preconnectTags);
     }
 
     let injectedStyleTags = '';
@@ -497,15 +528,17 @@ export default class SeoRenderer {
 
     const lines: string[] = [];
     for (const entry of manifest.preloads) {
-      if (!entry || typeof entry.href !== 'string' || typeof entry.as !== 'string') {
+      if (!entry || typeof entry.href !== 'string') {
         continue;
       }
       const rel = (entry.rel ?? 'preload').trim() || 'preload';
       const attrs: Array<[string, string | true]> = [
         ['rel', rel],
         ['href', entry.href],
-        ['as', entry.as],
       ];
+      if (entry.as) {
+        attrs.push(['as', entry.as]);
+      }
       if (entry.type) {
         attrs.push(['type', entry.type]);
       }
@@ -522,6 +555,34 @@ export default class SeoRenderer {
     return lines.join('\n');
   }
 
+  private buildPreconnectTags(): string {
+    const manifest = this.assetManifest;
+    if (!manifest || !Array.isArray(manifest.preconnects) || manifest.preconnects.length === 0) {
+      return '';
+    }
+
+    const lines: string[] = [];
+    for (const entry of manifest.preconnects) {
+      if (!entry || typeof entry.href !== 'string') {
+        continue;
+      }
+      const href = entry.href.trim();
+      if (!href) {
+        continue;
+      }
+      const attrs: Array<[string, string | true]> = [
+        ['rel', 'preconnect'],
+        ['href', href],
+      ];
+      if (entry.crossorigin) {
+        attrs.push(['crossorigin', entry.crossorigin]);
+      }
+      lines.push('    <link ' + this.formatHtmlAttributes(attrs) + ' />');
+    }
+
+    return lines.join('\n');
+  }
+
   private buildStyleTags(): string {
     const manifest = this.assetManifest;
     if (!manifest || !Array.isArray(manifest.styles) || manifest.styles.length === 0) {
@@ -529,6 +590,11 @@ export default class SeoRenderer {
     }
 
     const lines: string[] = [];
+    const criticalStyleTag = this.buildCriticalStyleTag();
+    if (criticalStyleTag) {
+      lines.push(criticalStyleTag);
+    }
+
     for (const entry of manifest.styles) {
       if (!entry || typeof entry.href !== 'string') {
         continue;
@@ -551,6 +617,18 @@ export default class SeoRenderer {
     }
 
     return lines.join('\n');
+  }
+
+  private buildCriticalStyleTag(): string {
+    const css = this.assetManifest?.criticalCss;
+    if (typeof css !== 'string') {
+      return '';
+    }
+    const trimmed = css.trim();
+    if (!trimmed) {
+      return '';
+    }
+    return `    <style data-critical="true">${trimmed}</style>`;
   }
 
   private buildScriptTags(): string {
@@ -647,17 +725,43 @@ export default class SeoRenderer {
         return [];
       }
       return preloads
-        .filter(
-          (entry): entry is AssetPreloadDescriptor =>
-            Boolean(entry && typeof entry.href === 'string' && typeof entry.as === 'string'),
-        )
+        .filter((entry): entry is AssetPreloadDescriptor => Boolean(entry && typeof entry.href === 'string'))
         .map((entry) => ({
           href: entry.href,
           rel: entry.rel,
-          as: entry.as,
+          as: typeof entry.as === 'string' ? entry.as : undefined,
           type: entry.type,
           crossorigin: entry.crossorigin,
           media: entry.media,
+        }));
+    };
+
+    const normalizePreconnects = (
+      preconnects: AssetPreconnectDescriptor[] | null | undefined,
+    ): AssetPreconnectDescriptor[] => {
+      if (!Array.isArray(preconnects)) {
+        return [];
+      }
+      return preconnects
+        .filter((entry): entry is AssetPreconnectDescriptor => Boolean(entry && typeof entry.href === 'string'))
+        .map((entry) => ({
+          href: entry.href,
+          crossorigin: entry.crossorigin,
+        }));
+    };
+
+    const normalizeImages = (
+      images: AssetImageVariantDescriptor[] | null | undefined,
+    ): AssetImageVariantDescriptor[] => {
+      if (!Array.isArray(images)) {
+        return [];
+      }
+      return images
+        .filter((entry): entry is AssetImageVariantDescriptor => Boolean(entry && typeof entry.source === 'string'))
+        .map((entry) => ({
+          source: entry.source,
+          webp: entry.webp,
+          avif: entry.avif,
         }));
     };
 
@@ -688,11 +792,25 @@ export default class SeoRenderer {
       return normalized;
     };
 
+    const normalizedCriticalCss =
+      typeof manifest.criticalCss === 'string' && manifest.criticalCss.trim().length > 0
+        ? manifest.criticalCss.trim()
+        : undefined;
+
+    const normalizedGeneratedAt =
+      typeof manifest.generatedAt === 'string' && manifest.generatedAt.trim().length > 0
+        ? manifest.generatedAt
+        : undefined;
+
     return {
       scripts: normalizeScripts(manifest.scripts),
       styles: normalizeStyles(manifest.styles),
       preloads: normalizePreloads(manifest.preloads),
+      preconnects: normalizePreconnects(manifest.preconnects),
+      images: normalizeImages(manifest.images),
       entries: normalizeEntries(manifest.entries),
+      criticalCss: normalizedCriticalCss,
+      generatedAt: normalizedGeneratedAt,
     };
   }
 
@@ -700,7 +818,10 @@ export default class SeoRenderer {
     const hasScripts = Array.isArray(manifest.scripts) && manifest.scripts.length > 0;
     const hasStyles = Array.isArray(manifest.styles) && manifest.styles.length > 0;
     const hasPreloads = Array.isArray(manifest.preloads) && manifest.preloads.length > 0;
-    return hasScripts || hasStyles || hasPreloads;
+    const hasPreconnects = Array.isArray(manifest.preconnects) && manifest.preconnects.length > 0;
+    const hasCriticalCss = typeof manifest.criticalCss === 'string' && manifest.criticalCss.trim().length > 0;
+    const hasImages = Array.isArray(manifest.images) && manifest.images.length > 0;
+    return hasScripts || hasStyles || hasPreloads || hasPreconnects || hasCriticalCss || hasImages;
   }
 
   private buildFallbackAssetManifest(): AssetManifest {
@@ -722,12 +843,16 @@ export default class SeoRenderer {
         },
       ],
       preloads: [],
+      preconnects: [],
+      criticalCss: undefined,
+      images: [],
       entries: {
         main: {
           src: '/scripts/main.js',
           type: 'module',
         },
       },
+      generatedAt: undefined,
     };
   }
 

@@ -18,9 +18,12 @@
     "build:client": "node scripts/build-client.mjs",
     "build:server": "tsc",
     "build": "npm run build:client && npm run build:server",
+    "postbuild": "node scripts/run-lighthouse.mjs",
     "prestart": "npm run build",
     "start": "node dist/server.js",
     "dev": "npm run build:client && ts-node src/server.ts",
+    "verify:performance": "node scripts/run-lighthouse.mjs",
+    "audit:performance": "node scripts/run-lighthouse.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
@@ -71,6 +74,9 @@
     "@types/marked": "^5.0.2",
     "@types/node": "^22.10.1",
     "@types/pg": "^8.15.5",
+    "@lhci/cli": "^0.14.0",
+    "critters": "^0.0.22",
+    "sharp": "^0.33.4",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.3"
   }
