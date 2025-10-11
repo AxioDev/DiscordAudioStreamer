@@ -1,0 +1,25 @@
+{
+  "ci": {
+    "collect": {
+      "url": ["/"],
+      "staticDistDir": "./docs/performance/static",
+      "numberOfRuns": 1,
+      "settings": {
+        "chromeFlags": ["--headless=new", "--disable-dev-shm-usage", "--no-sandbox"],
+        "locale": "fr"
+      }
+    },
+    "assert": {
+      "assertions": {
+        "categories:performance": ["error", { "minScore": 0.95 }],
+        "categories:accessibility": ["warn", { "minScore": 0.95 }],
+        "categories:best-practices": ["warn", { "minScore": 0.95 }],
+        "categories:seo": ["warn", { "minScore": 0.95 }]
+      }
+    },
+    "upload": {
+      "target": "filesystem",
+      "outputDir": "./docs/performance/raw"
+    }
+  }
+}

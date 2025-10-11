@@ -3574,6 +3574,16 @@ export default class AppServer {
           removeComments: true,
           minifyJS: true,
           minifyCSS: true,
+          removeAttributeQuotes: true,
+          removeRedundantAttributes: true,
+          removeEmptyAttributes: true,
+          removeOptionalTags: true,
+          collapseBooleanAttributes: true,
+          useShortDoctype: true,
+          sortAttributes: true,
+          sortClassName: true,
+          removeScriptTypeAttributes: true,
+          removeStyleLinkTypeAttributes: true,
         },
       }),
     );
@@ -3583,14 +3593,14 @@ export default class AppServer {
     const publicDir = path.resolve(__dirname, '..', '..', 'public');
     this.app.use(
       express.static(publicDir, {
-        etag: false,
+        etag: true,
         maxAge: '1y',
         immutable: true,
         setHeaders(res, filePath) {
           const relativePath = path.relative(publicDir, filePath).split(path.sep).join('/');
 
           if (!relativePath) {
-            res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
+            res.setHeader('Cache-Control', 'public, max-age=120, stale-while-revalidate=600, must-revalidate');
             return;
           }
 
@@ -3600,7 +3610,7 @@ export default class AppServer {
           }
 
           if (relativePath === 'assets/manifest.json') {
-            res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
+            res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=600, must-revalidate');
             return;
           }
 
@@ -3610,21 +3620,21 @@ export default class AppServer {
           }
 
           if (relativePath.startsWith('styles/') || relativePath.startsWith('scripts/')) {
-            res.setHeader('Cache-Control', 'public, max-age=86400, must-revalidate');
+            res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=600, must-revalidate');
             return;
           }
 
           if (relativePath === 'site.webmanifest' || relativePath === 'robots.txt') {
-            res.setHeader('Cache-Control', 'public, max-age=86400, must-revalidate');
+            res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=600, must-revalidate');
             return;
           }
 
           if (relativePath.endsWith('.html')) {
-            res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
+            res.setHeader('Cache-Control', 'public, max-age=120, stale-while-revalidate=600, must-revalidate');
             return;
           }
 
-          res.setHeader('Cache-Control', 'public, max-age=3600, must-revalidate');
+          res.setHeader('Cache-Control', 'public, max-age=3600, stale-while-revalidate=300, must-revalidate');
         },
       }),
     );
