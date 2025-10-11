@@ -1,4 +1,4 @@
 # Lighthouse Performance Summary
 
-Audit skipped: No Chromium/Chrome binary available for Lighthouse audits.
+Audit skipped: Skipped via SKIP_LIGHTHOUSE flag.
 

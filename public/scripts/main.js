@@ -1095,11 +1095,11 @@ const App = () => {
   const menuButtonLabel = menuOpen ? 'Fermer le menu de navigation' : 'Ouvrir le menu de navigation';
   const mobileNavId = 'mobile-navigation';
   const overlayClasses = [
-    'fixed inset-0 z-30 bg-slate-900/10 backdrop-blur-lg transition-opacity duration-300 ease-out lg:hidden',
+    'fixed inset-0 z-30 bg-slate-950/70 backdrop-blur-sm transition-opacity duration-300 ease-out lg:hidden',
     menuOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0',
   ].join(' ');
   const sidebarClasses = [
-    'fixed inset-y-0 left-0 z-40 flex w-[80vw] max-w-sm transform flex-col overflow-y-auto rounded-r-3xl bg-white/85 px-6 py-6 text-slate-900 shadow-[0_24px_60px_rgba(15,23,42,0.12)] ring-1 ring-white/60 backdrop-blur-2xl transition-transform duration-300 ease-in-out sm:w-[70vw] md:w-[30vw] md:max-w-md lg:hidden',
+    'fixed inset-y-0 left-0 z-40 flex w-[80vw] max-w-sm transform flex-col overflow-y-auto bg-slate-900/95 px-6 py-6 shadow-2xl ring-1 ring-white/10 transition-transform duration-300 ease-in-out sm:w-[70vw] md:w-[30vw] md:max-w-md lg:hidden',
     menuOpen ? 'translate-x-0' : '-translate-x-full pointer-events-none',
   ].join(' ');
 
@@ -1111,7 +1111,7 @@ const App = () => {
     if (ROUTE_LOADERS[name]) {
       return (
         fallback ??
-        html`<div class="flex min-h-[280px] items-center justify-center text-sm text-slate-500">
+        html`<div class="flex min-h-[280px] items-center justify-center text-sm text-slate-400">
           Chargement de la page…
         </div>`
       );
@@ -1129,18 +1129,15 @@ const App = () => {
   const routePhaseValue = routeTransitionActive ? String(routeTransitionPhase) : 'initial';
 
   return html`
-    <div class="flex min-h-screen flex-col bg-[#f9f9fb] text-slate-900">
+    <div class="flex min-h-screen flex-col bg-slate-950 text-slate-100">
       <header
-        class=${[
-          'sticky top-0 z-20 border-b border-white/60 bg-white/75 text-slate-900 backdrop-blur-2xl shadow-[0_10px_30px_rgba(15,23,42,0.08)]',
-          headerAnimationClass,
-        ]
+        class=${[`sticky top-0 z-20 border-b border-slate-800 bg-slate-900/80 backdrop-blur`, headerAnimationClass]
           .filter(Boolean)
           .join(' ')}
       >
         <div class="mx-auto flex max-w-5xl items-center gap-3 px-4 py-4">
           <button
-            class="flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/80 p-2 text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007aff]/40 lg:hidden"
+            class="flex items-center gap-2 rounded-lg border border-slate-700 p-2 text-slate-200 transition hover:border-slate-500 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 lg:hidden"
             aria-controls=${mobileNavId}
             aria-expanded=${menuOpen}
             aria-label=${menuButtonLabel}
@@ -1150,15 +1147,15 @@ const App = () => {
             ${menuOpen ? html`<${X} class="h-5 w-5" />` : html`<${Menu} class="h-5 w-5" />`}
           </button>
           <a
-            class="group flex items-center gap-3 text-lg font-semibold tracking-wide text-slate-900 transition hover:text-[#007aff] lg:mr-auto"
+            class="group flex items-center gap-3 text-lg font-semibold tracking-wide text-white transition hover:text-amber-300 lg:mr-auto"
             href="/"
             onClick=${(event) => handleNavigate(event, 'home')}
           >
             <span
-              class="glass-panel flex items-center gap-3 px-3 py-1 transition group-hover:shadow-[0_22px_44px_rgba(0,122,255,0.18)]"
+              class="flex items-center gap-3 rounded-full border border-amber-500/40 bg-slate-900/80 px-3 py-1 shadow-[0_0_0_1px_rgba(15,23,42,0.65)] transition group-hover:border-amber-300/80 group-hover:shadow-[0_0_20px_rgba(251,191,36,0.25)]"
             >
               <span
-                class="flex h-10 w-10 items-center justify-center rounded-full bg-white/80 text-[#007aff] shadow-[0_12px_30px_rgba(15,23,42,0.12)] ring-1 ring-white/70"
+                class="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 via-orange-500 to-rose-500 text-slate-950 shadow-lg shadow-amber-500/40 ring-1 ring-amber-200/70"
               >
                 <svg
                   class="h-5 w-5"
@@ -1176,8 +1173,8 @@ const App = () => {
                 </svg>
               </span>
               <span class="flex flex-col leading-tight">
-                <span class="text-[0.55rem] uppercase tracking-[0.45em] text-slate-500 transition group-hover:text-[#007aff]">Libre</span>
-                <span class="text-base font-bold tracking-tight text-slate-900 transition group-hover:text-[#007aff]">Antenne</span>
+                <span class="text-[0.55rem] uppercase tracking-[0.45em] text-amber-200/90 transition group-hover:text-amber-100">Libre</span>
+                <span class="text-base font-bold tracking-tight text-white transition group-hover:text-amber-50">Antenne</span>
               </span>
             </span>
           </a>
@@ -1186,8 +1183,8 @@ const App = () => {
             const isActive =
               route.name === link.route || (link.route === 'blog' && route.name === 'blog-proposal');
             const href = link.href;
-            const baseClasses = 'text-sm font-medium transition hover:text-[#007aff]';
-            const stateClass = isActive ? 'text-[#007aff]' : 'text-slate-500';
+            const baseClasses = 'text-sm font-medium transition hover:text-white';
+            const stateClass = isActive ? 'text-white' : 'text-slate-300';
             const animationClass = navAnimationClass;
             return html`
               <a
@@ -1228,15 +1225,15 @@ const App = () => {
       >
         <div class="flex items-center justify-between gap-4">
           <a
-            class="group flex items-center gap-3 text-lg font-semibold tracking-wide text-slate-900 transition hover:text-[#007aff]"
+            class="group flex items-center gap-3 text-lg font-semibold tracking-wide text-white transition hover:text-amber-300"
             href="/"
             onClick=${(event) => handleNavigate(event, 'home')}
           >
             <span
-              class="glass-panel flex items-center gap-3 px-3 py-1 transition group-hover:shadow-[0_22px_44px_rgba(0,122,255,0.18)]"
+              class="flex items-center gap-3 rounded-full border border-amber-500/40 bg-slate-900/80 px-3 py-1 shadow-[0_0_0_1px_rgba(15,23,42,0.65)] transition group-hover:border-amber-300/80 group-hover:shadow-[0_0_20px_rgba(251,191,36,0.25)]"
             >
               <span
-                class="flex h-9 w-9 items-center justify-center rounded-full bg-white/80 text-[#007aff] shadow-[0_12px_30px_rgba(15,23,42,0.12)] ring-1 ring-white/70"
+                class="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 via-orange-500 to-rose-500 text-slate-950 shadow-lg shadow-amber-500/40 ring-1 ring-amber-200/70"
               >
                 <svg
                   class="h-5 w-5"
@@ -1254,13 +1251,13 @@ const App = () => {
                 </svg>
               </span>
               <span class="flex flex-col leading-tight">
-                <span class="text-[0.55rem] uppercase tracking-[0.45em] text-slate-500 transition group-hover:text-[#007aff]">Libre</span>
-                <span class="text-base font-bold tracking-tight text-slate-900 transition group-hover:text-[#007aff]">Antenne</span>
+                <span class="text-[0.55rem] uppercase tracking-[0.45em] text-amber-200/90 transition group-hover:text-amber-100">Libre</span>
+                <span class="text-base font-bold tracking-tight text-white transition group-hover:text-amber-50">Antenne</span>
               </span>
             </span>
           </a>
           <button
-            class="rounded-full border border-slate-200/80 bg-white/80 p-2 text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007aff]/40"
+            class="rounded-lg border border-slate-700 p-2 text-slate-200 transition hover:border-slate-500 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
             type="button"
             aria-label="Fermer le menu"
             onClick=${closeMenu}
@@ -1273,12 +1270,12 @@ const App = () => {
             const isActive =
               route.name === link.route || (link.route === 'blog' && route.name === 'blog-proposal');
             const href = link.href;
-            const baseClasses = 'flex items-center gap-3 rounded-2xl px-3 py-3 text-base font-medium transition';
+            const baseClasses = 'flex items-center gap-3 rounded-xl px-3 py-3 text-base font-medium transition';
             const stateClass = isActive
-              ? 'bg-white/90 text-[#007aff] shadow-[0_18px_36px_rgba(15,23,42,0.08)]'
-              : 'text-slate-500 hover:bg-white/70 hover:text-slate-900';
+              ? 'bg-white/10 text-white shadow-inner shadow-amber-500/10'
+              : 'text-slate-200 hover:bg-white/5';
             const Icon = link.icon;
-            const iconClass = isActive ? 'text-[#007aff]' : 'text-slate-400';
+            const iconClass = isActive ? 'text-amber-300' : 'text-slate-400';
             const animationClass = navAnimationClass;
             return html`
               <a
@@ -1373,12 +1370,12 @@ const App = () => {
         </div>
       </main>
 
-      <footer class="border-t border-white/60 bg-white/80 py-6 text-center text-sm text-slate-500 backdrop-blur-2xl">
+      <footer class="border-t border-slate-800 bg-slate-900/80 py-6 text-center text-sm text-slate-400">
         <div class="flex flex-col items-center gap-2 sm:flex-row sm:justify-center sm:gap-4">
           <span>Libre Antenne · Tous droits réservés</span>
           <span class="hidden sm:inline">•</span>
           <a
-            class="text-slate-500 transition hover:text-[#007aff] hover:underline"
+            class="text-slate-300 transition hover:text-white hover:underline"
             href="/cgu"
             onClick=${(event) => {
               event.preventDefault();
@@ -1389,7 +1386,7 @@ const App = () => {
           </a>
           <span class="hidden sm:inline">•</span>
           <a
-            class="text-slate-500 transition hover:text-[#007aff] hover:underline"
+            class="text-slate-300 transition hover:text-white hover:underline"
             href="/about"
             onClick=${(event) => {
               event.preventDefault();
