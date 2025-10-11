@@ -10,8 +10,6 @@ These instructions apply to the entire repository.
 - When applicable, run the web application and verify there are no console errors or runtime issues.
 - Document any important decisions or deviations directly in the relevant files or commit messages.
 - Keep dependencies tidy; remove unused packages and avoid unnecessary additions.
-- Front-end updates must follow the "Minimalist Organic UI" direction: light neutral backgrounds, generous whitespace, translucent glass surfaces, a restrained accent palette centred on #007AFF, soft motion (cubic-bezier(0.25, 0.1, 0.25, 1)), and typography inspired by SF Pro/Inter with relaxed line spacing.
-- Prefer depth via subtle shadows, gradients, or opacity rather than strong borders; hierarchy should rely on spacing, weight, and opacity changes.
 
 ## Testing
 - Always run the appropriate build command (e.g., `npm run build`) to confirm the project builds without errors.

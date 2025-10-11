@@ -1,5 +1,5 @@
 {
   "status": "skipped",
-  "reason": "No Chromium/Chrome binary available for Lighthouse audits",
-  "generatedAt": "2025-10-11T21:38:51.034Z"
+  "reason": "Skipped via SKIP_LIGHTHOUSE flag",
+  "generatedAt": "2025-10-11T17:43:12.928Z"
 }
