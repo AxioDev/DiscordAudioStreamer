@@ -524,6 +524,7 @@ const DailyActivityChart = ({ history, now, isHistoryLoading }) => {
                   .filter(Boolean)
                   .join(' ');
                 const tooltip = bin.duration > 0 ? `≈ ${formatDuration(bin.duration)}` : 'Aucune activité';
+                const srText = `${bin.label} · ${tooltip}`;
                 return html`
                   <div
                     key=${bin.start}
@@ -533,9 +534,9 @@ const DailyActivityChart = ({ history, now, isHistoryLoading }) => {
                     <div
                       class="flex h-48 w-full items-end rounded-2xl bg-white/5 p-1"
                       title=${tooltip}
-                      aria-label=${`${bin.label} · ${tooltip}`}
                     >
-                      <div class=${barClass} style=${barStyle}></div>
+                      <span class="sr-only">${srText}</span>
+                      <div aria-hidden="true" class=${barClass} style=${barStyle}></div>
                     </div>
                     <span class=${`font-semibold ${bin.isCurrent ? 'text-white' : 'text-slate-200'}`}>${bin.label}</span>
                   </div>
