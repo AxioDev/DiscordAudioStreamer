@@ -1612,6 +1612,113 @@ export default class AppServer {
     }
   }
 
+  private renderAvatarOrFallback(options: {
+    avatarUrl: string | null | undefined;
+    alt: string;
+    displayName?: string | null;
+    seed?: string | number | null;
+    sizeClass?: string;
+    className?: string;
+    textClass?: string;
+    loading?: 'lazy' | 'eager';
+    decoding?: 'async' | 'auto' | 'sync';
+  }): string {
+    const {
+      avatarUrl,
+      alt,
+      displayName,
+      seed,
+      sizeClass = '',
+      className = '',
+      textClass,
+      loading = 'lazy',
+      decoding = 'async',
+    } = options;
+
+    const baseClass = [sizeClass, className]
+      .map((value) => (typeof value === 'string' ? value.trim() : ''))
+      .filter((value) => value.length > 0)
+      .join(' ')
+      .trim();
+    const imageClass = [baseClass, 'object-cover']
+      .filter((value) => value.length > 0)
+      .join(' ')
+      .trim();
+    const normalizedAlt = typeof alt === 'string' && alt.length > 0 ? alt : 'Avatar';
+    const sanitizedAlt = this.escapeHtml(normalizedAlt);
+    const normalizedUrl = typeof avatarUrl === 'string' && avatarUrl.trim().length > 0 ? avatarUrl.trim() : null;
+
+    if (normalizedUrl) {
+      const attributes = [
+        `alt="${sanitizedAlt}"`,
+        `src="${this.escapeHtml(normalizedUrl)}"`,
+      ];
+      if (imageClass.length > 0) {
+        attributes.push(`class="${this.escapeHtml(imageClass)}"`);
+      }
+      if (loading) {
+        attributes.push(`loading="${this.escapeHtml(loading)}"`);
+      }
+      if (decoding) {
+        attributes.push(`decoding="${this.escapeHtml(decoding)}"`);
+      }
+      return `<img ${attributes.join(' ')} />`;
+    }
+
+    const initials = this.escapeHtml(this.computeInitials(displayName ?? normalizedAlt));
+    const background = this.selectFallbackAvatarBackground(seed ?? displayName ?? normalizedAlt);
+    const fallbackTextClass = typeof textClass === 'string' && textClass.trim().length > 0
+      ? textClass.trim()
+      : 'text-sm font-semibold text-white/90';
+    const fallbackClass = [
+      baseClass,
+      'flex items-center justify-center bg-gradient-to-br',
+      background,
+      fallbackTextClass,
+    ]
+      .filter((value) => value.length > 0)
+      .join(' ')
+      .trim();
+
+    return `<span role="img" aria-label="${sanitizedAlt}" class="${this.escapeHtml(fallbackClass)}">${initials}</span>`;
+  }
+
+  private computeInitials(source: string | null | undefined): string {
+    const normalized = typeof source === 'string' ? source.trim() : '';
+    if (!normalized) {
+      return '∅';
+    }
+    const segments = normalized.split(/\s+/).filter(Boolean);
+    if (segments.length === 1) {
+      return segments[0].slice(0, 2).toUpperCase();
+    }
+    const first = segments[0]?.[0] ?? '';
+    const last = segments[segments.length - 1]?.[0] ?? '';
+    const initials = `${first}${last}`.trim();
+    return initials ? initials.toUpperCase() : normalized.slice(0, 2).toUpperCase();
+  }
+
+  private selectFallbackAvatarBackground(seed: string | number | null | undefined): string {
+    const palette = Array.from(AppServer.fallbackAvatarBackgrounds);
+    if (palette.length === 0) {
+      return 'from-slate-700/60 via-slate-900/60 to-slate-700/60';
+    }
+
+    const seedString = (() => {
+      if (typeof seed === 'number' && Number.isFinite(seed)) {
+        return String(seed);
+      }
+      if (typeof seed === 'string' && seed.trim().length > 0) {
+        return seed.trim();
+      }
+      return 'fallback';
+    })();
+
+    const total = Array.from(seedString).reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const index = Math.abs(total) % palette.length;
+    return palette[index] ?? palette[0];
+  }
+
   private selectClassementsAvatar(leader: ClassementLeaderBootstrap): string | null {
     const candidates = [leader.avatarUrl, leader.avatar, leader.profileAvatar];
     for (const candidate of candidates) {
@@ -1788,8 +1895,10 @@ export default class AppServer {
     } else {
       parts.push('<ul class="mt-6 grid gap-6 md:grid-cols-2">');
       for (const speaker of data.speakers) {
-        const name = this.escapeHtml(speaker.displayName || 'Auditeur anonyme');
-        const avatar = speaker.avatarUrl ? this.escapeHtml(speaker.avatarUrl) : '/icons/icon-192.svg';
+        const rawName = typeof speaker.displayName === 'string' && speaker.displayName.trim().length > 0
+          ? speaker.displayName.trim()
+          : 'Auditeur anonyme';
+        const name = this.escapeHtml(rawName);
         const status = speaker.isSpeaking
           ? 'Au micro en ce moment'
           : speaker.lastSpokeAt
@@ -1799,7 +1908,17 @@ export default class AppServer {
             : 'À l’écoute sur le salon vocal';
         parts.push('<li class="flex items-center gap-4 rounded-2xl bg-slate-900/70 p-4">');
         parts.push(
-          `<img alt="Avatar de ${name}" src="${avatar}" loading="lazy" class="h-14 w-14 flex-none rounded-full border border-slate-800 object-cover" />`,
+          this.renderAvatarOrFallback({
+            avatarUrl: speaker.avatarUrl,
+            alt: `Avatar de ${rawName}`,
+            displayName: rawName,
+            seed: speaker.id ?? rawName,
+            sizeClass: 'h-14 w-14',
+            className: 'flex-none rounded-full border border-slate-800',
+            textClass: 'text-lg font-semibold text-white/90',
+            loading: 'lazy',
+            decoding: 'async',
+          }),
         );
         parts.push('<div class="min-w-0 flex-1">');
         parts.push(`<p class="truncate text-base font-semibold text-white">${name}</p>`);
@@ -1886,14 +2005,26 @@ export default class AppServer {
     } else {
       parts.push('<div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">');
       for (const member of data.members) {
-        const name = this.escapeHtml(member.displayName || 'Membre Libre Antenne');
+        const rawName = typeof member.displayName === 'string' && member.displayName.trim().length > 0
+          ? member.displayName.trim()
+          : 'Membre Libre Antenne';
+        const name = this.escapeHtml(rawName);
         const username = member.username ? `@${this.escapeHtml(member.username)}` : null;
         const joinedLabel = this.formatDateLabel(member.joinedAt) ?? null;
-        const avatar = member.avatarUrl ? this.escapeHtml(member.avatarUrl) : '/icons/icon-192.svg';
         parts.push('<article class="flex h-full flex-col justify-between rounded-2xl border border-slate-800/40 bg-slate-950/60 p-6">');
         parts.push('<div class="flex items-center gap-4">');
         parts.push(
-          `<img alt="Avatar de ${name}" src="${avatar}" loading="lazy" class="h-14 w-14 flex-none rounded-full border border-slate-800 object-cover" />`,
+          this.renderAvatarOrFallback({
+            avatarUrl: member.avatarUrl,
+            alt: `Avatar de ${rawName}`,
+            displayName: rawName,
+            seed: member.id ?? rawName,
+            sizeClass: 'h-14 w-14',
+            className: 'flex-none rounded-full border border-slate-800',
+            textClass: 'text-lg font-semibold text-white/90',
+            loading: 'lazy',
+            decoding: 'async',
+          }),
         );
         parts.push('<div class="min-w-0 flex-1">');
         parts.push(`<p class="truncate text-base font-semibold text-white">${name}</p>`);
@@ -2074,7 +2205,10 @@ export default class AppServer {
     recentMessages: Array<{ content: string; timestamp: string | null }>;
   }): string {
     const parts: string[] = [];
-    const avatar = data.identity?.avatarUrl ? this.escapeHtml(data.identity.avatarUrl) : '/icons/icon-192.svg';
+    const rawProfileName = typeof data.profileName === 'string' && data.profileName.trim().length > 0
+      ? data.profileName.trim()
+      : 'Profil Libre Antenne';
+    const safeProfileName = this.escapeHtml(rawProfileName);
     const username = data.identity?.username || data.identity?.globalName || null;
     const joinedLabel = this.formatDateLabel(data.identity?.guild?.joinedAt ?? null, { dateStyle: 'long' });
     const lastActivity = this.formatDateLabel(data.summary.lastActivityAt?.iso ?? null, {
@@ -2093,10 +2227,20 @@ export default class AppServer {
     parts.push('<section class="rounded-3xl border border-slate-800/60 bg-slate-950/70 p-8">');
     parts.push('<div class="flex flex-col items-center gap-6 text-center sm:flex-row sm:text-left">');
     parts.push(
-      `<img alt="Avatar de ${this.escapeHtml(data.profileName)}" src="${avatar}" loading="lazy" class="h-24 w-24 flex-none rounded-full border border-slate-800 object-cover" />`,
+      this.renderAvatarOrFallback({
+        avatarUrl: data.identity?.avatarUrl ?? null,
+        alt: `Avatar de ${rawProfileName}`,
+        displayName: rawProfileName,
+        seed: data.userId ?? rawProfileName,
+        sizeClass: 'h-24 w-24',
+        className: 'flex-none rounded-full border border-slate-800',
+        textClass: 'text-2xl font-semibold text-white/90',
+        loading: 'lazy',
+        decoding: 'async',
+      }),
     );
     parts.push('<div class="space-y-2">');
-    parts.push(`<h1 class="text-3xl font-bold text-white">${this.escapeHtml(data.profileName)}</h1>`);
+    parts.push(`<h1 class="text-3xl font-bold text-white">${safeProfileName}</h1>`);
     if (username) {
       parts.push(`<p class="text-xs uppercase tracking-[0.2em] text-slate-500">@${this.escapeHtml(username)}</p>`);
     }
@@ -2505,7 +2649,7 @@ export default class AppServer {
       const avatarUrl = this.selectClassementsAvatar(leader);
       const hasAvatar = typeof avatarUrl === 'string' && avatarUrl.length > 0;
       const seed = this.computeClassementAvatarSeed(leader, rank);
-      const fallbackBackground = AppServer.classementsFallbackBackgrounds[Math.abs(seed) % AppServer.classementsFallbackBackgrounds.length];
+      const fallbackBackground = this.selectFallbackAvatarBackground(seed);
       const altName = (() => {
         const name = leader.displayName?.trim();
         if (name) {
@@ -6010,7 +6154,7 @@ export default class AppServer {
     },
   ] as const;
 
-  private static readonly classementsFallbackBackgrounds = [
+  private static readonly fallbackAvatarBackgrounds = [
     'from-sky-500/60 via-slate-900/60 to-indigo-500/60',
     'from-fuchsia-500/60 via-slate-900/60 to-pink-500/60',
     'from-emerald-400/60 via-slate-900/60 to-cyan-500/60',
