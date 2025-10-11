@@ -68,3 +68,15 @@ Les profils masqués ne sont plus renvoyés par les API publiques et leur page d
 ## Statistiques et confidentialité
 
 Ces données sont calculées à partir de l’activité vocale et textuelle enregistrée.
+
+## Direction artistique
+
+L’interface suit désormais une esthétique « Minimalist Organic UI » :
+
+- **Palette** : fonds très clairs (#F9F9FB → #FFFFFF) relevés d’un unique accent bleu (#007AFF).
+- **Typographie** : SF Pro / Inter ou équivalent humaniste, interlignage généreux et graisse légère à régulière.
+- **Surfaces** : panneaux translucides type verre dépoli (backdrop-filter : blur(20px)), arrondis de 12 à 20 px et ombres souples.
+- **Hiérarchie** : graduations de taille, d’opacité et d’espacement plutôt que des bordures marquées.
+- **Mouvements** : transitions adoucies (cubic-bezier(0.25, 0.1, 0.25, 1)) et effets ressort pour les changements de contexte.
+
+Toute contribution front-end doit respecter ces principes afin de préserver une expérience cohérente, calme et lisible.

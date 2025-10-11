@@ -73,10 +73,10 @@ const StatusBadge = ({ status, className = '' }) => {
 
   return html`
     <div
-      class=${`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium backdrop-blur ${config.ring} ${className}`}
+      class=${`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-slate-600 shadow-[0_12px_26px_rgba(15,23,42,0.08)] ring-1 ring-white/70 backdrop-blur ${config.ring} ${className}`}
       aria-label=${srText}
     >
-      <span class=${`h-2.5 w-2.5 rounded-full shadow-md ${config.dot}`}></span>
+      <span class=${`h-2.5 w-2.5 rounded-full ${config.dot}`} aria-hidden="true"></span>
       <span class="flex items-center gap-1">
         ${config.Icon ? html`<${config.Icon} class="h-4 w-4" aria-hidden="true" />` : null}
         <span class="sr-only">${srText}</span>
@@ -144,8 +144,8 @@ const SpeakerCard = ({ speaker, now, cardId, onViewProfile }) => {
 
   const cardState = isSpeaking ? 'speaking' : 'idle';
   const cardAccentClass = isSpeaking
-    ? 'border-fuchsia-400/60 bg-gradient-to-br from-indigo-500/20 via-slate-950 to-fuchsia-500/15'
-    : 'border-white/10 bg-slate-950/75';
+    ? 'bg-white/95 ring-1 ring-[#007aff]/30 shadow-[0_26px_54px_rgba(0,122,255,0.25)]'
+    : 'bg-white/80 ring-1 ring-white/65 shadow-[0_20px_48px_rgba(15,23,42,0.12)]';
 
   const badgeConfig = (() => {
     if (isSpeaking) {
@@ -153,9 +153,9 @@ const SpeakerCard = ({ speaker, now, cardId, onViewProfile }) => {
         srLabel: 'Intervention en cours',
         label: '',
         Icon: Activity,
-        classes: 'bg-emerald-500 text-emerald-900',
+        classes: 'bg-[#007aff] text-white shadow-[0_16px_36px_rgba(0,122,255,0.32)]',
         ping: true,
-        dot: 'bg-emerald-800',
+        dot: 'bg-white/90',
       };
     }
     if (voiceState.selfMute || voiceState.mute) {
@@ -163,9 +163,9 @@ const SpeakerCard = ({ speaker, now, cardId, onViewProfile }) => {
         srLabel: 'Micro coupé',
         label: 'Muet',
         Icon: MicOff,
-        classes: 'bg-slate-200/90 text-slate-900',
+        classes: 'bg-slate-200/80 text-slate-700 shadow-none',
         ping: false,
-        dot: 'bg-slate-900/70',
+        dot: 'bg-slate-500/70',
       };
     }
     if (voiceState.selfDeaf || voiceState.deaf) {
@@ -173,18 +173,18 @@ const SpeakerCard = ({ speaker, now, cardId, onViewProfile }) => {
         srLabel: 'Casque coupé',
         label: 'Casque',
         Icon: Headphones,
-        classes: 'bg-slate-200/90 text-slate-900',
+        classes: 'bg-slate-200/80 text-slate-700 shadow-none',
         ping: false,
-        dot: 'bg-slate-900/70',
+        dot: 'bg-slate-500/70',
       };
     }
     return {
       srLabel: 'À l’écoute',
       label: 'Écoute',
       Icon: Headphones,
-      classes: 'bg-slate-200/90 text-slate-900',
+      classes: 'bg-white/85 text-slate-700 shadow-none',
       ping: false,
-      dot: 'bg-slate-900/70',
+      dot: 'bg-slate-400/70',
     };
   })();
 
@@ -250,36 +250,36 @@ const SpeakerCard = ({ speaker, now, cardId, onViewProfile }) => {
 
   return html`
     <article
-      class=${`speaker-card group relative overflow-hidden rounded-3xl border ${cardAccentClass} shadow-xl shadow-indigo-900/30 transition duration-300 hover:border-fuchsia-400/60 hover:shadow-glow`}
+      class=${`speaker-card group relative overflow-hidden rounded-[1.75rem] glass-panel ${cardAccentClass} transition-transform duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)] hover:-translate-y-1`}
       data-state=${cardState}
       data-speaker-id=${cardId ?? speaker.id}
     >
-      <div class="absolute -right-14 -top-14 h-32 w-32 rounded-full bg-fuchsia-500/40 blur-3xl transition-opacity duration-300 group-hover:opacity-100"></div>
+      <div class="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full bg-[#007aff]/12 blur-3xl transition-opacity duration-500 group-hover:opacity-100"></div>
       <button
         type="button"
-        class="relative z-10 flex w-full items-center gap-5 rounded-3xl px-5 py-5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+        class="relative z-10 flex w-full items-center gap-5 rounded-[1.5rem] px-5 py-5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#007aff]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
         onClick=${handleProfileClick}
       >
         <div class="relative h-20 w-20 flex-shrink-0">
-          <div class="absolute inset-0 rounded-full bg-gradient-to-br from-fuchsia-500 via-indigo-400 to-sky-400 opacity-60 blur-xl transition group-hover:opacity-90"></div>
+          <div class="absolute inset-0 rounded-full bg-[#007aff]/18 opacity-80 blur-xl transition group-hover:opacity-100"></div>
           ${speaker.avatar
             ? html`<img
                 src=${speaker.avatar}
                 alt=${`Avatar de ${safeDisplayName}`}
-                class="relative h-20 w-20 rounded-full border-2 border-white/70 object-cover shadow-lg shadow-fuchsia-900/30"
+                class="relative h-20 w-20 rounded-full border border-white/70 object-cover shadow-[0_16px_28px_rgba(15,23,42,0.12)]"
                 loading="lazy"
                 decoding="async"
               />`
-            : html`<div class="relative flex h-20 w-20 items-center justify-center rounded-full border-2 border-white/70 bg-white/10 text-xl font-semibold text-white shadow-inner shadow-slate-950/40">
+            : html`<div class="relative flex h-20 w-20 items-center justify-center rounded-full border border-white/70 bg-white/70 text-xl font-semibold text-slate-700 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.08)]">
                 ${initials || '??'}
               </div>`}
           <div
-            class=${`absolute -bottom-1 -right-1 flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wider shadow-lg ${badgeConfig.classes}`}
+            class=${`absolute -bottom-1 -right-1 flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-[0.18em] shadow-sm ${badgeConfig.classes}`}
           >
             <span class="relative flex h-2 w-2">
               <span
                 class=${`absolute inline-flex h-full w-full rounded-full ${
-                  badgeConfig.ping ? 'animate-ping bg-emerald-200 opacity-75' : 'bg-slate-400/70 opacity-0'
+                  badgeConfig.ping ? 'animate-ping bg-[#007aff]/40 opacity-75' : 'bg-slate-400/70 opacity-0'
                 }`}
               ></span>
               <span class=${`relative inline-flex h-2 w-2 rounded-full ${badgeConfig.dot}`}></span>
@@ -293,22 +293,22 @@ const SpeakerCard = ({ speaker, now, cardId, onViewProfile }) => {
         </div>
         <div class="relative flex flex-1 flex-col gap-2">
           <div class="flex flex-wrap items-baseline gap-2">
-            <h3 class="text-2xl font-semibold text-white">${safeDisplayName}</h3>
-            <span class="text-sm text-slate-300">@${safeUsername}</span>
+            <h3 class="text-[1.35rem] font-semibold text-slate-900">${safeDisplayName}</h3>
+            <span class="text-sm text-slate-500">@${safeUsername}</span>
           </div>
-          <div class="flex flex-wrap items-center gap-3 text-xs text-slate-200">
-            <span class="flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 backdrop-blur">
+          <div class="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            <span class="soft-chip">
               <${SecondaryIcon} class="h-3.5 w-3.5" aria-hidden="true" />
               ${secondaryText ? html`<span>${secondaryText}</span>` : null}
               <span class="sr-only">${secondarySrLabel}</span>
             </span>
           </div>
           ${voiceBadges.length
-            ? html`<div class="flex flex-wrap items-center gap-2 text-slate-200/80">
+            ? html`<div class="flex flex-wrap items-center gap-2 text-slate-500">
                 ${voiceBadges.map(
                   ({ key, label, Icon }) => html`<span
                     key=${key}
-                    class="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[0.65rem] font-medium uppercase tracking-[0.2em] text-slate-100 backdrop-blur transition hover:bg-white/15"
+                    class="inline-flex items-center gap-1 rounded-full bg-white/80 px-2.5 py-1 text-[0.65rem] font-medium uppercase tracking-[0.2em] text-slate-600 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.08)] transition hover:text-[#007aff]"
                     title=${label}
                     aria-label=${label}
                   >
@@ -329,11 +329,11 @@ const SpeakersSection = ({ speakers, now, onViewProfile }) => {
 
   if (!speakers.length) {
     return html`
-      <div class="mt-6 flex flex-col items-center justify-center gap-4 rounded-3xl border border-white/10 bg-black/40 px-8 py-12 text-center text-sm text-slate-300 backdrop-blur">
-        <div class="flex h-14 w-14 items-center justify-center rounded-full bg-white/10 text-fuchsia-200">
+      <div class="mt-6 flex flex-col items-center justify-center gap-4 rounded-[1.75rem] bg-white/75 px-8 py-12 text-center text-sm text-slate-500 shadow-[0_18px_40px_rgba(15,23,42,0.08)] ring-1 ring-white/60 backdrop-blur">
+        <div class="flex h-14 w-14 items-center justify-center rounded-full bg-white/90 text-[#007aff] shadow-[0_10px_24px_rgba(0,122,255,0.18)]">
           <${Users} class="h-7 w-7" aria-hidden="true" />
         </div>
-        <p class="max-w-sm text-base text-slate-300">
+        <p class="max-w-sm text-base text-slate-600">
           Aucun participant n'est connecté au salon vocal pour le moment. Dès qu’une personne rejoindra, elle apparaîtra ici.
         </p>
       </div>
@@ -468,21 +468,21 @@ const DailyActivityChart = ({ history, now, isHistoryLoading }) => {
   const hasData = chart.maxDuration > 0;
 
   return html`
-    <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-slate-950/60 p-8 shadow-xl shadow-slate-950/50 backdrop-blur-xl">
-      <div class="pointer-events-none absolute -left-24 top-[-6rem] h-56 w-56 rounded-full bg-indigo-500/20 blur-3xl"></div>
-      <div class="pointer-events-none absolute -right-24 bottom-[-8rem] h-64 w-64 rounded-full bg-fuchsia-500/20 blur-[110px]"></div>
+    <section class="glass-panel relative overflow-hidden p-8">
+      <div class="pointer-events-none absolute -left-20 top-[-6rem] h-48 w-48 rounded-full bg-[#007aff]/12 blur-3xl"></div>
+      <div class="pointer-events-none absolute -right-20 bottom-[-8rem] h-60 w-60 rounded-full bg-[#007aff]/10 blur-[110px]"></div>
       <div class="relative flex flex-col gap-6">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div class="space-y-2">
-            <p class="text-xs uppercase tracking-[0.35em] text-indigo-200/80">Chronologie</p>
-            <h2 class="text-2xl font-semibold text-white">Activité vocale par heure</h2>
-            <p class="text-sm text-slate-300">
+            <p class="text-xs uppercase tracking-[0.35em] text-slate-500">Chronologie</p>
+            <h2 class="text-2xl font-semibold text-slate-900">Activité vocale par heure</h2>
+            <p class="text-sm text-slate-600">
               Observe la répartition des interventions tout au long de la journée actuelle. Le graphique se met à jour en temps réel.
             </p>
           </div>
-          <div class="flex flex-col gap-1 rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-xs text-slate-300">
+          <div class="surface-quiet flex flex-col gap-1 px-4 py-3 text-xs text-slate-600">
             <span>
-              <span class="font-semibold text-white">${totalLabel}</span>
+              <span class="font-semibold text-slate-900">${totalLabel}</span>
               de prise de parole aujourd'hui
             </span>
             ${peakLabel
@@ -496,17 +496,17 @@ const DailyActivityChart = ({ history, now, isHistoryLoading }) => {
               ? html`<div
                   role="status"
                   aria-live="polite"
-                  class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-3xl bg-slate-950/80 backdrop-blur-sm"
+                  class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-3xl bg-white/75 backdrop-blur-lg"
                 >
-                  <div class="h-10 w-10 animate-spin rounded-full border-2 border-indigo-300/70 border-t-transparent"></div>
-                  <p class="text-sm font-medium text-slate-200/90">
+                  <div class="h-10 w-10 animate-spin rounded-full border-2 border-[#007aff]/40 border-t-transparent"></div>
+                  <p class="text-sm font-medium text-slate-600">
                     Chargement des activités vocales…
                   </p>
                   <span class="sr-only">Chargement des activités vocales</span>
                 </div>`
               : null
           }
-          <div class="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-slate-950/80 to-transparent"></div>
+          <div class="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-white/70 to-transparent"></div>
           <div ref=${scrollContainerRef} class="overflow-x-auto">
             <div class="flex min-w-full items-end gap-2 pb-6 sm:min-w-[48rem] sm:gap-3 md:gap-4">
               ${chart.bins.map((bin) => {
@@ -516,10 +516,10 @@ const DailyActivityChart = ({ history, now, isHistoryLoading }) => {
                 const barClass = [
                   'w-full rounded-t-2xl transition-all duration-700 ease-out',
                   bin.duration > 0
-                    ? 'bg-gradient-to-t from-indigo-500/70 via-fuchsia-500/60 to-fuchsia-400/80 shadow-[0_0_18px_rgba(236,72,153,0.35)]'
-                    : 'bg-white/10',
-                  bin.isCurrent ? 'ring-2 ring-fuchsia-300/80 shadow-[0_0_24px_rgba(236,72,153,0.45)]' : '',
-                  !bin.isPast && !bin.isCurrent ? 'opacity-40' : '',
+                    ? 'bg-gradient-to-t from-[#007aff]/70 via-[#63b0ff]/60 to-[#bcd9ff]/80 shadow-[0_0_22px_rgba(0,122,255,0.25)]'
+                    : 'bg-white/60',
+                  bin.isCurrent ? 'ring-2 ring-[#007aff]/40 shadow-[0_0_28px_rgba(0,122,255,0.3)]' : '',
+                  !bin.isPast && !bin.isCurrent ? 'opacity-45' : '',
                 ]
                   .filter(Boolean)
                   .join(' ');
@@ -529,16 +529,16 @@ const DailyActivityChart = ({ history, now, isHistoryLoading }) => {
                   <div
                     key=${bin.start}
                     ref=${bin.isCurrent ? setCurrentBinRef : null}
-                    class="flex min-w-[2.5rem] flex-1 flex-col items-center gap-2 text-xs text-slate-300"
+                    class="flex min-w-[2.5rem] flex-1 flex-col items-center gap-2 text-xs text-slate-500"
                   >
                     <div
-                      class="flex h-48 w-full items-end rounded-2xl bg-white/5 p-1"
+                      class="flex h-48 w-full items-end rounded-2xl bg-white/80 p-1 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.06)]"
                       title=${tooltip}
                     >
                       <span class="sr-only">${srText}</span>
                       <div aria-hidden="true" class=${barClass} style=${barStyle}></div>
                     </div>
-                    <span class=${`font-semibold ${bin.isCurrent ? 'text-white' : 'text-slate-200'}`}>${bin.label}</span>
+                    <span class=${`font-semibold ${bin.isCurrent ? 'text-[#007aff]' : 'text-slate-500'}`}>${bin.label}</span>
                   </div>
                 `;
               })}
@@ -546,7 +546,7 @@ const DailyActivityChart = ({ history, now, isHistoryLoading }) => {
           </div>
           ${hasData
             ? null
-            : html`<p class="mt-4 text-center text-sm text-slate-400">
+            : html`<p class="mt-4 text-center text-sm text-slate-500">
                 Les premières prises de parole de la journée apparaîtront ici dès qu'une voix sera détectée.
               </p>`}
         </div>
