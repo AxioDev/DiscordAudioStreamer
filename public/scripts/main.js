@@ -197,6 +197,88 @@ const normalizeBootstrapBridgeStatus = (value) => {
   return { serverDeafened, selfDeafened, updatedAt };
 };
 
+const normalizePulsePresentation = (value) => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const metricsSource = Array.isArray(value.metrics) ? value.metrics : [];
+  const metrics = metricsSource
+    .map((metric) => {
+      if (!metric || typeof metric !== 'object') {
+        return null;
+      }
+      const id = typeof metric.id === 'string' ? metric.id : null;
+      const label = typeof metric.label === 'string' ? metric.label : null;
+      const icon = typeof metric.icon === 'string' ? metric.icon : null;
+      if (!id || !label || !icon) {
+        return null;
+      }
+      const iconClass = typeof metric.iconClass === 'string' ? metric.iconClass : 'h-4 w-4 text-slate-200';
+      const valueLabel = typeof metric.valueLabel === 'string' ? metric.valueLabel : '0';
+      const valueAccessibleLabel = typeof metric.valueAccessibleLabel === 'string'
+        ? metric.valueAccessibleLabel
+        : label;
+      const previousLabel = typeof metric.previousLabel === 'string' ? metric.previousLabel : '—';
+      const changeLabel = typeof metric.changeLabel === 'string' ? metric.changeLabel : '0';
+      const changeAccessibleLabel = typeof metric.changeAccessibleLabel === 'string'
+        ? metric.changeAccessibleLabel
+        : 'Stable par rapport à la période précédente.';
+      const percentLabel = typeof metric.percentLabel === 'string' ? metric.percentLabel : null;
+      const trend = metric.trend === 'up' || metric.trend === 'down' ? metric.trend : 'steady';
+      const trendLabel = typeof metric.trendLabel === 'string' ? metric.trendLabel : 'Stable';
+      const trendIcon = typeof metric.trendIcon === 'string' ? metric.trendIcon : 'Minus';
+      const trendAccentClass = typeof metric.trendAccentClass === 'string'
+        ? metric.trendAccentClass
+        : 'border-slate-400/40 bg-slate-500/10 text-slate-200';
+      const description = typeof metric.description === 'string' ? metric.description : '';
+      return {
+        id,
+        label,
+        icon,
+        iconClass,
+        valueLabel,
+        valueAccessibleLabel,
+        previousLabel,
+        changeLabel,
+        changeAccessibleLabel,
+        percentLabel,
+        trend,
+        trendLabel,
+        trendIcon,
+        trendAccentClass,
+        description,
+      };
+    })
+    .filter(Boolean);
+
+  if (metrics.length === 0) {
+    return null;
+  }
+
+  const windowMinutesValue = Number(value.windowMinutes);
+  const windowMinutes = Number.isFinite(windowMinutesValue) ? windowMinutesValue : 15;
+  const windowLabel = typeof value.windowLabel === 'string'
+    ? value.windowLabel
+    : windowMinutes === 1
+      ? 'Sur la dernière minute'
+      : `Sur les ${windowMinutes} dernières minutes`;
+  const comparisonLabel = typeof value.comparisonLabel === 'string'
+    ? value.comparisonLabel
+    : windowMinutes === 1
+      ? 'vs la minute précédente'
+      : `vs ${windowMinutes} minutes précédentes`;
+
+  return {
+    generatedAt: typeof value.generatedAt === 'string' ? value.generatedAt : null,
+    generatedAtLabel: typeof value.generatedAtLabel === 'string' ? value.generatedAtLabel : null,
+    windowMinutes,
+    windowLabel,
+    comparisonLabel,
+    metrics,
+  };
+};
+
 const RAW_BOOTSTRAP_STATE = readBootstrapState();
 const BOOTSTRAP_ROUTE = cloneRouteDescriptor(RAW_BOOTSTRAP_STATE?.route);
 const BOOTSTRAP_PARTICIPANTS = normalizeBootstrapParticipants(RAW_BOOTSTRAP_STATE?.participants);
@@ -206,6 +288,7 @@ const BOOTSTRAP_PAGES =
   RAW_BOOTSTRAP_STATE?.pages && typeof RAW_BOOTSTRAP_STATE.pages === 'object' && RAW_BOOTSTRAP_STATE.pages !== null
     ? RAW_BOOTSTRAP_STATE.pages
     : {};
+const BOOTSTRAP_PULSE = normalizePulsePresentation(BOOTSTRAP_PAGES?.home?.pulse ?? null);
 
 const areRouteParamsEqual = (left = {}, right = {}) => {
   const keys = new Set([
@@ -338,6 +421,7 @@ const App = () => {
   const [listenerStats, setListenerStats] = useState(() => (
     BOOTSTRAP_LISTENER_STATS ? { count: BOOTSTRAP_LISTENER_STATS.count, history: BOOTSTRAP_LISTENER_STATS.history.slice() } : { count: 0, history: [] }
   ));
+  const [communityPulse, setCommunityPulse] = useState(() => BOOTSTRAP_PULSE);
   const [guildSummary, setGuildSummary] = useState(null);
   const [bridgeStatus, setBridgeStatus] = useState(() =>
     BOOTSTRAP_BRIDGE_STATUS
@@ -692,6 +776,55 @@ const App = () => {
       cancelled = true;
       if (controller) {
         controller.abort();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timeoutId = null;
+
+    const loadPulse = async () => {
+      if (cancelled || typeof fetch !== 'function') {
+        return;
+      }
+      try {
+        const response = await fetch('/api/community/pulse', {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+        });
+        if (!response.ok) {
+          throw new Error(`Community pulse request failed with status ${response.status}`);
+        }
+        const payload = await response.json();
+        if (cancelled) {
+          return;
+        }
+        const normalized = normalizePulsePresentation(payload?.pulse ?? null);
+        setCommunityPulse(normalized);
+      } catch (error) {
+        if (!cancelled) {
+          console.warn('Impossible de récupérer le pouls communautaire', error);
+        }
+      } finally {
+        if (!cancelled) {
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+          }
+          if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
+            timeoutId = window.setTimeout(loadPulse, 60_000);
+          }
+        }
+      }
+    };
+
+    loadPulse();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
       }
     };
   }, []);
@@ -1405,6 +1538,7 @@ const App = () => {
                   onWindowChange: handleWindowChange,
                   onViewProfile: handleProfileOpen,
                   listenerStats,
+                  activityPulse: communityPulse,
                   guildSummary,
                   bridgeStatus,
                 })
