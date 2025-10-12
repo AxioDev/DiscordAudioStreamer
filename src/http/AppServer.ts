@@ -5158,6 +5158,7 @@ export default class AppServer {
           sizeBytes: recording.sizeBytes,
           durationMs: recording.durationMs,
           downloadUrl: `/api/users/${encodeURIComponent(rawUserId)}/recordings/${encodeURIComponent(recording.id)}/download`,
+          streamUrl: `/api/users/${encodeURIComponent(rawUserId)}/recordings/${encodeURIComponent(recording.id)}/stream`,
         }));
 
         res.json({
@@ -5258,6 +5259,155 @@ export default class AppServer {
           error: 'RECORDING_STREAM_FAILED',
           message: "Impossible de télécharger l'enregistrement audio.",
         });
+      }
+    });
+
+    this.app.get('/api/users/:userId/recordings/:recordingId/stream', async (req, res) => {
+      const rawUserId = typeof req.params.userId === 'string' ? req.params.userId.trim() : '';
+      const rawRecordingId = typeof req.params.recordingId === 'string' ? req.params.recordingId.trim() : '';
+
+      if (!rawUserId) {
+        res
+          .status(400)
+          .json({ error: 'USER_ID_REQUIRED', message: "L'identifiant utilisateur est requis." });
+        return;
+      }
+
+      if (!rawRecordingId) {
+        res.status(400).json({
+          error: 'RECORDING_ID_REQUIRED',
+          message: "L'identifiant de l'enregistrement est requis.",
+        });
+        return;
+      }
+
+      if (!this.userAudioRecorder) {
+        res.status(404).json({
+          error: 'RECORDING_NOT_FOUND',
+          message: 'Enregistrement introuvable.',
+        });
+        return;
+      }
+
+      if (await this.adminService.isMemberHidden(rawUserId)) {
+        res.status(404).json({
+          error: 'RECORDING_NOT_FOUND',
+          message: 'Enregistrement introuvable.',
+        });
+        return;
+      }
+
+      try {
+        const metadata = await this.userAudioRecorder.resolveRecording(rawUserId, rawRecordingId);
+        if (!metadata) {
+          res.status(404).json({
+            error: 'RECORDING_NOT_FOUND',
+            message: 'Enregistrement introuvable.',
+          });
+          return;
+        }
+
+        const inlineName = this.buildRecordingDownloadName(rawUserId, metadata.fileName);
+        const contentType = this.getRecordingContentType(metadata.fileName);
+        const totalSize =
+          Number.isFinite(metadata.sizeBytes) && metadata.sizeBytes >= 0 ? metadata.sizeBytes : null;
+
+        const rangeHeader = typeof req.headers.range === 'string' ? req.headers.range : null;
+        const disposition = `inline; filename="${inlineName}"; filename*=UTF-8''${encodeURIComponent(inlineName)}`;
+
+        const handleStreamError = (error: unknown) => {
+          console.error('Failed to stream audio recording inline', {
+            userId: rawUserId,
+            recordingId: rawRecordingId,
+            error,
+          });
+          if (!res.headersSent) {
+            res.status(500).json({
+              error: 'RECORDING_STREAM_FAILED',
+              message: "Impossible de lire l'enregistrement audio.",
+            });
+          } else {
+            res.destroy(error as Error);
+          }
+        };
+
+        if (rangeHeader && totalSize != null && totalSize > 0) {
+          const rangeMatch = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader);
+          if (!rangeMatch) {
+            res.status(416);
+            res.setHeader('Content-Range', `bytes */${totalSize}`);
+            res.end();
+            return;
+          }
+
+          let start = rangeMatch[1] ? Number.parseInt(rangeMatch[1], 10) : Number.NaN;
+          let end = rangeMatch[2] ? Number.parseInt(rangeMatch[2], 10) : Number.NaN;
+
+          if (Number.isNaN(start) && Number.isNaN(end)) {
+            res.status(416);
+            res.setHeader('Content-Range', `bytes */${totalSize}`);
+            res.end();
+            return;
+          }
+
+          if (Number.isNaN(start)) {
+            const suffixLength = Math.min(Number.isNaN(end) ? 0 : Math.max(end, 0), totalSize);
+            start = Math.max(totalSize - suffixLength, 0);
+            end = totalSize - 1;
+          } else if (Number.isNaN(end)) {
+            end = totalSize - 1;
+          }
+
+          start = Math.max(0, Math.min(start, totalSize - 1));
+          end = Math.max(start, Math.min(end, totalSize - 1));
+
+          if (start >= totalSize || end >= totalSize || start > end) {
+            res.status(416);
+            res.setHeader('Content-Range', `bytes */${totalSize}`);
+            res.end();
+            return;
+          }
+
+          const chunkSize = end - start + 1;
+
+          res.status(206);
+          res.setHeader('Content-Type', contentType);
+          res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+          res.setHeader('Accept-Ranges', 'bytes');
+          res.setHeader('Content-Disposition', disposition);
+          res.setHeader('Content-Range', `bytes ${start}-${end}/${totalSize}`);
+          res.setHeader('Content-Length', String(chunkSize));
+
+          const stream = fs.createReadStream(metadata.filePath, { start, end });
+          stream.on('error', handleStreamError);
+          stream.pipe(res);
+          return;
+        }
+
+        res.status(200);
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Content-Disposition', disposition);
+        if (totalSize != null) {
+          res.setHeader('Content-Length', String(totalSize));
+        }
+
+        const stream = fs.createReadStream(metadata.filePath);
+        stream.on('error', handleStreamError);
+        stream.pipe(res);
+      } catch (error) {
+        console.error('Failed to prepare audio recording stream', {
+          userId: rawUserId,
+          recordingId: rawRecordingId,
+          error,
+        });
+        if (!res.headersSent) {
+          res.status(500).json({
+            error: 'RECORDING_STREAM_FAILED',
+            message: "Impossible de lire l'enregistrement audio.",
+          });
+        }
       }
     });
 

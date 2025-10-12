@@ -3,7 +3,7 @@ import { createWriteStream, mkdirSync, statSync, type WriteStream } from 'node:f
 import { promises as fs } from 'node:fs';
 
 const WAV_HEADER_BYTES = 44;
-const MIN_RECORDING_DURATION_MS = 10_000;
+const MIN_RECORDING_DURATION_MS = 30_000;
 
 export interface UserAudioRecorderOptions {
   baseDirectory: string;

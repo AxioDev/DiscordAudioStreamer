@@ -3425,9 +3425,10 @@ const ProfileVoiceRecordingsCard = ({ userId }) => {
               const timestamp = Number.isFinite(entry?.createdAtMs)
                 ? entry.createdAtMs
                 : Number.isFinite(entry?.timestampMs)
-                  ? entry.timestampMs
-                  : null;
+                    ? entry.timestampMs
+                    : null;
               const downloadUrl = typeof entry?.downloadUrl === 'string' ? entry.downloadUrl : null;
+              const streamUrl = typeof entry?.streamUrl === 'string' ? entry.streamUrl : null;
               const durationLabel = Number.isFinite(entry?.durationMs)
                 ? `Durée approx. ${formatDuration(entry.durationMs)}`
                 : null;
@@ -3459,6 +3460,16 @@ const ProfileVoiceRecordingsCard = ({ userId }) => {
                       </a>`
                     : null}
                 </div>
+                ${streamUrl
+                  ? html`<audio
+                      controls
+                      preload="metadata"
+                      src=${streamUrl}
+                      class="mt-3 w-full rounded-xl border border-white/10 bg-black/20"
+                    >
+                      Votre navigateur ne supporte pas la lecture audio.
+                    </audio>`
+                  : null}
               </li>`;
             })}
           </ul>`
