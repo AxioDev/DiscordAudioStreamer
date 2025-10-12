@@ -4072,11 +4072,11 @@ const MicrophoneDisplay = () => {
   }, []);
 
   return html`
-    <div class="relative flex flex-col items-start gap-3 sm:-mx-4 lg:-mx-8 lg:-translate-x-16 xl:-mx-10 xl:-translate-x-20">
+    <div class="relative flex flex-col items-center gap-3 flex-shrink-0">
       <div class="relative">
         <div
           ref=${containerRef}
-          class="pointer-events-auto h-48 w-48 -translate-x-2 sm:h-60 sm:w-60 sm:-translate-x-3 lg:h-72 lg:w-72 lg:-translate-x-4 xl:h-80 xl:w-80 xl:-translate-x-6"
+          class="pointer-events-auto h-48 w-48 sm:h-60 sm:w-60 lg:h-72 lg:w-72 xl:h-80 xl:w-80"
           role="presentation"
         ></div>
         <span class="sr-only">Microphone 3D interactif qui réagit aux mouvements de la souris.</span>
