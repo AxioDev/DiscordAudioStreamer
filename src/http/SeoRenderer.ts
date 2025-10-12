@@ -120,6 +120,7 @@ export interface SeoRendererOptions {
 export interface RenderOptions {
   appHtml?: string | null;
   preloadState?: unknown;
+  cspNonce?: string;
 }
 
 export default class SeoRenderer {
@@ -289,6 +290,7 @@ export default class SeoRenderer {
       structuredData.push(this.buildBreadcrumbStructuredData(metadata.breadcrumbs));
     }
 
+    const nonceAttribute = this.formatNonceAttribute(options.cspNonce);
     const lines: string[] = [];
     lines.push('    <title>' + this.escapeHtml(title) + '</title>');
     lines.push('    <meta name="description" content="' + this.escapeHtml(description) + '" />');
@@ -419,7 +421,7 @@ export default class SeoRenderer {
       if (!json) {
         continue;
       }
-      lines.push('    <script type="application/ld+json">');
+      lines.push(`    <script type="application/ld+json"${nonceAttribute}>`);
       lines.push(json);
       lines.push('    </script>');
     }
@@ -445,7 +447,7 @@ export default class SeoRenderer {
     }
 
     if (result.includes(statePlaceholder)) {
-      const stateScript = this.buildStateBootstrap(options.preloadState);
+      const stateScript = this.buildStateBootstrap(options.preloadState, options.cspNonce);
       result = result.replace(statePlaceholder, stateScript);
     }
 
@@ -479,7 +481,7 @@ export default class SeoRenderer {
       });
     }
 
-    return result;
+    return this.addNonceToFallbackAssets(result, options.cspNonce);
   }
 
   private stripFallbackAssets(
@@ -503,7 +505,33 @@ export default class SeoRenderer {
     return result;
   }
 
-  private buildStateBootstrap(state: unknown): string {
+  private formatNonceAttribute(nonce?: string): string {
+    if (!nonce) {
+      return '';
+    }
+
+    return ` nonce="${this.escapeHtml(nonce)}"`;
+  }
+
+  private addNonceToFallbackAssets(html: string, nonce?: string): string {
+    if (!nonce) {
+      return html;
+    }
+
+    const attribute = this.formatNonceAttribute(nonce);
+    const addAttribute = (source: string, pattern: RegExp) =>
+      source.replace(pattern, (fullMatch, start: string, end: string) => {
+        if (/\snonce\s*=/.test(start)) {
+          return fullMatch;
+        }
+        return `${start}${attribute}${end}`;
+      });
+
+    const withImportMap = addAttribute(html, /(<script\b[^>]*data-fallback-importmap[^>]*)(>)/i);
+    return addAttribute(withImportMap, /(<script\b[^>]*data-fallback-script[^>]*)(>)/i);
+  }
+
+  private buildStateBootstrap(state: unknown, nonce?: string): string {
     if (state === undefined) {
       return '';
     }
@@ -513,7 +541,8 @@ export default class SeoRenderer {
       if (!json) {
         return '';
       }
-      return `    <script>window.__PRERENDER_STATE__ = ${json};</script>`;
+      const nonceAttribute = this.formatNonceAttribute(nonce);
+      return `    <script${nonceAttribute}>window.__PRERENDER_STATE__ = ${json};</script>`;
     } catch (error) {
       console.warn('Failed to serialize pre-render state', error);
       return '';
