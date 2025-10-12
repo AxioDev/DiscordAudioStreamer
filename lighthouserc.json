@@ -10,7 +10,7 @@
       }
     },
     "assert": {
-      "preset": "off"
+      "assertions": {}
     },
     "upload": {
       "target": "filesystem",
