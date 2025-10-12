@@ -3,4 +3,4 @@ Disallow: /bannir
 Disallow: /admin
 Allow: /
 
-Sitemap: /sitemap.xml
+Sitemap: https://libre-antenne.com/sitemap.xml
