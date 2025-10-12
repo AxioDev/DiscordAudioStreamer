@@ -15,6 +15,8 @@ import {
   BadgeCheck,
   ArrowLeft,
   ArrowRight,
+  ArrowUpRight,
+  ArrowDownRight,
   CalendarDays,
   Check,
   ChevronDown,
@@ -45,6 +47,7 @@ import {
   Volume1,
   Volume2,
   VolumeX,
+  Minus,
   X,
 } from 'lucide-preact';
 
@@ -68,6 +71,8 @@ export {
   BadgeCheck,
   ArrowLeft,
   ArrowRight,
+  ArrowUpRight,
+  ArrowDownRight,
   CalendarDays,
   Check,
   ChevronDown,
@@ -98,5 +103,6 @@ export {
   Volume1,
   Volume2,
   VolumeX,
+  Minus,
   X,
 };

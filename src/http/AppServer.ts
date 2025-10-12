@@ -33,6 +33,7 @@ import BlogRepository, {
 } from '../services/BlogRepository';
 import BlogProposalService, { BlogProposalError } from '../services/BlogProposalService';
 import type {
+  CommunityPulseSnapshot,
   HypeLeaderboardQueryOptions,
   HypeLeaderboardSortBy,
   HypeLeaderboardSortOrder,
@@ -173,6 +174,33 @@ interface AdminListRequestParams {
 
 type AdminHiddenMemberRecord = HiddenMemberRecord & { id: string };
 
+interface HomePulseMetricPresentation {
+  id: 'voice' | 'members' | 'messages';
+  label: string;
+  icon: string;
+  iconClass: string;
+  valueLabel: string;
+  valueAccessibleLabel: string;
+  previousLabel: string;
+  changeLabel: string;
+  changeAccessibleLabel: string;
+  percentLabel: string | null;
+  trend: 'up' | 'down' | 'steady';
+  trendLabel: string;
+  trendIcon: string;
+  trendAccentClass: string;
+  description: string;
+}
+
+interface HomePulseData {
+  generatedAt: string | null;
+  generatedAtLabel: string | null;
+  windowMinutes: number;
+  windowLabel: string;
+  comparisonLabel: string;
+  metrics: HomePulseMetricPresentation[];
+}
+
 interface HomePageBootstrap {
   listenerCount: number;
   latestPosts: Array<{
@@ -188,6 +216,7 @@ interface HomePageBootstrap {
     isSpeaking: boolean;
     lastSpokeAt: string | null;
   }>;
+  pulse?: HomePulseData | null;
 }
 
 interface BlogPageBootstrap {
@@ -1888,10 +1917,220 @@ export default class AppServer {
     return new Intl.NumberFormat('fr-FR').format(Math.max(0, Math.floor(value)));
   }
 
+  private formatPulseTimestamp(value: string | null): string | null {
+    if (!value) {
+      return null;
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+    const formatter = new Intl.DateTimeFormat('fr-FR', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    return formatter.format(date);
+  }
+
+  private buildHomePulsePresentation(snapshot: CommunityPulseSnapshot | null): HomePulseData | null {
+    if (!snapshot) {
+      return null;
+    }
+
+    const plural = snapshot.windowMinutes > 1;
+    const windowLabel = plural
+      ? `Sur les ${snapshot.windowMinutes} dernières minutes`
+      : 'Sur la dernière minute';
+    const comparisonLabel = plural
+      ? `vs ${snapshot.windowMinutes} minutes précédentes`
+      : 'vs la minute précédente';
+
+    const numberFormatter = new Intl.NumberFormat('fr-FR');
+
+    const formatMinutesValue = (value: number): string => {
+      const safe = Number.isFinite(value) ? Math.max(0, value) : 0;
+      const useDecimal = safe > 0 && safe < 10 && !Number.isInteger(safe);
+      const formatter = new Intl.NumberFormat('fr-FR', {
+        minimumFractionDigits: useDecimal ? 1 : 0,
+        maximumFractionDigits: useDecimal ? 1 : 0,
+      });
+      return `${formatter.format(safe)} min`;
+    };
+
+    const formatSignedMinutesValue = (value: number): string => {
+      const safe = Number.isFinite(value) ? value : 0;
+      if (Math.abs(safe) < 0.05) {
+        return '0 min';
+      }
+      const abs = Math.abs(safe);
+      const useDecimal = abs < 10 && !Number.isInteger(abs);
+      const formatter = new Intl.NumberFormat('fr-FR', {
+        minimumFractionDigits: useDecimal ? 1 : 0,
+        maximumFractionDigits: useDecimal ? 1 : 0,
+      });
+      const sign = safe > 0 ? '+' : '−';
+      return `${sign}${formatter.format(abs)} min`;
+    };
+
+    const formatCountValue = (value: number, singular: string, pluralLabel: string): string => {
+      const safe = Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+      const label = safe === 1 ? singular : pluralLabel;
+      return `${numberFormatter.format(safe)} ${label}`;
+    };
+
+    const formatSignedCountValue = (value: number, singular: string, pluralLabel: string): string => {
+      const safe = Number.isFinite(value) ? Math.round(value) : 0;
+      if (Math.abs(safe) < 1) {
+        return `0 ${pluralLabel}`;
+      }
+      const label = Math.abs(safe) === 1 ? singular : pluralLabel;
+      const sign = safe > 0 ? '+' : '−';
+      return `${sign}${numberFormatter.format(Math.abs(safe))} ${label}`;
+    };
+
+    const formatPercentValue = (current: number, previous: number, change: number): string | null => {
+      if (!Number.isFinite(previous) || previous <= 0) {
+        return null;
+      }
+      const percent = (Number.isFinite(change) ? change : 0) / previous * 100;
+      if (!Number.isFinite(percent)) {
+        return null;
+      }
+      const abs = Math.abs(percent);
+      const formatter = new Intl.NumberFormat('fr-FR', {
+        maximumFractionDigits: abs < 10 ? 1 : 0,
+      });
+      const sign = percent > 0 ? '+' : percent < 0 ? '−' : '';
+      return `${sign}${formatter.format(abs)} %`;
+    };
+
+    const trendMeta: Record<
+      'up' | 'down' | 'steady',
+      { label: string; icon: string; accent: string }
+    > = {
+      up: {
+        label: 'Monte',
+        icon: 'ArrowUpRight',
+        accent: 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200',
+      },
+      down: {
+        label: 'Descend',
+        icon: 'ArrowDownRight',
+        accent: 'border-rose-400/40 bg-rose-500/10 text-rose-200',
+      },
+      steady: {
+        label: 'Stable',
+        icon: 'Minus',
+        accent: 'border-slate-400/40 bg-slate-500/10 text-slate-200',
+      },
+    };
+
+    const buildMetric = (
+      id: HomePulseMetricPresentation['id'],
+      source: CommunityPulseSnapshot['voiceMinutes'],
+      config: {
+        label: string;
+        icon: string;
+        iconClass: string;
+        type: 'minutes' | 'members' | 'messages';
+        description: string;
+      },
+    ): HomePulseMetricPresentation => {
+      const percentLabel = formatPercentValue(source.current, source.previous, source.change);
+      const trend = trendMeta[source.trend] ?? trendMeta.steady;
+
+      let valueLabel: string;
+      let changeLabel: string;
+      let previousLabel: string;
+      let valueAccessibleLabel: string;
+      let changeAccessibleLabel: string;
+
+      if (config.type === 'minutes') {
+        valueLabel = formatMinutesValue(source.current);
+        changeLabel = formatSignedMinutesValue(source.change);
+        previousLabel = formatMinutesValue(source.previous);
+        valueAccessibleLabel = `${config.label} ${windowLabel.toLowerCase()} : ${valueLabel}.`;
+      } else if (config.type === 'members') {
+        valueLabel = formatCountValue(source.current, 'membre', 'membres');
+        changeLabel = formatSignedCountValue(source.change, 'membre', 'membres');
+        previousLabel = formatCountValue(source.previous, 'membre', 'membres');
+        valueAccessibleLabel = `${config.label} ${windowLabel.toLowerCase()} : ${valueLabel}.`;
+      } else {
+        valueLabel = formatCountValue(source.current, 'message', 'messages');
+        changeLabel = formatSignedCountValue(source.change, 'message', 'messages');
+        previousLabel = formatCountValue(source.previous, 'message', 'messages');
+        valueAccessibleLabel = `${config.label} ${windowLabel.toLowerCase()} : ${valueLabel}.`;
+      }
+
+      const normalizedComparison = comparisonLabel.replace(/^vs\s*/i, '').trim();
+      const percentSuffix = percentLabel ? ` (${percentLabel})` : '';
+
+      if (source.trend === 'steady') {
+        changeAccessibleLabel = `Stable par rapport à ${normalizedComparison}.`;
+      } else if (source.trend === 'up') {
+        changeAccessibleLabel = `Monte de ${changeLabel.replace(/^[+−]/, '')} par rapport à ${normalizedComparison}${percentSuffix}.`;
+      } else {
+        changeAccessibleLabel = `Descend de ${changeLabel.replace(/^[+−]/, '')} par rapport à ${normalizedComparison}${percentSuffix}.`;
+      }
+
+      return {
+        id,
+        label: config.label,
+        icon: config.icon,
+        iconClass: config.iconClass,
+        valueLabel,
+        valueAccessibleLabel,
+        previousLabel,
+        changeLabel,
+        changeAccessibleLabel,
+        percentLabel,
+        trend: source.trend,
+        trendLabel: trend.label,
+        trendIcon: trend.icon,
+        trendAccentClass: trend.accent,
+        description: config.description,
+      };
+    };
+
+    const metrics: HomePulseMetricPresentation[] = [
+      buildMetric('voice', snapshot.voiceMinutes, {
+        label: 'Activité vocale',
+        icon: 'Activity',
+        iconClass: 'h-4 w-4 text-emerald-300',
+        type: 'minutes',
+        description: 'Minutes cumulées de parole détectées sur le salon vocal Libre Antenne.',
+      }),
+      buildMetric('members', snapshot.activeMembers, {
+        label: 'Membres actifs',
+        icon: 'Users',
+        iconClass: 'h-4 w-4 text-sky-300',
+        type: 'members',
+        description: 'Personnes uniques ayant pris la parole ou envoyé un message.',
+      }),
+      buildMetric('messages', snapshot.messageCount, {
+        label: 'Messages envoyés',
+        icon: 'MessageSquare',
+        iconClass: 'h-4 w-4 text-amber-300',
+        type: 'messages',
+        description: 'Messages textuels publiés sur les salons suivis.',
+      }),
+    ];
+
+    return {
+      generatedAt: snapshot.generatedAt ?? null,
+      generatedAtLabel: this.formatPulseTimestamp(snapshot.generatedAt ?? null),
+      windowMinutes: snapshot.windowMinutes,
+      windowLabel,
+      comparisonLabel,
+      metrics,
+    };
+  }
+
   private buildHomePageHtml(data: {
     listenerCount: number;
     speakers: Array<{ id: string; displayName: string; avatarUrl: string | null; isSpeaking: boolean; lastSpokeAt: string | null }>;
     latestPosts: Array<{ title: string; slug: string; excerpt: string | null; date: string | null }>;
+    pulse?: HomePulseData | null;
   }): string {
     const parts: string[] = [];
     const listenerLabel = data.listenerCount > 0
@@ -1915,6 +2154,77 @@ export default class AppServer {
       `<p class="mt-6 inline-flex items-center gap-2 rounded-full bg-emerald-500/20 px-4 py-2 text-sm font-semibold text-emerald-300"><span class="h-2 w-2 animate-pulse rounded-full bg-emerald-300"></span>${this.escapeHtml(listenerLabel)}</p>`,
     );
     parts.push('</section>');
+
+    if (data.pulse && data.pulse.metrics.length > 0) {
+      const pulse = data.pulse;
+      const updatedLabel = pulse.generatedAtLabel
+        ? `Actualisé à ${this.escapeHtml(pulse.generatedAtLabel)}`
+        : 'Actualisation en cours…';
+      parts.push(
+        '<section id="home-community-pulse" class="rounded-3xl border border-slate-800/60 bg-slate-950/70 p-8">',
+      );
+      parts.push('<div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">');
+      parts.push('<div>');
+      parts.push('<p class="text-xs uppercase tracking-[0.3em] text-amber-300/80">Pulse communautaire</p>');
+      parts.push(
+        `<h2 class="text-2xl font-semibold text-white">Tendance des ${this.escapeHtml(pulse.windowLabel)}</h2>`,
+      );
+      parts.push(`<p class="text-sm text-slate-300">${this.escapeHtml(pulse.comparisonLabel)}</p>`);
+      parts.push('</div>');
+      parts.push(`<p class="text-xs text-slate-400">${updatedLabel}</p>`);
+      parts.push('</div>');
+      parts.push('<div class="mt-6 grid gap-4 md:grid-cols-3">');
+      for (const metric of pulse.metrics) {
+        parts.push(
+          '<article class="rounded-2xl border border-slate-800/60 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40">',
+        );
+        parts.push('<div class="flex items-center justify-between gap-4">');
+        parts.push(
+          `<span class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-slate-200/90">${this.renderLucideIcon(metric.icon, metric.iconClass)}<span class="tracking-[0.2em]">${this.escapeHtml(metric.label)}</span></span>`,
+        );
+        parts.push(
+          `<span class="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] ${this.escapeHtml(metric.trendAccentClass)}">${this.renderLucideIcon(metric.trendIcon, 'h-3.5 w-3.5')}<span class="tracking-normal">${this.escapeHtml(metric.trendLabel)}</span></span>`,
+        );
+        parts.push('</div>');
+        parts.push('<p class="mt-4 text-3xl font-bold text-white">');
+        parts.push(`<span aria-hidden="true">${this.escapeHtml(metric.valueLabel)}</span>`);
+        parts.push(`<span class="sr-only">${this.escapeHtml(metric.valueAccessibleLabel)}</span>`);
+        parts.push('</p>');
+        parts.push('<p class="mt-2 text-sm text-slate-300">');
+        parts.push(`<span aria-hidden="true">${this.escapeHtml(metric.changeLabel)}</span>`);
+        if (metric.percentLabel) {
+          parts.push(
+            `<span aria-hidden="true" class="ml-2 text-xs font-semibold uppercase tracking-[0.25em] text-slate-400/90">(${this.escapeHtml(metric.percentLabel)})</span>`,
+          );
+        }
+        parts.push(`<span class="sr-only">${this.escapeHtml(metric.changeAccessibleLabel)}</span>`);
+        parts.push(
+          `<span aria-hidden="true" class="ml-2 text-slate-500">· ${this.escapeHtml(pulse.comparisonLabel)}</span>`,
+        );
+        parts.push('</p>');
+        parts.push(`<p class="mt-1 text-xs text-slate-500">Précédemment ${this.escapeHtml(metric.previousLabel)}</p>`);
+        parts.push(`<p class="mt-3 text-xs text-slate-400">${this.escapeHtml(metric.description)}</p>`);
+        parts.push('</article>');
+      }
+      parts.push('</div>');
+      parts.push('</section>');
+    } else {
+      parts.push(
+        '<section id="home-community-pulse" class="rounded-3xl border border-slate-800/60 bg-slate-950/70 p-8">',
+      );
+      parts.push('<div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">');
+      parts.push('<div>');
+      parts.push('<p class="text-xs uppercase tracking-[0.3em] text-amber-300/80">Pulse communautaire</p>');
+      parts.push('<h2 class="text-2xl font-semibold text-white">Tendance des 15 dernières minutes</h2>');
+      parts.push('<p class="text-sm text-slate-300">Indicateurs en cours de chargement…</p>');
+      parts.push('</div>');
+      parts.push('<p class="text-xs text-slate-400">Actualisation en cours…</p>');
+      parts.push('</div>');
+      parts.push(
+        '<div class="mt-6 rounded-2xl border border-dashed border-slate-700/60 bg-slate-950/50 p-6 text-sm text-slate-400">Les statistiques temps réel ne sont pas disponibles pour le moment. Recharge la page dans quelques instants.</div>',
+      );
+      parts.push('</section>');
+    }
 
     parts.push('<section id="home-live-speakers" class="rounded-3xl border border-slate-800/60 bg-slate-950/60 p-8">');
     parts.push('<div class="flex items-center justify-between gap-4">');
@@ -2365,6 +2675,7 @@ export default class AppServer {
     speakers: Array<{ id: string; displayName: string; avatarUrl: string | null; isSpeaking: boolean; lastSpokeAt: string | null }>;
     participants: Participant[];
     listenerHistory: ListenerStatsEntry[];
+    pulse: HomePulseData | null;
   }> {
     const listenerCount = this.listenerStatsService.getCurrentCount();
     const rawSpeakers = this.speakerTracker.getSpeakers();
@@ -2398,8 +2709,19 @@ export default class AppServer {
 
     const participants = this.speakerTracker.getInitialState()?.speakers ?? [];
     const listenerHistory = this.listenerStatsService.getHistory();
-    const html = this.buildHomePageHtml({ listenerCount, speakers, latestPosts });
-    return { html, listenerCount, latestPosts, speakers, participants, listenerHistory };
+
+    let pulse: HomePulseData | null = null;
+    if (this.voiceActivityRepository) {
+      try {
+        const snapshot = await this.voiceActivityRepository.getCommunityPulse({ windowMinutes: 15 });
+        pulse = this.buildHomePulsePresentation(snapshot);
+      } catch (error) {
+        console.warn('Failed to compute community pulse for home prerender', error);
+      }
+    }
+
+    const html = this.buildHomePageHtml({ listenerCount, speakers, latestPosts, pulse });
+    return { html, listenerCount, latestPosts, speakers, participants, listenerHistory, pulse };
   }
 
   private async buildMembersPagePrerender(search: string | null): Promise<string> {
@@ -4280,6 +4602,29 @@ export default class AppServer {
       }
     });
 
+    this.app.get('/api/community/pulse', async (_req, res) => {
+      if (!this.voiceActivityRepository) {
+        res.status(503).json({
+          error: 'PULSE_UNAVAILABLE',
+          message: 'Le suivi de l’activité communautaire est désactivé sur ce serveur.',
+        });
+        return;
+      }
+
+      try {
+        const snapshot = await this.voiceActivityRepository.getCommunityPulse({ windowMinutes: 15 });
+        const pulse = this.buildHomePulsePresentation(snapshot);
+        res.setHeader('Cache-Control', 'public, max-age=15, stale-while-revalidate=45');
+        res.json({ pulse: pulse ?? null });
+      } catch (error) {
+        console.error('Failed to compute community pulse', error);
+        res.status(500).json({
+          error: 'COMMUNITY_PULSE_FAILED',
+          message: 'Impossible de calculer le pouls communautaire.',
+        });
+      }
+    });
+
     this.app.get('/api/statistiques', async (req, res) => {
       try {
         const options = this.parseStatisticsQuery(req.query);
@@ -6065,6 +6410,7 @@ export default class AppServer {
               listenerCount: prerender.listenerCount,
               latestPosts: prerender.latestPosts,
               speakers: prerender.speakers,
+              pulse: prerender.pulse,
             },
           },
         };

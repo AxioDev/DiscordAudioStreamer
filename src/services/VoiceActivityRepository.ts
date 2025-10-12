@@ -208,6 +208,23 @@ export type CommunityStatisticsActivityType =
 
 export type CommunityStatisticsGranularity = 'day' | 'week' | 'month' | 'year';
 
+export type CommunityPulseTrend = 'up' | 'down' | 'steady';
+
+export interface CommunityPulseMetricSnapshot {
+  current: number;
+  previous: number;
+  change: number;
+  trend: CommunityPulseTrend;
+}
+
+export interface CommunityPulseSnapshot {
+  generatedAt: string;
+  windowMinutes: number;
+  voiceMinutes: CommunityPulseMetricSnapshot;
+  activeMembers: CommunityPulseMetricSnapshot;
+  messageCount: CommunityPulseMetricSnapshot;
+}
+
 export interface CommunityStatisticsQueryOptions {
   since?: Date | null;
   until?: Date | null;
@@ -3638,6 +3655,164 @@ ${limitClause}`;
 
     suggestions.sort((a, b) => b.activityScore - a.activityScore);
     return suggestions.slice(0, boundedLimit);
+  }
+
+  public async getCommunityPulse(
+    options: { windowMinutes?: number; now?: Date } = {},
+  ): Promise<CommunityPulseSnapshot | null> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return null;
+    }
+
+    await this.ensureSchemaIntrospection(pool);
+
+    const parseNumber = (value: unknown): number => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : 0;
+    };
+
+    const normalizeDate = (value: Date | null | undefined): Date => {
+      if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return value;
+      }
+      return new Date();
+    };
+
+    const now = normalizeDate(options.now ?? null);
+    const rawWindow = Number.isFinite(Number(options.windowMinutes))
+      ? Math.max(1, Math.min(240, Math.floor(Number(options.windowMinutes))))
+      : 15;
+    const windowMinutes = rawWindow;
+    const windowMs = windowMinutes * 60_000;
+
+    const until = new Date(now.getTime());
+    const currentStart = new Date(until.getTime() - windowMs);
+    const previousStart = new Date(currentStart.getTime() - windowMs);
+
+    const untilIso = until.toISOString();
+    const currentIso = currentStart.toISOString();
+    const previousIso = previousStart.toISOString();
+
+    let currentVoiceMs = 0;
+    let previousVoiceMs = 0;
+    let currentVoiceUsers = 0;
+    let previousVoiceUsers = 0;
+
+    try {
+      const result = await pool.query(
+        `SELECT
+            SUM(CASE WHEN timestamp >= $2 THEN duration_ms ELSE 0 END) AS current_voice_ms,
+            SUM(CASE WHEN timestamp >= $3 AND timestamp < $2 THEN duration_ms ELSE 0 END) AS previous_voice_ms,
+            COUNT(DISTINCT CASE WHEN timestamp >= $2 THEN user_id::text END) AS current_voice_users,
+            COUNT(DISTINCT CASE WHEN timestamp >= $3 AND timestamp < $2 THEN user_id::text END) AS previous_voice_users
+          FROM voice_activity
+         WHERE timestamp >= $3 AND timestamp < $1`,
+        [untilIso, currentIso, previousIso],
+      );
+
+      const row = result.rows?.[0] ?? {};
+      currentVoiceMs = Math.max(0, parseNumber(row.current_voice_ms));
+      previousVoiceMs = Math.max(0, parseNumber(row.previous_voice_ms));
+      currentVoiceUsers = Math.max(0, Math.floor(parseNumber(row.current_voice_users)));
+      previousVoiceUsers = Math.max(0, Math.floor(parseNumber(row.previous_voice_users)));
+    } catch (error) {
+      console.error('Failed to compute voice statistics for community pulse', error);
+    }
+
+    const hasTextMessages = Boolean(this.textMessagesColumns && this.textMessagesColumns.size > 0);
+    const hasTextMessageUserId = Boolean(this.textMessagesColumns?.has('user_id'));
+
+    let currentMessages = 0;
+    let previousMessages = 0;
+
+    if (hasTextMessages) {
+      try {
+        const result = await pool.query(
+          `SELECT
+              COUNT(*) FILTER (WHERE timestamp >= $2) AS current_messages,
+              COUNT(*) FILTER (WHERE timestamp >= $3 AND timestamp < $2) AS previous_messages
+             FROM text_messages
+            WHERE timestamp >= $3 AND timestamp < $1`,
+          [untilIso, currentIso, previousIso],
+        );
+        const row = result.rows?.[0] ?? {};
+        currentMessages = Math.max(0, Math.floor(parseNumber(row.current_messages)));
+        previousMessages = Math.max(0, Math.floor(parseNumber(row.previous_messages)));
+      } catch (error) {
+        console.error('Failed to compute text statistics for community pulse', error);
+      }
+    }
+
+    let currentMembers = currentVoiceUsers;
+    let previousMembers = previousVoiceUsers;
+
+    if (hasTextMessages && hasTextMessageUserId) {
+      try {
+        const result = await pool.query(
+          `WITH combined AS (
+              SELECT user_id::text AS user_id, timestamp
+                FROM voice_activity
+               WHERE timestamp >= $3 AND timestamp < $1
+              UNION ALL
+              SELECT user_id::text AS user_id, timestamp
+                FROM text_messages
+               WHERE timestamp >= $3 AND timestamp < $1
+            )
+            SELECT
+              COUNT(DISTINCT CASE WHEN timestamp >= $2 THEN user_id END) AS current_members,
+              COUNT(DISTINCT CASE WHEN timestamp >= $3 AND timestamp < $2 THEN user_id END) AS previous_members
+              FROM combined`,
+          [untilIso, currentIso, previousIso],
+        );
+        const row = result.rows?.[0] ?? {};
+        const combinedCurrent = Math.max(0, Math.floor(parseNumber(row.current_members)));
+        const combinedPrevious = Math.max(0, Math.floor(parseNumber(row.previous_members)));
+        currentMembers = combinedCurrent;
+        previousMembers = combinedPrevious;
+      } catch (error) {
+        console.warn('Failed to compute combined member statistics for community pulse', error);
+      }
+    }
+
+    const voiceMinutesCurrent = Math.max(0, currentVoiceMs / 60_000);
+    const voiceMinutesPrevious = Math.max(0, previousVoiceMs / 60_000);
+
+    const buildMetric = (
+      current: number,
+      previous: number,
+      decimals: number,
+      threshold: number,
+    ): CommunityPulseMetricSnapshot => {
+      const safeCurrent = Number.isFinite(current) ? current : 0;
+      const safePrevious = Number.isFinite(previous) ? previous : 0;
+      const rawChange = safeCurrent - safePrevious;
+      const roundedCurrent =
+        decimals > 0 ? Number(safeCurrent.toFixed(decimals)) : Math.round(safeCurrent);
+      const roundedPrevious =
+        decimals > 0 ? Number(safePrevious.toFixed(decimals)) : Math.round(safePrevious);
+      const roundedChange = decimals > 0 ? Number(rawChange.toFixed(decimals)) : Math.round(rawChange);
+      let trend: CommunityPulseTrend = 'steady';
+      if (rawChange > threshold) {
+        trend = 'up';
+      } else if (rawChange < -threshold) {
+        trend = 'down';
+      }
+      return {
+        current: roundedCurrent,
+        previous: roundedPrevious,
+        change: roundedChange,
+        trend,
+      };
+    };
+
+    return {
+      generatedAt: untilIso,
+      windowMinutes,
+      voiceMinutes: buildMetric(voiceMinutesCurrent, voiceMinutesPrevious, 2, 0.05),
+      activeMembers: buildMetric(currentMembers, previousMembers, 0, 0.5),
+      messageCount: buildMetric(currentMessages, previousMessages, 0, 0.5),
+    };
   }
 
   public async close(): Promise<void> {
