@@ -238,7 +238,7 @@ const config: Config = {
       365,
     ),
   },
-  publicBaseUrl: process.env.PUBLIC_BASE_URL || 'https://libre-antenne.xyz/',
+  publicBaseUrl: process.env.PUBLIC_BASE_URL || 'https://libre-antenne.com/',
   siteName: process.env.SITE_NAME || 'Libre Antenne',
   siteLocale: process.env.SITE_LOCALE || 'fr_FR',
   siteLanguage: process.env.SITE_LANGUAGE || 'fr-FR',

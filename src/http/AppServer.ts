@@ -296,6 +296,10 @@ export default class AppServer {
 
   private readonly app = express();
 
+  private readonly canonicalUrl: URL;
+
+  private readonly legacyDomains: Set<string>;
+
   private httpServer: Server | null = null;
 
   private wsServer: WebSocketServer | null = null;
@@ -372,6 +376,19 @@ export default class AppServer {
     this.adminService = adminService;
     this.statisticsService = statisticsService;
     this.userAudioRecorder = userAudioRecorder ?? null;
+    this.canonicalUrl = (() => {
+      try {
+        return new URL(this.config.publicBaseUrl);
+      } catch (error) {
+        return new URL('https://libre-antenne.com/');
+      }
+    })();
+    const canonicalHostname = this.canonicalUrl.hostname.toLowerCase();
+    this.legacyDomains = new Set(
+      ['libre-antenne.xyz', 'www.libre-antenne.xyz']
+        .map((domain) => domain.toLowerCase())
+        .filter((domain) => domain.length > 0 && domain !== canonicalHostname),
+    );
     const adminUsername = this.config.admin?.username ?? null;
     const adminPassword = this.config.admin?.password ?? null;
     this.adminCredentials =
@@ -3606,7 +3623,7 @@ export default class AppServer {
     ];
     const contacts = [
       'Salon #support sur Discord pour les demandes rapides liées au direct.',
-      'Adresse dédiée : privacy@libre-antenne.xyz pour toute question relative aux données ou à la modération.',
+      'Adresse dédiée : privacy@libre-antenne.com pour toute question relative aux données ou à la modération.',
       'Courrier postal sur demande pour les requêtes nécessitant une identification renforcée.',
     ];
 
@@ -3877,6 +3894,33 @@ export default class AppServer {
 
   private configureMiddleware(): void {
     this.app.disable('x-powered-by');
+
+    this.app.use((req, res, next) => {
+      const hostHeader = req.headers.host;
+      if (!hostHeader) {
+        next();
+        return;
+      }
+
+      const [hostname] = hostHeader.split(':');
+      const normalizedHost = (hostname ?? '').toLowerCase();
+      if (!this.legacyDomains.has(normalizedHost)) {
+        next();
+        return;
+      }
+
+      const originalPath = typeof req.originalUrl === 'string' && req.originalUrl.length > 0 ? req.originalUrl : '/';
+      const normalizedPath = originalPath.startsWith('/') ? originalPath : `/${originalPath}`;
+      let targetUrl: string;
+      try {
+        targetUrl = new URL(normalizedPath, this.canonicalUrl.origin).toString();
+      } catch (error) {
+        targetUrl = this.canonicalUrl.toString();
+      }
+
+      res.redirect(301, targetUrl);
+      return;
+    });
 
     this.app.use(
       helmet({

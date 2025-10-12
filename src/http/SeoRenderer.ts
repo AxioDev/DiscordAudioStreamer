@@ -962,7 +962,7 @@ export default class SeoRenderer {
       const normalized = new URL(baseUrl);
       return normalized.toString();
     } catch (error) {
-      return 'https://libre-antenne.xyz/';
+      return 'https://libre-antenne.com/';
     }
   }
 
