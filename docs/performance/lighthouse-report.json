@@ -1,5 +1,10 @@
 {
   "status": "skipped",
+<<<<<<< HEAD
   "reason": "No Chromium/Chrome binary available for Lighthouse audits",
   "generatedAt": "2025-10-12T15:23:35.674Z"
+=======
+  "reason": "Lighthouse execution failed: /Users/user/DiscordAudioStreamer/node_modules/.bin/lhci exited with code 1",
+  "generatedAt": "2025-10-12T15:16:33.096Z"
+>>>>>>> 9d167fc (Refactor code structure for improved readability and maintainability)
 }
