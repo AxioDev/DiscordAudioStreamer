@@ -7,6 +7,8 @@ export interface UserAudioRecorderOptions {
   sampleRate: number;
   channels: number;
   bytesPerSample: number;
+  retentionPeriodMs: number;
+  cleanupIntervalMs?: number;
 }
 
 export interface UserAudioIdentity {
@@ -99,13 +101,36 @@ export default class UserAudioRecorder {
 
   private readonly bytesPerSample: number;
 
-  constructor({ baseDirectory, sampleRate, channels, bytesPerSample }: UserAudioRecorderOptions) {
+  private readonly retentionPeriodMs: number;
+
+  private readonly cleanupIntervalMs: number;
+
+  private cleanupTimer: NodeJS.Timeout | null = null;
+
+  constructor({
+    baseDirectory,
+    sampleRate,
+    channels,
+    bytesPerSample,
+    retentionPeriodMs,
+    cleanupIntervalMs,
+  }: UserAudioRecorderOptions) {
     this.baseDirectory = path.resolve(baseDirectory);
     this.sampleRate = sampleRate;
     this.channels = channels;
     this.bytesPerSample = bytesPerSample;
+    this.retentionPeriodMs = Math.max(retentionPeriodMs, 0);
+    this.cleanupIntervalMs = Math.max(cleanupIntervalMs ?? 12 * 60 * 60 * 1000, 60 * 60 * 1000);
 
     mkdirSync(this.baseDirectory, { recursive: true });
+
+    if (this.retentionPeriodMs > 0) {
+      void this.cleanupExpiredRecordings().catch((error) => {
+        console.warn('Initial recording cleanup failed', { error });
+      });
+
+      this.startCleanupTask();
+    }
   }
 
   public openSession(identity: UserAudioIdentity): UserAudioRecordingSession | null {
@@ -129,6 +154,113 @@ export default class UserAudioRecorder {
         error,
       });
       return null;
+    }
+  }
+
+  public stop(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
+  }
+
+  private startCleanupTask(): void {
+    if (this.cleanupIntervalMs <= 0 || this.retentionPeriodMs <= 0) {
+      return;
+    }
+
+    this.cleanupTimer = setInterval(() => {
+      void this.cleanupExpiredRecordings().catch((error) => {
+        console.warn('Scheduled recording cleanup failed', { error });
+      });
+    }, this.cleanupIntervalMs);
+
+    if (typeof this.cleanupTimer.unref === 'function') {
+      this.cleanupTimer.unref();
+    }
+  }
+
+  private async cleanupExpiredRecordings(): Promise<void> {
+    if (this.retentionPeriodMs <= 0) {
+      return;
+    }
+
+    try {
+      const entries = await fs.readdir(this.baseDirectory, { withFileTypes: true });
+      const now = Date.now();
+
+      for (const entry of entries) {
+        const fullPath = path.join(this.baseDirectory, entry.name);
+        if (entry.isDirectory()) {
+          await this.cleanupDirectory(fullPath, now);
+        } else if (entry.isFile()) {
+          await this.deleteFileIfExpired(fullPath, now);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to scan recordings directory for cleanup', { error });
+    }
+  }
+
+  private async cleanupDirectory(directory: string, now: number): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      console.warn('Failed to read recording directory during cleanup', { directory, error });
+      return;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await this.cleanupDirectory(fullPath, now);
+      } else if (entry.isFile()) {
+        await this.deleteFileIfExpired(fullPath, now);
+      }
+    }
+
+    try {
+      const remaining = await fs.readdir(directory);
+      if (remaining.length === 0) {
+        await fs.rm(directory, { recursive: false, force: false });
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.warn('Failed to remove empty recording directory', { directory, error });
+      }
+    }
+  }
+
+  private async deleteFileIfExpired(filePath: string, now: number): Promise<void> {
+    if (this.retentionPeriodMs <= 0) {
+      return;
+    }
+
+    let stats;
+    try {
+      stats = await fs.stat(filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.warn('Failed to read recording file stats during cleanup', { filePath, error });
+      }
+      return;
+    }
+
+    const modifiedTime = Number.isFinite(stats.mtimeMs) ? stats.mtimeMs : stats.birthtimeMs;
+    const ageMs = now - modifiedTime;
+
+    if (ageMs <= this.retentionPeriodMs) {
+      return;
+    }
+
+    try {
+      await fs.unlink(filePath);
+      console.info('Deleted expired audio recording', { filePath });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.warn('Failed to delete expired recording file', { filePath, error });
+      }
     }
   }
 

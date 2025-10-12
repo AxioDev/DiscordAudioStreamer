@@ -83,6 +83,7 @@ try {
     sampleRate: config.audio.sampleRate,
     channels: config.audio.channels,
     bytesPerSample: config.audio.bytesPerSample,
+    retentionPeriodMs: config.recordingsRetentionDays * 24 * 60 * 60 * 1000,
   });
 } catch (error) {
   console.error('Failed to initialize user audio recorder', error);
@@ -207,6 +208,12 @@ function shutdown(): void {
     mixer.stop();
   } catch (error) {
     console.warn('Error while stopping mixer', error);
+  }
+
+  try {
+    userAudioRecorder?.stop();
+  } catch (error) {
+    console.warn('Error while stopping user audio recorder', error);
   }
 
   try {
