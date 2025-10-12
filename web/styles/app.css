@@ -151,6 +151,8 @@
   animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
   animation-fill-mode: both;
   will-change: transform, opacity;
+  overflow-x: hidden;
+  overflow-y: visible;
 }
 
 .route-transition-shell-0,
