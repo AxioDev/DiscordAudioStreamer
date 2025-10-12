@@ -3379,8 +3379,12 @@ const ProfileVoiceRecordingsCard = ({ userId }) => {
     return `${value.toFixed(precision)} ${units[unitIndex]}`;
   };
 
+  const MIN_VISIBLE_DURATION_MS = 1000;
   const isLoading = state.status === 'loading';
-  const entries = Array.isArray(state.entries) ? state.entries : [];
+  const allEntries = Array.isArray(state.entries) ? state.entries : [];
+  const visibleEntries = allEntries.filter(
+    (entry) => Number.isFinite(entry?.durationMs) && entry.durationMs > MIN_VISIBLE_DURATION_MS,
+  );
 
   return html`
     <section class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-xl shadow-slate-950/40 backdrop-blur">
@@ -3408,15 +3412,15 @@ const ProfileVoiceRecordingsCard = ({ userId }) => {
           </p>`
         : null}
 
-      ${!state.error && entries.length === 0 && !isLoading
+      ${!state.error && visibleEntries.length === 0 && !isLoading
         ? html`<p class="mt-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
-            Aucun enregistrement audio disponible sur cette période.
+            Aucun enregistrement audio supérieur à une seconde disponible sur cette période.
           </p>`
         : null}
 
-      ${entries.length > 0
+      ${visibleEntries.length > 0
         ? html`<ul class="mt-4 space-y-3">
-            ${entries.map((entry) => {
+            ${visibleEntries.map((entry) => {
               const key = entry?.id || entry?.fileName || entry?.createdAt;
               const timestamp = Number.isFinite(entry?.createdAtMs)
                 ? entry.createdAtMs
