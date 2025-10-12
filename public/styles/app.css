@@ -162,6 +162,7 @@ html,
   /* 6 */
   -webkit-tap-highlight-color: transparent;
   /* 7 */
+  overflow-x: hidden;
 }
 
 /*
@@ -174,6 +175,7 @@ body {
   /* 1 */
   line-height: inherit;
   /* 2 */
+  overflow-x: hidden;
 }
 
 /*
