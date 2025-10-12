@@ -5,10 +5,13 @@ import {
   useEffect,
   useMemo,
   useState,
+  Activity,
   ArrowLeft,
   ArrowRight,
   BadgeCheck,
   CalendarDays,
+  Mic,
+  MessageSquare,
   X,
   RefreshCcw,
   Search,
@@ -17,6 +20,30 @@ import { MemberAvatar } from '../components/index.js';
 import { formatDateTimeLabel } from '../utils/index.js';
 
 const MEMBERS_PAGE_SIZE = 24;
+
+const formatMinutesLabel = (minutes) => {
+  const numeric = Number(minutes);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return '0 min';
+  }
+  if (numeric >= 60) {
+    const hours = Math.floor(numeric / 60);
+    const remaining = Math.round(numeric % 60);
+    if (remaining === 0) {
+      return `${hours} h`;
+    }
+    return `${hours} h ${remaining} min`;
+  }
+  return `${Math.round(numeric)} min`;
+};
+
+const formatInteger = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return '0';
+  }
+  return numeric.toLocaleString('fr-FR');
+};
 
 const MembersPage = ({ onViewProfile }) => {
   const [members, setMembers] = useState([]);
@@ -28,6 +55,21 @@ const MembersPage = ({ onViewProfile }) => {
   const [pageIndex, setPageIndex] = useState(0);
   const [nextCursor, setNextCursor] = useState(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [sort, setSort] = useState('voice');
+
+  const handleChangeSort = useCallback(
+    (value) => {
+      const normalized = value === 'messages' ? 'messages' : 'voice';
+      if (normalized === sort) {
+        return;
+      }
+      setSort(normalized);
+      setCursorHistory([null]);
+      setPageIndex(0);
+      setRefreshNonce((current) => current + 1);
+    },
+    [sort],
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -67,6 +109,7 @@ const MembersPage = ({ onViewProfile }) => {
         if (searchTerm) {
           params.set('search', searchTerm);
         }
+        params.set('sort', sort);
 
         const response = await fetch(`/api/members?${params.toString()}`, {
           signal: controller.signal,
@@ -123,7 +166,7 @@ const MembersPage = ({ onViewProfile }) => {
       isActive = false;
       controller.abort();
     };
-  }, [currentCursor, searchTerm, refreshNonce]);
+  }, [currentCursor, searchTerm, refreshNonce, sort]);
 
   const handleSearchSubmit = useCallback(
     (event) => {
@@ -173,6 +216,7 @@ const MembersPage = ({ onViewProfile }) => {
   const canGoPrevious = pageIndex > 0;
   const canGoNext = Boolean(nextCursor);
   const isInitialLoading = loading && members.length === 0 && !error;
+  const sortLabel = sort === 'messages' ? 'messages envoyés' : 'temps passé en vocal';
 
   return html`
     <${Fragment}>
@@ -185,7 +229,30 @@ const MembersPage = ({ onViewProfile }) => {
               Explore la communauté de la Libre Antenne, découvre qui est présent et accède en un clic à leurs profils détaillés.
             </p>
           </div>
-          <div class="flex flex-col gap-3 text-xs text-slate-200 sm:flex-row sm:items-center">
+          <div class="flex flex-col gap-3 text-xs text-slate-200 sm:flex-row sm:items-center sm:justify-end">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <span class="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400">Trier par</span>
+              <div class="inline-flex rounded-full border border-white/10 bg-white/5 p-1 shadow-inner shadow-slate-950/20">
+                ${['voice', 'messages'].map((value) => {
+                  const isActive = sort === value;
+                  const label = value === 'voice' ? 'Vocal' : 'Messages';
+                  return html`<button
+                    key=${value}
+                    type="button"
+                    class=${[
+                      'inline-flex items-center justify-center rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em] transition',
+                      isActive
+                        ? 'border border-fuchsia-400/60 bg-fuchsia-500/30 text-white shadow shadow-fuchsia-900/40'
+                        : 'border border-transparent text-slate-300 hover:border-white/20 hover:text-white',
+                    ].join(' ')}
+                    onClick=${() => handleChangeSort(value)}
+                    disabled=${loading && isActive}
+                  >
+                    ${label}
+                  </button>`;
+                })}
+              </div>
+            </div>
             <button
               type="button"
               class=${[
@@ -234,6 +301,8 @@ const MembersPage = ({ onViewProfile }) => {
         ${appliedSearch
           ? html`<p class="text-xs text-slate-400">Résultats pour <span class="font-semibold text-white">“${appliedSearch}”</span>.</p>`
           : null}
+
+        <p class="text-xs text-slate-400">Classement : ${sortLabel}.</p>
 
         ${error
           ? html`<div class="rounded-3xl border border-rose-400/40 bg-rose-500/10 px-6 py-6 text-sm text-rose-100 shadow-lg shadow-rose-900/30">
@@ -284,6 +353,18 @@ const MembersPage = ({ onViewProfile }) => {
                   : [];
                 const remainingRoles = Array.isArray(member?.roles) ? Math.max(member.roles.length - roleList.length, 0) : 0;
                 const isBot = Boolean(member?.isBot);
+                const voiceMinutes = Number.isFinite(Number(member?.voiceMinutes))
+                  ? Math.max(Number(member.voiceMinutes), 0)
+                  : 0;
+                const voiceLabel = formatMinutesLabel(voiceMinutes);
+                const messageCount = Number.isFinite(Number(member?.messageCount))
+                  ? Math.max(Math.floor(Number(member.messageCount)), 0)
+                  : 0;
+                const messageLabel = formatInteger(messageCount);
+                const lastActivityMs = typeof member?.lastActivityAt === 'string' ? Date.parse(member.lastActivityAt) : NaN;
+                const lastActivityLabel = Number.isFinite(lastActivityMs)
+                  ? formatDateTimeLabel(lastActivityMs, { includeSeconds: false })
+                  : null;
 
                 return html`<article
                   key=${id || displayName}
@@ -328,6 +409,22 @@ const MembersPage = ({ onViewProfile }) => {
                             Bot
                             <${BadgeCheck} class="h-3 w-3" aria-hidden="true" />
                           </span>`
+                        : null}
+                    </div>
+                    <div class="flex flex-col gap-2 pt-1">
+                      <div class="flex items-center gap-2">
+                        <${Mic} class="h-3.5 w-3.5 text-fuchsia-200" aria-hidden="true" />
+                        <span>Vocal : ${voiceLabel}</span>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <${MessageSquare} class="h-3.5 w-3.5 text-sky-200" aria-hidden="true" />
+                        <span>${messageLabel} messages</span>
+                      </div>
+                      ${lastActivityLabel
+                        ? html`<div class="flex items-center gap-2">
+                            <${Activity} class="h-3.5 w-3.5 text-emerald-200" aria-hidden="true" />
+                            <span>Dernière activité : ${lastActivityLabel}</span>
+                          </div>`
                         : null}
                     </div>
                   </div>

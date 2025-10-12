@@ -198,6 +198,37 @@ export interface UserPersonaCandidateRecord {
   personaVersion: string | null;
 }
 
+export type MemberEngagementSort = 'voice' | 'messages';
+
+export interface MemberEngagementCursor {
+  primaryMetric: number;
+  secondaryMetric: number;
+  userId: string;
+}
+
+export interface MemberEngagementEntry {
+  userId: string;
+  displayName: string | null;
+  username: string | null;
+  nickname: string | null;
+  firstSeenAt: Date | null;
+  lastSeenAt: Date | null;
+  lastActivityAt: Date | null;
+  avatarUrl: string | null;
+  roles: Array<{ id: string; name: string }>;
+  isBot: boolean;
+  voiceMilliseconds: number;
+  voiceMinutes: number;
+  messageCount: number;
+  primaryMetric: number;
+  secondaryMetric: number;
+}
+
+export interface MemberEngagementResult {
+  members: MemberEngagementEntry[];
+  nextCursor: MemberEngagementCursor | null;
+}
+
 export type CommunityStatisticsActivityType =
   | 'voice'
   | 'text'
@@ -1621,6 +1652,331 @@ export default class VoiceActivityRepository {
       }
       console.error('Failed to load recent text messages', error);
       return {};
+    }
+  }
+
+  public async listMembersByEngagement({
+    guildId,
+    limit = 25,
+    cursor = null,
+    sortBy = 'voice',
+    search = null,
+    hiddenUserIds = [],
+  }: {
+    guildId?: string | null;
+    limit?: number;
+    cursor?: MemberEngagementCursor | null;
+    sortBy?: MemberEngagementSort;
+    search?: string | null;
+    hiddenUserIds?: Iterable<string>;
+  }): Promise<MemberEngagementResult> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return { members: [], nextCursor: null };
+    }
+
+    const normalizedGuildId = typeof guildId === 'string' ? guildId.trim() : '';
+    if (!normalizedGuildId) {
+      return { members: [], nextCursor: null };
+    }
+
+    await this.ensureSchemaIntrospection(pool);
+
+    if (!this.usersColumns || !this.usersColumns.has('guild_id') || !this.usersColumns.has('user_id')) {
+      this.warnAboutMissingColumn('users', 'guild_id');
+      this.warnAboutMissingColumn('users', 'user_id');
+      return { members: [], nextCursor: null };
+    }
+
+    const boundedLimit = (() => {
+      const numeric = Number(limit);
+      if (!Number.isFinite(numeric) || numeric <= 0) {
+        return 25;
+      }
+      return Math.min(Math.max(Math.floor(numeric), 1), 200);
+    })();
+
+    const normalizedSort: MemberEngagementSort = sortBy === 'messages' ? 'messages' : 'voice';
+
+    const hiddenIds = Array.from(hiddenUserIds ?? [])
+      .map((id) => (typeof id === 'string' ? id.trim() : ''))
+      .filter((id): id is string => id.length > 0);
+
+    const normalizedSearch = typeof search === 'string' ? search.trim() : '';
+
+    const includeNickname = this.usersColumns.has('nickname');
+    const includePseudo = this.usersColumns.has('pseudo');
+    const includeUsername = this.usersColumns.has('username');
+    const includeFirstSeen = this.usersColumns.has('first_seen');
+    const includeLastSeen = this.usersColumns.has('last_seen');
+    const includeMetadata = this.usersColumns.has('metadata');
+
+    const nicknameExpr = includeNickname ? 'u.nickname' : 'NULL::text';
+    const pseudoExpr = includePseudo ? 'u.pseudo' : 'NULL::text';
+    const usernameExpr = includeUsername ? 'u.username' : 'NULL::text';
+    const firstSeenExpr = includeFirstSeen ? 'u.first_seen' : 'NULL::timestamptz';
+    const lastSeenExpr = includeLastSeen ? 'u.last_seen' : 'NULL::timestamptz';
+    const metadataExpr = includeMetadata ? 'u.metadata' : 'NULL::jsonb';
+
+    const params: unknown[] = [normalizedGuildId];
+
+    let hiddenClause = '';
+    if (hiddenIds.length > 0) {
+      params.push(hiddenIds);
+      hiddenClause = `AND NOT (u.user_id::text = ANY($${params.length}::text[]))`;
+    }
+
+    const searchableColumns = ['nickname', 'pseudo', 'username'].filter((column) =>
+      this.usersColumns?.has(column),
+    );
+
+    let searchClause = '';
+    if (normalizedSearch && searchableColumns.length > 0) {
+      const pattern = `%${this.escapeLikePattern(normalizedSearch)}%`;
+      params.push(pattern);
+      const searchIndex = params.length;
+      const conditions = searchableColumns.map(
+        (column) => `COALESCE(u.${column}, '') ILIKE $${searchIndex} ESCAPE '\\\\'`,
+      );
+      searchClause = `AND (${conditions.join(' OR ')})`;
+    }
+
+    params.push(normalizedSort);
+    const sortIndex = params.length;
+
+    const hasTextMessages = Boolean(this.textMessagesColumns && this.textMessagesColumns.size > 0);
+
+    const voiceCte = `voice AS (
+      SELECT user_id::text AS user_id,
+             guild_id::text AS guild_id,
+             SUM(duration_ms) AS voice_ms,
+             MAX(timestamp) AS last_voice_at
+        FROM voice_activity
+       WHERE guild_id::text = $1
+       GROUP BY user_id, guild_id
+    )`;
+
+    const messagesCte = hasTextMessages
+      ? `messages AS (
+      SELECT user_id::text AS user_id,
+             guild_id::text AS guild_id,
+             COUNT(*) AS message_count,
+             MAX(timestamp) AS last_message_at
+        FROM text_messages
+       WHERE guild_id::text = $1
+       GROUP BY user_id, guild_id
+    )`
+      : `messages AS (
+      SELECT NULL::text AS user_id,
+             NULL::text AS guild_id,
+             0::bigint AS message_count,
+             NULL::timestamptz AS last_message_at
+      WHERE FALSE
+    )`;
+
+    const baseCte = `base AS (
+      SELECT
+        u.user_id::text AS user_id,
+        u.guild_id::text AS guild_id,
+        ${nicknameExpr} AS nickname,
+        ${pseudoExpr} AS pseudo,
+        ${usernameExpr} AS username,
+        ${firstSeenExpr} AS first_seen,
+        ${lastSeenExpr} AS last_seen,
+        ${metadataExpr} AS metadata,
+        COALESCE(voice.voice_ms, 0) AS voice_ms,
+        COALESCE(messages.message_count, 0) AS message_count,
+        COALESCE(voice.last_voice_at, messages.last_message_at, ${lastSeenExpr}) AS last_activity_at
+      FROM users u
+      LEFT JOIN voice ON voice.user_id = u.user_id::text AND voice.guild_id = u.guild_id::text
+      LEFT JOIN messages ON messages.user_id = u.user_id::text AND messages.guild_id = u.guild_id::text
+      WHERE u.guild_id::text = $1
+        ${hiddenClause}
+        ${searchClause}
+    )`;
+
+    const ctes = [voiceCte, messagesCte, baseCte].join(',\n');
+
+    const cursorData = cursor ?? null;
+    let cursorClause = '';
+    if (cursorData) {
+      params.push(cursorData.primaryMetric);
+      const primaryIndex = params.length;
+      params.push(cursorData.secondaryMetric);
+      const secondaryIndex = params.length;
+      params.push(cursorData.userId);
+      const userIndex = params.length;
+
+      if (normalizedSort === 'voice') {
+        cursorClause = `AND (
+          base.voice_ms < $${primaryIndex}
+          OR (base.voice_ms = $${primaryIndex} AND base.message_count < $${secondaryIndex})
+          OR (base.voice_ms = $${primaryIndex} AND base.message_count = $${secondaryIndex} AND base.user_id::numeric > $${userIndex}::numeric)
+        )`;
+      } else {
+        cursorClause = `AND (
+          base.message_count < $${primaryIndex}
+          OR (base.message_count = $${primaryIndex} AND base.voice_ms < $${secondaryIndex})
+          OR (base.message_count = $${primaryIndex} AND base.voice_ms = $${secondaryIndex} AND base.user_id::numeric > $${userIndex}::numeric)
+        )`;
+      }
+    }
+
+    const limitValue = boundedLimit + 1;
+    params.push(limitValue);
+    const limitIndex = params.length;
+
+    const query = `WITH ${ctes}
+    SELECT
+      base.user_id,
+      base.nickname,
+      base.pseudo,
+      base.username,
+      base.first_seen,
+      base.last_seen,
+      base.last_activity_at,
+      base.metadata,
+      base.voice_ms,
+      base.message_count,
+      CASE WHEN $${sortIndex} = 'messages' THEN base.message_count ELSE base.voice_ms END AS primary_metric,
+      CASE WHEN $${sortIndex} = 'messages' THEN base.voice_ms ELSE base.message_count END AS secondary_metric
+    FROM base
+    WHERE 1 = 1
+      ${cursorClause}
+    ORDER BY
+      CASE WHEN $${sortIndex} = 'messages' THEN base.message_count ELSE base.voice_ms END DESC,
+      CASE WHEN $${sortIndex} = 'messages' THEN base.voice_ms ELSE base.message_count END DESC,
+      base.user_id::numeric ASC
+    LIMIT $${limitIndex}`;
+
+    const parseNumber = (value: unknown): number => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : 0;
+    };
+
+    const parseDate = (value: unknown): Date | null => {
+      if (value instanceof Date) {
+        return Number.isNaN(value.getTime()) ? null : value;
+      }
+      if (typeof value === 'string') {
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+      }
+      return null;
+    };
+
+    const parseMetadata = (value: unknown): Record<string, unknown> | null => {
+      if (!value) {
+        return null;
+      }
+      if (typeof value === 'object') {
+        return value as Record<string, unknown>;
+      }
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value) as Record<string, unknown>;
+          return parsed;
+        } catch (error) {
+          console.warn('Failed to parse user metadata while listing members', error);
+          return null;
+        }
+      }
+      return null;
+    };
+
+    try {
+      const result = await pool.query(query, params);
+      const rows = result.rows ?? [];
+
+      const members: MemberEngagementEntry[] = [];
+      let nextCursor: MemberEngagementCursor | null = null;
+
+      for (let index = 0; index < rows.length; index += 1) {
+        const row = rows[index];
+        const userId = typeof row?.user_id === 'string' ? row.user_id : String(row?.user_id ?? '').trim();
+        if (!userId) {
+          continue;
+        }
+
+        const metadata = parseMetadata(row?.metadata ?? null);
+        const nickname = this.normalizeString(row?.nickname ?? null);
+        const pseudo = this.normalizeString(row?.pseudo ?? null);
+        const username = this.normalizeString(row?.username ?? null);
+        const metadataDisplayName = typeof metadata?.displayName === 'string'
+          ? this.normalizeString(metadata.displayName)
+          : null;
+        const displayName = metadataDisplayName ?? nickname ?? pseudo ?? username ?? null;
+
+        const voiceMs = Math.max(0, Math.floor(parseNumber(row?.voice_ms)));
+        const messageCount = Math.max(0, Math.floor(parseNumber(row?.message_count)));
+        const voiceMinutes = Math.max(0, Math.round(voiceMs / 60000));
+        const firstSeen = parseDate(row?.first_seen ?? null);
+        const lastSeen = parseDate(row?.last_seen ?? null);
+        const lastActivity = parseDate(row?.last_activity_at ?? null);
+        const primaryMetric = parseNumber(row?.primary_metric);
+        const secondaryMetric = parseNumber(row?.secondary_metric);
+
+        const avatarCandidate = metadata && typeof metadata.avatarUrl === 'string' ? metadata.avatarUrl : null;
+
+        let isBot = false;
+        const rawIsBot = metadata?.isBot;
+        if (typeof rawIsBot === 'boolean') {
+          isBot = rawIsBot;
+        } else if (typeof rawIsBot === 'string') {
+          const lowered = rawIsBot.toLowerCase();
+          isBot = lowered === 'true' || lowered === '1';
+        }
+
+        const roles: Array<{ id: string; name: string }> = [];
+        if (metadata && Array.isArray((metadata as { roles?: unknown[] }).roles)) {
+          for (const role of (metadata as { roles?: unknown[] }).roles ?? []) {
+            const id = typeof (role as { id?: unknown })?.id === 'string'
+              ? ((role as { id?: unknown }).id as string)
+              : '';
+            const name = typeof (role as { name?: unknown })?.name === 'string'
+              ? ((role as { name?: unknown }).name as string)
+              : '';
+            const trimmedId = id.trim();
+            const trimmedName = name.trim();
+            if (trimmedId && trimmedName) {
+              roles.push({ id: trimmedId, name: trimmedName });
+            }
+          }
+        }
+
+        const entry: MemberEngagementEntry = {
+          userId,
+          displayName,
+          username,
+          nickname,
+          firstSeenAt: firstSeen,
+          lastSeenAt: lastSeen,
+          lastActivityAt: lastActivity,
+          avatarUrl: typeof avatarCandidate === 'string' && avatarCandidate ? avatarCandidate : null,
+          roles,
+          isBot,
+          voiceMilliseconds: voiceMs,
+          voiceMinutes,
+          messageCount,
+          primaryMetric,
+          secondaryMetric,
+        };
+
+        if (index < boundedLimit) {
+          members.push(entry);
+        } else if (!nextCursor) {
+          nextCursor = {
+            primaryMetric,
+            secondaryMetric,
+            userId,
+          };
+        }
+      }
+
+      return { members, nextCursor };
+    } catch (error) {
+      console.error('Failed to list members by engagement', error);
+      return { members: [], nextCursor: null };
     }
   }
 
