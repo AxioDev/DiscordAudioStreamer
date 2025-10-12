@@ -532,7 +532,7 @@ const DailyActivityChart = ({ history, now, isHistoryLoading }) => {
                     class="flex min-w-[2.5rem] flex-1 flex-col items-center gap-2 text-xs text-slate-300"
                   >
                     <div
-                      class="flex h-48 w-full items-end rounded-2xl bg-white/5 p-1"
+                      class="relative flex h-48 w-full items-end rounded-2xl bg-white/5 p-1"
                       title=${tooltip}
                     >
                       <span class="sr-only">${srText}</span>
