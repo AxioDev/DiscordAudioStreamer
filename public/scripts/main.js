@@ -62,6 +62,53 @@ const NAV_LINKS = [
   { label: 'Modération', route: 'ban', href: '/bannir', icon: ShieldCheck },
 ];
 
+const PRERENDER_CLASS_TOKENS = [
+  'prerender',
+  'classements-page',
+  'shop-page',
+  'about-page',
+  'cgu-page',
+];
+
+const hasHydratableAppShell = (node) => {
+  if (!node || typeof node !== 'object') {
+    return false;
+  }
+  const firstElement = node.firstElementChild;
+  if (!firstElement || typeof firstElement.hasAttribute !== 'function') {
+    return false;
+  }
+  return firstElement.hasAttribute('data-app-shell');
+};
+
+const containsLegacyPrerenderMarkup = (node) => {
+  if (!node || typeof node !== 'object') {
+    return false;
+  }
+  const firstElement = node.firstElementChild;
+  if (!firstElement) {
+    return false;
+  }
+  const className = typeof firstElement.className === 'string' ? firstElement.className : '';
+  if (!className) {
+    return false;
+  }
+  return PRERENDER_CLASS_TOKENS.some((token) => className.includes(token));
+};
+
+const clearMountNode = (node) => {
+  if (!node || typeof node !== 'object') {
+    return;
+  }
+  try {
+    node.innerHTML = '';
+  } catch (error) {
+    while (node.firstChild) {
+      node.removeChild(node.firstChild);
+    }
+  }
+};
+
 const readBootstrapState = () => {
   if (typeof window === 'undefined') {
     return null;
@@ -1126,7 +1173,7 @@ const App = () => {
   const routePhaseValue = routeTransitionActive ? String(routeTransitionPhase) : 'initial';
 
   return html`
-    <div class="flex min-h-screen flex-col bg-slate-950 text-slate-100">
+    <div class="flex min-h-screen flex-col bg-slate-950 text-slate-100" data-app-shell="true">
       <header
         class=${[`sticky top-0 z-20 border-b border-slate-800 bg-slate-900/80 backdrop-blur`, headerAnimationClass]
           .filter(Boolean)
@@ -1398,9 +1445,15 @@ const App = () => {
 
 const mountNode = document.getElementById('app');
 if (mountNode) {
-  if (mountNode.childNodes && mountNode.childNodes.length > 0) {
+  const canHydrate = hasHydratableAppShell(mountNode);
+  if (canHydrate) {
     hydrate(html`<${App} />`, mountNode);
   } else {
+    if (mountNode.childNodes && mountNode.childNodes.length > 0) {
+      if (containsLegacyPrerenderMarkup(mountNode)) {
+        clearMountNode(mountNode);
+      }
+    }
     render(html`<${App} />`, mountNode);
   }
 }
