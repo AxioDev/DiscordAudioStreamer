@@ -171,15 +171,17 @@ const HomePage = ({
       const updatedLabel = typeof pulse.generatedAtLabel === 'string' && pulse.generatedAtLabel
         ? `Actualisé à ${pulse.generatedAtLabel}`
         : 'Actualisation en cours…';
+      const headerNote = [updatedLabel, pulse.comparisonLabel]
+        .filter((value) => typeof value === 'string' && value.trim().length > 0)
+        .join(' • ');
       return html`
         <section id="home-community-pulse" class="rounded-3xl border border-slate-800/60 bg-slate-950/70 p-8">
           <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p class="text-xs uppercase tracking-[0.3em] text-amber-300/80">Pulse communautaire</p>
-              <h2 class="text-2xl font-semibold text-white">Tendance des ${pulse.windowLabel}</h2>
-              <p class="text-sm text-slate-300">${pulse.comparisonLabel}</p>
+              <h2 class="text-2xl font-semibold text-white">Chiffres des ${pulse.windowLabel}</h2>
             </div>
-            <p class="text-xs text-slate-400">${updatedLabel}</p>
+            <p class="text-xs text-slate-400">${headerNote}</p>
           </div>
           <div class="mt-6 grid gap-4 md:grid-cols-3">
             ${pulse.metrics.map((metric) => {
@@ -191,29 +193,35 @@ const HomePage = ({
               return html`
                 <article class="rounded-2xl border border-slate-800/60 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40">
                   <div class="flex items-center justify-between gap-4">
-                    <span class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-slate-200/90">
+                    <span class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-[0.3em] text-slate-200/90">
                       <${Icon} class=${metric.iconClass || 'h-4 w-4 text-slate-200'} aria-hidden="true" />
                       <span class="tracking-[0.2em]">${metric.label}</span>
                     </span>
-                    <span class=${`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] ${metric.trendAccentClass || 'border-slate-400/40 bg-slate-500/10 text-slate-200'}`}>
+                    <span class=${`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold tracking-[0.1em] ${metric.trendAccentClass || 'border-slate-400/40 bg-slate-500/10 text-slate-200'}`}>
                       <${TrendIcon} class="h-3.5 w-3.5" aria-hidden="true" />
                       <span class="tracking-normal">${metric.trendLabel}</span>
                     </span>
                   </div>
-                  <p class="mt-4 text-3xl font-bold text-white">
-                    <span aria-hidden="true">${metric.valueLabel}</span>
-                    <span class="sr-only">${metric.valueAccessibleLabel}</span>
-                  </p>
-                  <p class="mt-2 text-sm text-slate-300">
-                    <span aria-hidden="true">${metric.changeLabel}</span>
+                  <div class="mt-5 flex items-baseline justify-between gap-3">
+                    <p class="text-4xl font-bold text-white">
+                      <span aria-hidden="true">${metric.valueLabel}</span>
+                      <span class="sr-only">${metric.valueAccessibleLabel}</span>
+                    </p>
                     ${percentLabel
-                      ? html`<span aria-hidden="true" class="ml-2 text-xs font-semibold uppercase tracking-[0.25em] text-slate-400/90">(${percentLabel})</span>`
+                      ? html`<span aria-hidden="true" class="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs font-semibold text-slate-100">${percentLabel}</span>`
                       : null}
+                  </div>
+                  <div class="mt-4 flex flex-col gap-2 text-sm text-slate-300">
+                    <div class="flex items-baseline justify-between gap-3">
+                      <span class="text-xs uppercase tracking-[0.2em] text-slate-500">Variation</span>
+                      <span aria-hidden="true" class="font-semibold text-white">${metric.changeLabel}</span>
+                    </div>
                     <span class="sr-only">${metric.changeAccessibleLabel}</span>
-                    <span aria-hidden="true" class="ml-2 text-slate-500">· ${pulse.comparisonLabel}</span>
-                  </p>
-                  <p class="mt-1 text-xs text-slate-500">Précédemment ${metric.previousLabel}</p>
-                  <p class="mt-3 text-xs text-slate-400">${metric.description}</p>
+                    <div class="flex items-baseline justify-between gap-3 text-xs text-slate-500">
+                      <span>Précédent</span>
+                      <span aria-hidden="true">${metric.previousLabel}</span>
+                    </div>
+                  </div>
                 </article>
               `;
             })}
@@ -227,13 +235,13 @@ const HomePage = ({
         <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p class="text-xs uppercase tracking-[0.3em] text-amber-300/80">Pulse communautaire</p>
-            <h2 class="text-2xl font-semibold text-white">Tendance des 15 dernières minutes</h2>
-            <p class="text-sm text-slate-300">Indicateurs en cours de chargement…</p>
+            <h2 class="text-2xl font-semibold text-white">Chiffres des 15 dernières minutes</h2>
+            <p class="text-sm text-slate-300">Indicateurs en préparation…</p>
           </div>
           <p class="text-xs text-slate-400">Actualisation en cours…</p>
         </div>
         <div class="mt-6 rounded-2xl border border-dashed border-slate-700/60 bg-slate-950/50 p-6 text-sm text-slate-400">
-          Les statistiques temps réel ne sont pas disponibles pour le moment. Recharge la page dans quelques instants.
+          Les statistiques temps réel arrivent : réessaie dans un instant.
         </div>
       </section>
     `;
