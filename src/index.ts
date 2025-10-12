@@ -18,6 +18,7 @@ import KaldiTranscriptionService from './services/KaldiTranscriptionService';
 import UserPersonaService from './services/UserPersonaService';
 import AdminService from './services/AdminService';
 import StatisticsService from './services/StatisticsService';
+import UserAudioRecorder from './services/UserAudioRecorder';
 
 const mixer = new AudioMixer({
   frameBytes: config.audio.frameBytes,
@@ -73,6 +74,19 @@ const statisticsService = new StatisticsService({
   repository: voiceActivityRepository,
   config,
 });
+
+let userAudioRecorder: UserAudioRecorder | null = null;
+
+try {
+  userAudioRecorder = new UserAudioRecorder({
+    baseDirectory: config.recordingsDirectory,
+    sampleRate: config.audio.sampleRate,
+    channels: config.audio.channels,
+    bytesPerSample: config.audio.bytesPerSample,
+  });
+} catch (error) {
+  console.error('Failed to initialize user audio recorder', error);
+}
 
 const kaldiTranscriptionService =
   config.kaldi.enabled && Boolean(config.database.url)
@@ -148,6 +162,7 @@ const discordBridge = new DiscordAudioBridge({
   speakerTracker,
   voiceActivityRepository,
   transcriptionService: kaldiTranscriptionService,
+  audioRecorder: userAudioRecorder,
 });
 
 discordBridge.login().catch((error) => {
