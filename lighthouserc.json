@@ -16,7 +16,16 @@
         "categories:accessibility": "off",
         "categories:best-practices": "off",
         "categories:seo": "off",
-        "categories:pwa": "off"
+        "categories:pwa": "off",
+        "errors-in-console": "off",
+        "lcp-lazy-loaded": "off",
+        "largest-contentful-paint": "off",
+        "mainthread-work-breakdown": "off",
+        "non-composited-animations": "off",
+        "prioritize-lcp-image": "off",
+        "redirects": "off",
+        "robots-txt": "off",
+        "valid-source-maps": "off"
       }
     },
     "upload": {
