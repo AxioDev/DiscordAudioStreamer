@@ -194,6 +194,7 @@ const appServer = new AppServer({
   dailyArticleService,
   adminService,
   statisticsService,
+  userAudioRecorder,
 });
 appServer.start();
 

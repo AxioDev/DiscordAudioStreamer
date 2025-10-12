@@ -58,6 +58,7 @@ import StatisticsService, {
   type CommunityStatisticsSnapshot,
   type StatisticsQueryOptions,
 } from '../services/StatisticsService';
+import type UserAudioRecorder from '../services/UserAudioRecorder';
 
 export interface AppServerOptions {
   config: Config;
@@ -75,6 +76,7 @@ export interface AppServerOptions {
   dailyArticleService?: DailyArticleService | null;
   adminService: AdminService;
   statisticsService: StatisticsService;
+  userAudioRecorder?: UserAudioRecorder | null;
 }
 
 type FlushCapableResponse = Response & {
@@ -309,6 +311,8 @@ export default class AppServer {
 
   private readonly statisticsService: StatisticsService;
 
+  private readonly userAudioRecorder: UserAudioRecorder | null;
+
   constructor({
     config,
     transcoder,
@@ -325,6 +329,7 @@ export default class AppServer {
     dailyArticleService = null,
     adminService,
     statisticsService,
+    userAudioRecorder = null,
   }: AppServerOptions) {
     this.config = config;
     this.transcoder = transcoder;
@@ -337,6 +342,7 @@ export default class AppServer {
     this.dailyArticleService = dailyArticleService ?? null;
     this.adminService = adminService;
     this.statisticsService = statisticsService;
+    this.userAudioRecorder = userAudioRecorder ?? null;
     const adminUsername = this.config.admin?.username ?? null;
     const adminPassword = this.config.admin?.password ?? null;
     this.adminCredentials =
@@ -501,6 +507,37 @@ export default class AppServer {
     }
 
     return null;
+  }
+
+  private buildRecordingDownloadName(userId: string, fileName: string): string {
+    const normalizedUserId = typeof userId === 'string' && userId.trim().length > 0 ? userId.trim() : 'membre';
+    const parsed = path.parse(typeof fileName === 'string' && fileName.trim().length > 0 ? fileName : 'enregistrement.wav');
+    const base = `${normalizedUserId}-${parsed.name || 'enregistrement'}`;
+    const sanitizedBase = base
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9._-]+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+/, '')
+      .replace(/_+$/, '');
+    const safeBase = sanitizedBase.length > 0 ? sanitizedBase : 'enregistrement';
+    const extension = parsed.ext && parsed.ext.length <= 10 ? parsed.ext.toLowerCase() : '.wav';
+    const normalizedExtension = extension.startsWith('.') ? extension : `.${extension}`;
+    return `${safeBase}${normalizedExtension}`;
+  }
+
+  private getRecordingContentType(fileName: string): string {
+    if (typeof fileName !== 'string') {
+      return 'audio/wav';
+    }
+    const lower = fileName.toLowerCase();
+    if (lower.endsWith('.mp3')) {
+      return 'audio/mpeg';
+    }
+    if (lower.endsWith('.ogg')) {
+      return 'audio/ogg';
+    }
+    return 'audio/wav';
   }
 
   private parseVoiceTranscriptionCursor(value: unknown): VoiceTranscriptionCursor | null {
@@ -4662,6 +4699,175 @@ export default class AppServer {
         res.status(500).json({
           error: 'PROFILE_ANALYTICS_FAILED',
           message: "Impossible de récupérer le profil demandé.",
+        });
+      }
+    });
+
+    this.app.get('/api/users/:userId/recordings', async (req, res) => {
+      const rawUserId = typeof req.params.userId === 'string' ? req.params.userId.trim() : '';
+      if (!rawUserId) {
+        res
+          .status(400)
+          .json({ error: 'USER_ID_REQUIRED', message: "L'identifiant utilisateur est requis." });
+        return;
+      }
+
+      if (!this.userAudioRecorder) {
+        res.status(404).json({
+          error: 'RECORDINGS_UNAVAILABLE',
+          message: 'Aucun enregistrement audio disponible pour ce membre.',
+        });
+        return;
+      }
+
+      if (await this.adminService.isMemberHidden(rawUserId)) {
+        res.status(404).json({
+          error: 'RECORDINGS_UNAVAILABLE',
+          message: 'Aucun enregistrement audio disponible pour ce membre.',
+        });
+        return;
+      }
+
+      const sinceParam = Array.isArray(req.query.since) ? req.query.since[0] : req.query.since;
+      const untilParam = Array.isArray(req.query.until) ? req.query.until[0] : req.query.until;
+      const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+
+      const now = new Date();
+      const untilCandidate = this.parseTimestamp(untilParam) ?? now;
+      const sinceCandidate = this.parseTimestamp(sinceParam)
+        ?? new Date(untilCandidate.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+      if (Number.isNaN(sinceCandidate.getTime()) || Number.isNaN(untilCandidate.getTime())) {
+        res
+          .status(400)
+          .json({ error: 'INVALID_RANGE', message: 'La période demandée est invalide.' });
+        return;
+      }
+
+      if (sinceCandidate.getTime() >= untilCandidate.getTime()) {
+        res
+          .status(400)
+          .json({ error: 'EMPTY_RANGE', message: 'La date de début doit précéder la date de fin.' });
+        return;
+      }
+
+      const parsedLimit = Number.parseInt(String(limitParam ?? ''), 10);
+      const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 25;
+
+      try {
+        const recordings = await this.userAudioRecorder.listRecordings(rawUserId, {
+          since: sinceCandidate,
+          until: untilCandidate,
+          limit,
+        });
+
+        const entries = recordings.map((recording) => ({
+          id: recording.id,
+          fileName: recording.fileName,
+          createdAt: recording.createdAt.toISOString(),
+          createdAtMs: recording.createdAt.getTime(),
+          sizeBytes: recording.sizeBytes,
+          durationMs: recording.durationMs,
+          downloadUrl: `/api/users/${encodeURIComponent(rawUserId)}/recordings/${encodeURIComponent(recording.id)}/download`,
+        }));
+
+        res.json({
+          range: {
+            since: sinceCandidate.toISOString(),
+            until: untilCandidate.toISOString(),
+            sinceMs: sinceCandidate.getTime(),
+            untilMs: untilCandidate.getTime(),
+          },
+          entries,
+        });
+      } catch (error) {
+        console.error('Failed to list audio recordings', { userId: rawUserId, error });
+        res.status(500).json({
+          error: 'RECORDINGS_LIST_FAILED',
+          message: 'Impossible de récupérer les enregistrements audio.',
+        });
+      }
+    });
+
+    this.app.get('/api/users/:userId/recordings/:recordingId/download', async (req, res) => {
+      const rawUserId = typeof req.params.userId === 'string' ? req.params.userId.trim() : '';
+      const rawRecordingId = typeof req.params.recordingId === 'string' ? req.params.recordingId.trim() : '';
+
+      if (!rawUserId) {
+        res
+          .status(400)
+          .json({ error: 'USER_ID_REQUIRED', message: "L'identifiant utilisateur est requis." });
+        return;
+      }
+
+      if (!rawRecordingId) {
+        res.status(400).json({
+          error: 'RECORDING_ID_REQUIRED',
+          message: "L'identifiant de l'enregistrement est requis.",
+        });
+        return;
+      }
+
+      if (!this.userAudioRecorder) {
+        res.status(404).json({
+          error: 'RECORDING_NOT_FOUND',
+          message: 'Enregistrement introuvable.',
+        });
+        return;
+      }
+
+      if (await this.adminService.isMemberHidden(rawUserId)) {
+        res.status(404).json({
+          error: 'RECORDING_NOT_FOUND',
+          message: 'Enregistrement introuvable.',
+        });
+        return;
+      }
+
+      try {
+        const metadata = await this.userAudioRecorder.resolveRecording(rawUserId, rawRecordingId);
+        if (!metadata) {
+          res.status(404).json({
+            error: 'RECORDING_NOT_FOUND',
+            message: 'Enregistrement introuvable.',
+          });
+          return;
+        }
+
+        const downloadName = this.buildRecordingDownloadName(rawUserId, metadata.fileName);
+        const contentType = this.getRecordingContentType(metadata.fileName);
+
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+        if (Number.isFinite(metadata.sizeBytes) && metadata.sizeBytes >= 0) {
+          res.setHeader('Content-Length', String(metadata.sizeBytes));
+        }
+        const disposition = `attachment; filename="${downloadName}"; filename*=UTF-8''${encodeURIComponent(downloadName)}`;
+        res.setHeader('Content-Disposition', disposition);
+
+        const stream = fs.createReadStream(metadata.filePath);
+        stream.on('error', (error) => {
+          console.error('Failed to stream audio recording', { userId: rawUserId, recordingId: rawRecordingId, error });
+          if (!res.headersSent) {
+            res.status(500).json({
+              error: 'RECORDING_STREAM_FAILED',
+              message: "Impossible de télécharger l'enregistrement audio.",
+            });
+          } else {
+            res.destroy(error as Error);
+          }
+        });
+
+        stream.pipe(res);
+      } catch (error) {
+        console.error('Failed to prepare audio recording download', {
+          userId: rawUserId,
+          recordingId: rawRecordingId,
+          error,
+        });
+        res.status(500).json({
+          error: 'RECORDING_STREAM_FAILED',
+          message: "Impossible de télécharger l'enregistrement audio.",
         });
       }
     });
