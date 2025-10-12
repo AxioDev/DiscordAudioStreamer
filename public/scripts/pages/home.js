@@ -190,10 +190,12 @@ const HomePage = ({
               const percentLabel = typeof metric.percentLabel === 'string' && metric.percentLabel.trim().length > 0
                 ? metric.percentLabel
                 : null;
+              const percentAccentClass =
+                metric.percentAccentClass ?? metric.trendAccentClass ?? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200';
               return html`
                 <article class="rounded-2xl border border-slate-800/60 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40">
                   <div class="flex items-center justify-between gap-4">
-                    <span class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-[0.3em] text-slate-200/90">
+                    <span class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[0.55rem] font-semibold uppercase tracking-[0.32em] text-slate-200/80 sm:text-[0.65rem]">
                       <${Icon} class=${metric.iconClass || 'h-4 w-4 text-slate-200'} aria-hidden="true" />
                       <span class="tracking-[0.2em]">${metric.label}</span>
                     </span>
@@ -202,13 +204,18 @@ const HomePage = ({
                       <span class="tracking-normal">${metric.trendLabel}</span>
                     </span>
                   </div>
-                  <div class="mt-5 flex items-baseline justify-between gap-3">
-                    <p class="text-4xl font-bold text-white">
+                  <div class="mt-5 flex flex-wrap items-end justify-between gap-3">
+                    <p class="text-3xl font-bold tracking-tight text-white sm:text-[2.5rem]">
                       <span aria-hidden="true">${metric.valueLabel}</span>
                       <span class="sr-only">${metric.valueAccessibleLabel}</span>
                     </p>
                     ${percentLabel
-                      ? html`<span aria-hidden="true" class="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs font-semibold text-slate-100">${percentLabel}</span>`
+                      ? html`<span
+                          aria-hidden="true"
+                          class=${`inline-flex items-center gap-1 rounded-xl border px-3 py-1.5 text-sm font-bold tracking-tight shadow shadow-slate-950/40 ${percentAccentClass}`}
+                        >
+                          ${percentLabel}
+                        </span>`
                       : null}
                   </div>
                   <div class="mt-4 flex flex-col gap-2 text-sm text-slate-300">
