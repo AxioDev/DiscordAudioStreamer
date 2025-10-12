@@ -1556,7 +1556,11 @@ export default class AppServer {
 
     const shell = this.seoRenderer.render(metadata, {
       appHtml: '<div id="admin-root" class="min-h-screen bg-slate-950 text-slate-100"></div>',
+      injectScripts: false,
+      stripFallbackScripts: true,
     });
+
+    const sanitizedShell = this.stripMainEntryPreloads(shell);
 
     const manifest = this.seoRenderer.getAssetManifest();
     const descriptor = manifest?.entries?.admin;
@@ -1565,7 +1569,7 @@ export default class AppServer {
     }
 
     const scriptTag = this.serializeScriptDescriptor(descriptor);
-    return this.injectHtmlBeforeBodyClose(shell, `    ${scriptTag}\n`);
+    return this.injectHtmlBeforeBodyClose(sanitizedShell, `    ${scriptTag}\n`);
   }
 
   private serializeScriptDescriptor(descriptor: AssetScriptDescriptor): string {
@@ -1595,6 +1599,13 @@ export default class AppServer {
       return `${html}${snippet}`;
     }
     return `${html.slice(0, index)}${snippet}${html.slice(index)}`;
+  }
+
+  private stripMainEntryPreloads(html: string): string {
+    return html.replace(
+      /\n?[\t ]*<link[^>]*href="[^"]*\/assets\/js\/main[^"]*"[^>]*\/?>(?:\r?\n)?/gi,
+      '',
+    );
   }
 
   private loadAssetManifest(manifestPath: string): AssetManifest | null {
