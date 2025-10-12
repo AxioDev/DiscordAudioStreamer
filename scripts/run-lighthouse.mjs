@@ -496,6 +496,22 @@ async function writeSkipOutputs(reason) {
   await fs.writeFile(summaryPath, `${markdown}\n`, 'utf8');
 }
 
+const CATEGORY_THRESHOLDS = {
+  performance: { label: 'Performance', minimum: 95, level: 'error' },
+  accessibility: { label: 'Accessibility', minimum: 95, level: 'warn' },
+  bestPractices: { label: 'Best Practices', minimum: 95, level: 'warn' },
+  seo: { label: 'SEO', minimum: 95, level: 'warn' },
+};
+
+class LighthouseValidationError extends Error {
+  constructor(messages) {
+    const list = Array.isArray(messages) && messages.length > 0 ? messages : ['Unknown validation failure'];
+    super(`Lighthouse score requirements not met.\n${list.map((msg) => ` - ${msg}`).join('\n')}`);
+    this.name = 'LighthouseValidationError';
+    this.messages = list;
+  }
+}
+
 async function collectReports() {
   const desktop = await loadRunResults('desktop');
   const mobile = await loadRunResults('mobile');
@@ -507,6 +523,36 @@ async function collectReports() {
     generatedAt: new Date().toISOString(),
     results: all,
   };
+}
+
+function evaluateCategoryScores(report) {
+  const errors = [];
+  const warnings = [];
+  if (!report || !Array.isArray(report.results)) {
+    return { errors: ['Report did not include any Lighthouse results'], warnings };
+  }
+
+  for (const entry of report.results) {
+    const location = `${entry.mode} ${entry.url ? `(${entry.url})` : ''}`.trim();
+    for (const [key, definition] of Object.entries(CATEGORY_THRESHOLDS)) {
+      const score = entry?.scores?.[key];
+      if (!Number.isFinite(score)) {
+        errors.push(`${definition.label} score missing for ${location || 'unknown run'}`);
+        continue;
+      }
+
+      if (score < definition.minimum) {
+        const message = `${definition.label} score ${score.toFixed(1)} is below the required ${definition.minimum} for ${location || 'unknown run'}`;
+        if (definition.level === 'warn') {
+          warnings.push(message);
+        } else {
+          errors.push(message);
+        }
+      }
+    }
+  }
+
+  return { errors, warnings };
 }
 
 async function cleanupWorkingDirectories() {
@@ -534,21 +580,31 @@ async function main() {
 
   try {
     await runLighthouseAudits(chromePath);
+    const report = await collectReports();
+    if (!report) {
+      await writeSkipOutputs('Lighthouse produced no usable reports');
+      return;
+    }
+
+    const { errors, warnings } = evaluateCategoryScores(report);
+    for (const warning of warnings) {
+      console.warn(`[run-lighthouse] ${warning}`);
+    }
+
+    await writeReportOutputs(report);
+
+    if (errors.length > 0) {
+      throw new LighthouseValidationError(errors);
+    }
   } catch (error) {
+    if (error instanceof LighthouseValidationError) {
+      throw error;
+    }
     await writeSkipOutputs(`Lighthouse execution failed: ${error.message}`);
-    await cleanupWorkingDirectories();
     throw error;
-  }
-
-  const report = await collectReports();
-  if (!report) {
-    await writeSkipOutputs('Lighthouse produced no usable reports');
+  } finally {
     await cleanupWorkingDirectories();
-    return;
   }
-
-  await writeReportOutputs(report);
-  await cleanupWorkingDirectories();
 }
 
 try {
