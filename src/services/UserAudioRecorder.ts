@@ -1,6 +1,9 @@
 import path from 'node:path';
-import { createWriteStream, mkdirSync, type WriteStream } from 'node:fs';
+import { createWriteStream, mkdirSync, statSync, type WriteStream } from 'node:fs';
 import { promises as fs } from 'node:fs';
+
+const WAV_HEADER_BYTES = 44;
+const MIN_RECORDING_DURATION_MS = 10_000;
 
 export interface UserAudioRecorderOptions {
   baseDirectory: string;
@@ -39,6 +42,22 @@ export interface UserAudioRecordingMetadata {
   readonly durationMs: number | null;
 }
 
+interface PendingRecording {
+  filePath: string;
+  payloadBytes: number;
+}
+
+interface RecordingSessionFinalizePayload {
+  totalDataBytes: number;
+}
+
+interface RecordingSessionOptions {
+  initialDataLength?: number;
+  writeHeaderOnStart?: boolean;
+  onFinalize?: (payload: RecordingSessionFinalizePayload) => void;
+  onFinalizeError?: (error: unknown) => void;
+}
+
 class RecordingSession implements UserAudioRecordingSession {
   private dataLength = 0;
 
@@ -46,11 +65,29 @@ class RecordingSession implements UserAudioRecordingSession {
 
   private finalizePromise: Promise<void> | null = null;
 
+  private readonly initialDataLength: number;
+
+  private readonly writeHeaderOnStart: boolean;
+
+  private readonly onFinalize: RecordingSessionOptions['onFinalize'];
+
+  private readonly onFinalizeError: RecordingSessionOptions['onFinalizeError'];
+
   constructor(
     private readonly stream: WriteStream,
     public readonly filePath: string,
     private readonly headerFactory: (size: number) => Buffer,
-  ) {}
+    options: RecordingSessionOptions = {},
+  ) {
+    this.initialDataLength = Math.max(0, Math.floor(options.initialDataLength ?? 0));
+    this.writeHeaderOnStart = options.writeHeaderOnStart !== false;
+    this.onFinalize = options.onFinalize;
+    this.onFinalizeError = options.onFinalizeError;
+
+    if (this.writeHeaderOnStart) {
+      this.stream.write(this.headerFactory(this.initialDataLength));
+    }
+  }
 
   public write(chunk: Buffer): void {
     if (this.ended) {
@@ -86,12 +123,23 @@ class RecordingSession implements UserAudioRecordingSession {
       });
     })
       .then(async () => {
-        const header = this.headerFactory(this.dataLength);
+        const totalDataBytes = this.initialDataLength + this.dataLength;
+        const header = this.headerFactory(totalDataBytes);
         const handle = await fs.open(this.filePath, 'r+');
         try {
           await handle.write(header, 0, header.length, 0);
         } finally {
           await handle.close();
+        }
+        if (typeof this.onFinalize === 'function') {
+          try {
+            this.onFinalize({ totalDataBytes });
+          } catch (callbackError) {
+            console.warn('Recording finalize callback failed', {
+              filePath: this.filePath,
+              error: callbackError,
+            });
+          }
         }
       })
       .catch(async (error: unknown) => {
@@ -100,6 +148,16 @@ class RecordingSession implements UserAudioRecordingSession {
           await handle.close();
         } catch (closeError) {
           console.warn('Failed to close recording file after finalize error', closeError);
+        }
+        if (typeof this.onFinalizeError === 'function') {
+          try {
+            this.onFinalizeError(error);
+          } catch (callbackError) {
+            console.warn('Recording finalize error handler failed', {
+              filePath: this.filePath,
+              error: callbackError,
+            });
+          }
         }
         throw error;
       });
@@ -117,9 +175,15 @@ export default class UserAudioRecorder {
 
   private readonly bytesPerSample: number;
 
+  private readonly bytesPerSecond: number;
+
   private readonly retentionPeriodMs: number;
 
   private readonly cleanupIntervalMs: number;
+
+  private readonly minRecordingPayloadBytes: number;
+
+  private readonly pendingRecordings = new Map<string, PendingRecording>();
 
   private cleanupTimer: NodeJS.Timeout | null = null;
 
@@ -135,8 +199,15 @@ export default class UserAudioRecorder {
     this.sampleRate = sampleRate;
     this.channels = channels;
     this.bytesPerSample = bytesPerSample;
+    this.bytesPerSecond = this.sampleRate * this.channels * this.bytesPerSample;
     this.retentionPeriodMs = Math.max(retentionPeriodMs, 0);
     this.cleanupIntervalMs = Math.max(cleanupIntervalMs ?? 12 * 60 * 60 * 1000, 60 * 60 * 1000);
+    if (Number.isFinite(this.bytesPerSecond) && this.bytesPerSecond > 0) {
+      const seconds = MIN_RECORDING_DURATION_MS / 1000;
+      this.minRecordingPayloadBytes = Math.ceil(seconds * this.bytesPerSecond);
+    } else {
+      this.minRecordingPayloadBytes = 0;
+    }
 
     mkdirSync(this.baseDirectory, { recursive: true });
 
@@ -154,16 +225,51 @@ export default class UserAudioRecorder {
       const directory = this.resolveUserDirectory(identity);
       mkdirSync(directory, { recursive: true });
 
+      const userId = identity.id;
+      const reusable = this.preparePendingRecording(userId);
+      if (reusable) {
+        const stream = createWriteStream(reusable.filePath, { flags: 'a' });
+        stream.on('error', (error: Error) => {
+          console.error('Recording stream error', { filePath: reusable.filePath, error });
+        });
+
+        return new RecordingSession(stream, reusable.filePath, (size) => this.createWavHeader(size), {
+          initialDataLength: reusable.payloadBytes,
+          writeHeaderOnStart: false,
+          onFinalize: ({ totalDataBytes }) => {
+            this.handlePendingRecordingFinalize(userId, reusable, totalDataBytes);
+          },
+          onFinalizeError: (error) => {
+            this.handlePendingRecordingFinalizeError(userId, reusable.filePath, error);
+          },
+        });
+      }
+
       const timestamp = this.formatTimestamp(new Date());
-      const filePath = path.join(directory, `${timestamp}.wav`);
+      const fileName = `${timestamp}.wav`;
+      const filePath = path.join(directory, fileName);
       const stream = createWriteStream(filePath);
-      stream.write(this.createWavHeader(0));
 
       stream.on('error', (error: Error) => {
         console.error('Recording stream error', { filePath, error });
       });
 
-      return new RecordingSession(stream, filePath, (size) => this.createWavHeader(size));
+      const pendingRecord: PendingRecording = { filePath, payloadBytes: 0 };
+
+      const session = new RecordingSession(stream, filePath, (size) => this.createWavHeader(size), {
+        initialDataLength: 0,
+        writeHeaderOnStart: true,
+        onFinalize: ({ totalDataBytes }) => {
+          this.handlePendingRecordingFinalize(userId, pendingRecord, totalDataBytes);
+        },
+        onFinalizeError: (error) => {
+          this.handlePendingRecordingFinalizeError(userId, filePath, error);
+        },
+      });
+
+      this.pendingRecordings.set(userId, pendingRecord);
+
+      return session;
     } catch (error) {
       console.error('Failed to open user audio recording session', {
         userId: identity.id,
@@ -227,6 +333,15 @@ export default class UserAudioRecorder {
         }
 
         const filePath = path.join(directoryPath, fileName);
+        const pendingRecording = this.pendingRecordings.get(normalizedUserId);
+        if (
+          pendingRecording &&
+          pendingRecording.filePath === filePath &&
+          this.minRecordingPayloadBytes > 0 &&
+          pendingRecording.payloadBytes < this.minRecordingPayloadBytes
+        ) {
+          continue;
+        }
         let stats;
         try {
           stats = await fs.stat(filePath);
@@ -294,6 +409,16 @@ export default class UserAudioRecorder {
 
     const createdAtMs = this.resolveTimestamp(stats);
     if (createdAtMs == null || Number.isNaN(createdAtMs)) {
+      return null;
+    }
+
+    const pendingRecording = this.pendingRecordings.get(normalizedUserId);
+    if (
+      pendingRecording &&
+      pendingRecording.filePath === filePath &&
+      this.minRecordingPayloadBytes > 0 &&
+      pendingRecording.payloadBytes < this.minRecordingPayloadBytes
+    ) {
       return null;
     }
 
@@ -388,6 +513,7 @@ export default class UserAudioRecorder {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         console.warn('Failed to read recording file stats during cleanup', { filePath, error });
       }
+      this.removePendingRecordingByFilePath(filePath);
       return;
     }
 
@@ -401,6 +527,7 @@ export default class UserAudioRecorder {
     try {
       await fs.unlink(filePath);
       console.info('Deleted expired audio recording', { filePath });
+      this.removePendingRecordingByFilePath(filePath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         console.warn('Failed to delete expired recording file', { filePath, error });
@@ -453,8 +580,8 @@ export default class UserAudioRecorder {
       return null;
     }
 
-    const payloadBytes = Math.max(0, sizeBytes - 44);
-    const bytesPerSecond = this.sampleRate * this.channels * this.bytesPerSample;
+    const payloadBytes = Math.max(0, sizeBytes - WAV_HEADER_BYTES);
+    const bytesPerSecond = this.bytesPerSecond;
     if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) {
       return null;
     }
@@ -530,7 +657,7 @@ export default class UserAudioRecorder {
   }
 
   private createWavHeader(dataLength: number): Buffer {
-    const header = Buffer.alloc(44);
+    const header = Buffer.alloc(WAV_HEADER_BYTES);
     const bitsPerSample = this.bytesPerSample * 8;
     const byteRate = this.sampleRate * this.channels * this.bytesPerSample;
     const blockAlign = this.channels * this.bytesPerSample;
@@ -550,5 +677,72 @@ export default class UserAudioRecorder {
     header.writeUInt32LE(dataLength, 40);
 
     return header;
+  }
+
+  private preparePendingRecording(userId: string): PendingRecording | null {
+    const pending = this.pendingRecordings.get(userId);
+    if (!pending) {
+      return null;
+    }
+
+    try {
+      const stats = statSync(pending.filePath);
+      const payloadBytes = Math.max(0, stats.size - WAV_HEADER_BYTES);
+      pending.payloadBytes = payloadBytes;
+
+      if (this.minRecordingPayloadBytes > 0 && payloadBytes >= this.minRecordingPayloadBytes) {
+        if (this.pendingRecordings.get(userId) === pending) {
+          this.pendingRecordings.delete(userId);
+        }
+        return null;
+      }
+
+      return pending;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.warn('Failed to reuse pending audio recording', {
+          userId,
+          filePath: pending.filePath,
+          error,
+        });
+      }
+      if (this.pendingRecordings.get(userId) === pending) {
+        this.pendingRecordings.delete(userId);
+      }
+      return null;
+    }
+  }
+
+  private handlePendingRecordingFinalize(
+    userId: string,
+    record: PendingRecording,
+    totalDataBytes: number,
+  ): void {
+    record.payloadBytes = totalDataBytes;
+
+    if (this.minRecordingPayloadBytes > 0 && totalDataBytes < this.minRecordingPayloadBytes) {
+      this.pendingRecordings.set(userId, record);
+      return;
+    }
+
+    if (this.pendingRecordings.get(userId) === record) {
+      this.pendingRecordings.delete(userId);
+    }
+  }
+
+  private handlePendingRecordingFinalizeError(userId: string, filePath: string, error: unknown): void {
+    if (this.pendingRecordings.get(userId)?.filePath === filePath) {
+      this.pendingRecordings.delete(userId);
+    }
+    console.warn('Pending recording finalize error', { userId, filePath, error });
+  }
+
+  private removePendingRecordingByFilePath(filePath: string): void {
+    for (const [userId, record] of this.pendingRecordings.entries()) {
+      if (record.filePath === filePath) {
+        this.pendingRecordings.delete(userId);
+        break;
+      }
+    }
   }
 }
