@@ -1108,11 +1108,140 @@ const findUserDetails = (snapshot, userId) => {
   };
 };
 
-const LoadingState = () => {
+const LoadingIndicator = () => {
   return html`<div class="flex items-center gap-2 text-sm text-slate-300">
     <span class="h-3 w-3 animate-spin rounded-full border-2 border-amber-300 border-t-transparent"></span>
     Chargement des statistiques…
   </div>`;
+};
+
+const StatisticsSkeleton = ({ includeHeatmap = true, includeHypeHistory = false }) => {
+  const metricPlaceholders = Array.from({ length: 4 }).map((_, index) =>
+    html`<div
+      key=${`metric-skeleton-${index}`}
+      class="animate-pulse space-y-4 rounded-2xl border border-slate-800/60 bg-slate-900/60 p-5 shadow-lg shadow-slate-950/30"
+    >
+      <div class="flex items-center justify-between">
+        <div class="h-12 w-12 rounded-2xl bg-slate-800/70"></div>
+        <div class="h-3 w-16 rounded-full bg-slate-800/70"></div>
+      </div>
+      <div class="space-y-3">
+        <div class="h-3 w-24 rounded-full bg-slate-800/70"></div>
+        <div class="h-7 w-32 rounded-full bg-slate-700/70"></div>
+        <div class="h-3 w-20 rounded-full bg-slate-800/70"></div>
+      </div>
+    </div>`,
+  );
+
+  const chartPlaceholder = (key) => html`<div key=${key} class="space-y-4">
+    <div class="h-4 w-48 rounded-full bg-slate-800/70"></div>
+    <div class="h-64 animate-pulse rounded-2xl border border-slate-800/60 bg-slate-900/60 shadow-inner shadow-slate-950/40"></div>
+  </div>`;
+
+  const topMembersPlaceholders = Array.from({ length: 5 }).map((_, index) =>
+    html`<div
+      key=${`top-member-skeleton-${index}`}
+      class="flex animate-pulse items-center justify-between gap-3 rounded-xl border border-slate-800/60 bg-slate-900/60 px-3 py-2"
+    >
+      <div class="flex items-center gap-3">
+        <div class="h-8 w-8 rounded-full bg-slate-800/70"></div>
+        <div class="space-y-2">
+          <div class="h-3 w-40 rounded-full bg-slate-800/70"></div>
+          <div class="h-3 w-24 rounded-full bg-slate-800/70"></div>
+        </div>
+      </div>
+      <div class="space-y-2 text-right">
+        <div class="h-3 w-20 rounded-full bg-slate-800/70"></div>
+        <div class="h-3 w-24 rounded-full bg-slate-800/70"></div>
+      </div>
+    </div>`,
+  );
+
+  const retentionPlaceholders = Array.from({ length: 4 }).map((_, index) =>
+    html`<li
+      key=${`retention-skeleton-${index}`}
+      class="flex animate-pulse items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/60 px-3 py-2"
+    >
+      <div class="h-3 w-24 rounded-full bg-slate-800/70"></div>
+      <div class="h-3 w-16 rounded-full bg-slate-800/70"></div>
+    </li>`,
+  );
+
+  const channelVoicePlaceholders = Array.from({ length: 6 }).map((_, index) =>
+    html`<li
+      key=${`voice-channel-skeleton-${index}`}
+      class="flex animate-pulse items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/60 px-3 py-2"
+    >
+      <div class="h-3 w-40 rounded-full bg-slate-800/70"></div>
+      <div class="h-3 w-24 rounded-full bg-slate-800/70"></div>
+    </li>`,
+  );
+
+  const channelTextPlaceholders = Array.from({ length: 6 }).map((_, index) =>
+    html`<li
+      key=${`text-channel-skeleton-${index}`}
+      class="flex animate-pulse items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/60 px-3 py-2"
+    >
+      <div class="h-3 w-40 rounded-full bg-slate-800/70"></div>
+      <div class="h-3 w-24 rounded-full bg-slate-800/70"></div>
+    </li>`,
+  );
+
+  return html`
+    <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      ${metricPlaceholders}
+    </section>
+
+    <section class="grid gap-6 lg:grid-cols-2 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] xl:gap-8">
+      <div class="space-y-6 xl:space-y-8">
+        ${chartPlaceholder('chart-activity')}
+        ${chartPlaceholder('chart-new-members')}
+        ${includeHypeHistory ? chartPlaceholder('chart-hype') : null}
+      </div>
+
+      <div class="grid gap-6 xl:gap-8">
+        <div class="rounded-2xl border border-slate-800/70 bg-slate-900/70 p-5 shadow-inner shadow-slate-950/30">
+          <div class="h-4 w-48 rounded-full bg-slate-800/70"></div>
+          <div class="mt-2 h-3 w-64 rounded-full bg-slate-800/70"></div>
+          <div class="mt-4 space-y-3">
+            ${topMembersPlaceholders}
+          </div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-800/70 bg-slate-900/70 p-5 shadow-inner shadow-slate-950/30">
+          <div class="h-4 w-48 rounded-full bg-slate-800/70"></div>
+          <div class="mt-2 h-3 w-72 rounded-full bg-slate-800/70"></div>
+          <ul class="mt-3 space-y-2">
+            ${retentionPlaceholders}
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid gap-6 lg:grid-cols-2">
+      <div class="rounded-2xl border border-slate-800/60 bg-slate-900/60 p-5 shadow-inner shadow-slate-950/30">
+        <div class="h-4 w-56 rounded-full bg-slate-800/70"></div>
+        <div class="mt-2 h-3 w-48 rounded-full bg-slate-800/70"></div>
+        <ul class="mt-3 space-y-2">
+          ${channelVoicePlaceholders}
+        </ul>
+      </div>
+      <div class="rounded-2xl border border-slate-800/60 bg-slate-900/60 p-5 shadow-inner shadow-slate-950/30">
+        <div class="h-4 w-56 rounded-full bg-slate-800/70"></div>
+        <div class="mt-2 h-3 w-48 rounded-full bg-slate-800/70"></div>
+        <ul class="mt-3 space-y-2">
+          ${channelTextPlaceholders}
+        </ul>
+      </div>
+    </section>
+
+    ${includeHeatmap
+      ? html`<section class="space-y-4">
+          <div class="h-4 w-56 rounded-full bg-slate-800/70"></div>
+          <div class="h-72 animate-pulse rounded-2xl border border-slate-800/60 bg-slate-900/60 shadow-inner shadow-slate-950/40"></div>
+        </section>`
+      : null}
+  `;
 };
 
 const formatDisplayDate = (value) => {
@@ -1497,6 +1626,8 @@ export const StatistiquesPage = ({ params = {}, onSyncRoute, bootstrap = null })
     });
   }, [lastUpdated]);
 
+  const showSkeleton = loading && !snapshot;
+
   return html`
     <div class="flex flex-col gap-10">
       <header class="space-y-4">
@@ -1692,7 +1823,7 @@ export const StatistiquesPage = ({ params = {}, onSyncRoute, bootstrap = null })
               </div>
             </div>
           </div>
-          ${loading ? html`<${LoadingState} />` : null}
+          ${loading ? html`<${LoadingIndicator} />` : null}
           ${error
             ? html`<div class="flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
                 <${AlertCircle} class="h-4 w-4" aria-hidden="true" />
@@ -1702,174 +1833,181 @@ export const StatistiquesPage = ({ params = {}, onSyncRoute, bootstrap = null })
         </div>
       </section>
 
-      <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <${MetricCard}
-          icon=${Users}
-          label="Membres"
-          value=${formatInteger(totals.totalMembers)}
-          sublabel=${`Actifs : ${formatInteger(totals.activeMembers)}`}
-          trend=${totals.growthRate}
-        />
-        <${MetricCard}
-          icon=${CalendarDays}
-          label="Nouveaux membres"
-          value=${formatInteger(totals.newMembers)}
-          sublabel="Sur la période sélectionnée"
-        />
-        <${MetricCard}
-          icon=${Clock3}
-          label="Temps vocal cumulé"
-          value=${formatMinutes(totals.voiceMinutes)}
-          sublabel=${averageActiveMembers != null
-            ? `Moyenne ${formatInteger(Math.round(averageActiveMembers))} membres actifs`
-            : 'Membres actifs stables'}
-        />
-        <${MetricCard}
-          icon=${MessageSquare}
-          label="Messages envoyés"
-          value=${formatInteger(totals.messageCount)}
-          sublabel=${`Moyenne ${formatInteger(Math.round(totals.averageConnectedPerHour))} connectés / heure`}
-        />
-      </section>
+      ${showSkeleton
+        ? html`<${StatisticsSkeleton}
+            includeHeatmap=${filters.includeHeatmap}
+            includeHypeHistory=${filters.includeHypeHistory}
+          />`
+        : html`
+            <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <${MetricCard}
+                icon=${Users}
+                label="Membres"
+                value=${formatInteger(totals.totalMembers)}
+                sublabel=${`Actifs : ${formatInteger(totals.activeMembers)}`}
+                trend=${totals.growthRate}
+              />
+              <${MetricCard}
+                icon=${CalendarDays}
+                label="Nouveaux membres"
+                value=${formatInteger(totals.newMembers)}
+                sublabel="Sur la période sélectionnée"
+              />
+              <${MetricCard}
+                icon=${Clock3}
+                label="Temps vocal cumulé"
+                value=${formatMinutes(totals.voiceMinutes)}
+                sublabel=${averageActiveMembers != null
+                  ? `Moyenne ${formatInteger(Math.round(averageActiveMembers))} membres actifs`
+                  : 'Membres actifs stables'}
+              />
+              <${MetricCard}
+                icon=${MessageSquare}
+                label="Messages envoyés"
+                value=${formatInteger(totals.messageCount)}
+                sublabel=${`Moyenne ${formatInteger(Math.round(totals.averageConnectedPerHour))} connectés / heure`}
+              />
+            </section>
 
-      <section class="grid gap-6 lg:grid-cols-2 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] xl:gap-8">
-        <div class="space-y-6 xl:space-y-8">
-          <div class="space-y-4">
-            <h3 class="text-lg font-semibold text-white">Evolution de l’activité</h3>
-            ${activityChartConfig
-              ? html`<${StatisticsChart} type="line" data=${activityChartConfig.data} options=${activityChartConfig.options} />`
-              : html`<p class="rounded-xl border border-slate-800/60 bg-slate-900/60 p-6 text-sm text-slate-300">
-                  Aucune donnée d’activité disponible pour cette période.
-                </p>`}
-          </div>
-          <div class="space-y-4">
-            <h3 class="text-lg font-semibold text-white">Nouveaux membres</h3>
-            ${newMembersChart
-              ? html`<${StatisticsChart} type="bar" data=${newMembersChart.data} options=${newMembersChart.options} />`
-              : html`<p class="rounded-xl border border-slate-800/60 bg-slate-900/60 p-6 text-sm text-slate-300">
-                  Aucun arrivant détecté sur cette période.
-                </p>`}
-          </div>
-          ${filters.includeHypeHistory
-            ? html`<div class="space-y-4">
-                <h3 class="text-lg font-semibold text-white">Tendance hype globale</h3>
-                ${hypeChart
-                  ? html`<${StatisticsChart} type="line" data=${hypeChart.data} options=${hypeChart.options} />`
-                  : html`<p class="rounded-xl border border-slate-800/60 bg-slate-900/60 p-6 text-sm text-slate-300">
-                      Pas encore de données hype pour cette plage temporelle.
-                    </p>`}
-              </div>`
-            : null}
-        </div>
+            <section class="grid gap-6 lg:grid-cols-2 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] xl:gap-8">
+              <div class="space-y-6 xl:space-y-8">
+                <div class="space-y-4">
+                  <h3 class="text-lg font-semibold text-white">Evolution de l’activité</h3>
+                  ${activityChartConfig
+                    ? html`<${StatisticsChart} type="line" data=${activityChartConfig.data} options=${activityChartConfig.options} />`
+                    : html`<p class="rounded-xl border border-slate-800/60 bg-slate-900/60 p-6 text-sm text-slate-300">
+                        Aucune donnée d’activité disponible pour cette période.
+                      </p>`}
+                </div>
+                <div class="space-y-4">
+                  <h3 class="text-lg font-semibold text-white">Nouveaux membres</h3>
+                  ${newMembersChart
+                    ? html`<${StatisticsChart} type="bar" data=${newMembersChart.data} options=${newMembersChart.options} />`
+                    : html`<p class="rounded-xl border border-slate-800/60 bg-slate-900/60 p-6 text-sm text-slate-300">
+                        Aucun arrivant détecté sur cette période.
+                      </p>`}
+                </div>
+                ${filters.includeHypeHistory
+                  ? html`<div class="space-y-4">
+                      <h3 class="text-lg font-semibold text-white">Tendance hype globale</h3>
+                      ${hypeChart
+                        ? html`<${StatisticsChart} type="line" data=${hypeChart.data} options=${hypeChart.options} />`
+                        : html`<p class="rounded-xl border border-slate-800/60 bg-slate-900/60 p-6 text-sm text-slate-300">
+                            Pas encore de données hype pour cette plage temporelle.
+                          </p>`}
+                    </div>`
+                  : null}
+              </div>
 
-        <div class="grid gap-6 xl:gap-8">
-          <div class="flex flex-col rounded-2xl border border-slate-800/70 bg-slate-900/70 p-5 shadow-inner shadow-slate-950/30">
-            <h3 class="text-lg font-semibold text-white">Top membres actifs</h3>
-            <p class="mt-1 text-xs text-slate-400">Classement combinant temps vocal et messages.</p>
-            <div class="mt-4 space-y-3">
-              ${(snapshot?.topMembers ?? []).slice(0, filters.limitTopMembers ?? 15).map((member, index) => {
-                const rank = index + 1;
-                const highlighted = selectedUser && selectedUser.userId === member.userId;
-                const containerClass = [
-                  'flex items-center justify-between gap-3 rounded-xl border px-3 py-2 transition',
-                  highlighted
-                    ? 'border-amber-400/50 bg-amber-500/10'
-                    : 'border-slate-800/60 bg-slate-900/50 hover:border-slate-700/70',
-                ].join(' ');
-                return html`<div key=${member.userId} class=${containerClass}>
-                  <div class="flex items-center gap-3">
-                    <span class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-800/70 text-sm font-semibold text-amber-200">${rank}</span>
-                    <div class="flex flex-col">
-                      <span class="font-medium text-white">${member.displayName}</span>
-                      ${member.username
-                        ? html`<span class="text-xs text-slate-400">@${member.username}</span>`
-                        : null}
-                    </div>
+              <div class="grid gap-6 xl:gap-8">
+                <div class="flex flex-col rounded-2xl border border-slate-800/70 bg-slate-900/70 p-5 shadow-inner shadow-slate-950/30">
+                  <h3 class="text-lg font-semibold text-white">Top membres actifs</h3>
+                  <p class="mt-1 text-xs text-slate-400">Classement combinant temps vocal et messages.</p>
+                  <div class="mt-4 space-y-3">
+                    ${(snapshot?.topMembers ?? []).slice(0, filters.limitTopMembers ?? 15).map((member, index) => {
+                      const rank = index + 1;
+                      const highlighted = selectedUser && selectedUser.userId === member.userId;
+                      const containerClass = [
+                        'flex items-center justify-between gap-3 rounded-xl border px-3 py-2 transition',
+                        highlighted
+                          ? 'border-amber-400/50 bg-amber-500/10'
+                          : 'border-slate-800/60 bg-slate-900/50 hover:border-slate-700/70',
+                      ].join(' ');
+                      return html`<div key=${member.userId} class=${containerClass}>
+                        <div class="flex items-center gap-3">
+                          <span class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-800/70 text-sm font-semibold text-amber-200">${rank}</span>
+                          <div class="flex flex-col">
+                            <span class="font-medium text-white">${member.displayName}</span>
+                            ${member.username
+                              ? html`<span class="text-xs text-slate-400">@${member.username}</span>`
+                              : null}
+                          </div>
+                        </div>
+                        <div class="flex flex-col items-end text-xs text-slate-300">
+                          <span>${formatMinutes(member.voiceMinutes)}</span>
+                          <span>${formatInteger(member.messageCount)} messages</span>
+                        </div>
+                      </div>`;
+                    })}
+                    ${(snapshot?.topMembers ?? []).length === 0
+                      ? html`<p class="rounded-xl border border-slate-800/60 bg-slate-900/60 p-4 text-sm text-slate-300">
+                          Aucun membre actif n’a été recensé sur cette période.
+                        </p>`
+                      : null}
                   </div>
-                  <div class="flex flex-col items-end text-xs text-slate-300">
-                    <span>${formatMinutes(member.voiceMinutes)}</span>
-                    <span>${formatInteger(member.messageCount)} messages</span>
-                  </div>
-                </div>`;
-              })}
-              ${(snapshot?.topMembers ?? []).length === 0
-                ? html`<p class="rounded-xl border border-slate-800/60 bg-slate-900/60 p-4 text-sm text-slate-300">
-                    Aucun membre actif n’a été recensé sur cette période.
-                  </p>`
-                : null}
-            </div>
-          </div>
+                </div>
 
-          <div class="flex flex-col rounded-2xl border border-slate-800/70 bg-slate-900/70 p-5 shadow-inner shadow-slate-950/30">
-            <h3 class="text-lg font-semibold text-white">Taux de rétention</h3>
-            <p class="mt-1 text-xs text-slate-400">Pourcentage de membres revenus après X jours.</p>
-            <ul class="mt-3 space-y-2">
-              ${(snapshot?.retention ?? []).map((entry) => {
-                const rateLabel = entry.rate != null ? formatPercentage(entry.rate) : '—';
-                return html`<li key=${`retention-${entry.windowDays}`} class="flex items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-200">
-                  <span>${entry.windowDays} jours</span>
-                  <span class="font-semibold text-emerald-200">${rateLabel}</span>
-                </li>`;
-              })}
-              ${(snapshot?.retention ?? []).length === 0
-                ? html`<li class="rounded-xl border border-slate-800/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-300">
-                    Pas encore de données de rétention.
-                  </li>`
-                : null}
-            </ul>
-          </div>
-        </div>
-      </section>
+                <div class="flex flex-col rounded-2xl border border-slate-800/70 bg-slate-900/70 p-5 shadow-inner shadow-slate-950/30">
+                  <h3 class="text-lg font-semibold text-white">Taux de rétention</h3>
+                  <p class="mt-1 text-xs text-slate-400">Pourcentage de membres revenus après X jours.</p>
+                  <ul class="mt-3 space-y-2">
+                    ${(snapshot?.retention ?? []).map((entry) => {
+                      const rateLabel = entry.rate != null ? formatPercentage(entry.rate) : '—';
+                      return html`<li key=${`retention-${entry.windowDays}`} class="flex items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-200">
+                        <span>${entry.windowDays} jours</span>
+                        <span class="font-semibold text-emerald-200">${rateLabel}</span>
+                      </li>`;
+                    })}
+                    ${(snapshot?.retention ?? []).length === 0
+                      ? html`<li class="rounded-xl border border-slate-800/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-300">
+                          Pas encore de données de rétention.
+                        </li>`
+                      : null}
+                  </ul>
+                </div>
+              </div>
+            </section>
 
-      <section class="grid gap-6 lg:grid-cols-2">
-        <div class="rounded-2xl border border-slate-800/60 bg-slate-900/60 p-5 shadow-inner shadow-slate-950/30">
-          <h3 class="text-lg font-semibold text-white">Salons vocaux les plus actifs</h3>
-          <p class="mt-1 text-xs text-slate-400">Top ${filters.limitChannels ?? 12} selon le temps passé en vocal.</p>
-          <ul class="mt-3 space-y-2">
-            ${channelSeries.voice.length > 0
-              ? channelSeries.voice.map((channel) => {
-                  const label = channel.name ?? `Salon ${channel.id}`;
-                  return html`<li key=${`voice-${channel.id}`} class="flex items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-200">
-                    <span>${label}</span>
-                    <span>${formatMinutes(channel.voiceMinutes)}</span>
-                  </li>`;
-                })
-              : html`<li class="rounded-xl border border-slate-800/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-300">
-                  Aucun salon vocal actif sur cette période.
-                </li>`}
-          </ul>
-        </div>
-        <div class="rounded-2xl border border-slate-800/60 bg-slate-900/60 p-5 shadow-inner shadow-slate-950/30">
-          <h3 class="text-lg font-semibold text-white">Salons textuels les plus actifs</h3>
-          <p class="mt-1 text-xs text-slate-400">Top ${filters.limitChannels ?? 12} selon le volume de messages.</p>
-          <ul class="mt-3 space-y-2">
-            ${channelSeries.text.length > 0
-              ? channelSeries.text.map((channel) => {
-                  const label = channel.name ?? `Salon ${channel.id}`;
-                  return html`<li key=${`text-${channel.id}`} class="flex items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-200">
-                    <span>${label}</span>
-                    <span>${formatInteger(channel.messageCount)} messages</span>
-                  </li>`;
-                })
-              : html`<li class="rounded-xl border border-slate-800/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-300">
-                  Aucun salon textuel actif sur cette période.
-                </li>`}
-          </ul>
-        </div>
-      </section>
+            <section class="grid gap-6 lg:grid-cols-2">
+              <div class="rounded-2xl border border-slate-800/60 bg-slate-900/60 p-5 shadow-inner shadow-slate-950/30">
+                <h3 class="text-lg font-semibold text-white">Salons vocaux les plus actifs</h3>
+                <p class="mt-1 text-xs text-slate-400">Top ${filters.limitChannels ?? 12} selon le temps passé en vocal.</p>
+                <ul class="mt-3 space-y-2">
+                  ${channelSeries.voice.length > 0
+                    ? channelSeries.voice.map((channel) => {
+                        const label = channel.name ?? `Salon ${channel.id}`;
+                        return html`<li key=${`voice-${channel.id}`} class="flex items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-200">
+                          <span>${label}</span>
+                          <span>${formatMinutes(channel.voiceMinutes)}</span>
+                        </li>`;
+                      })
+                    : html`<li class="rounded-xl border border-slate-800/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-300">
+                        Aucun salon vocal actif sur cette période.
+                      </li>`}
+                </ul>
+              </div>
+              <div class="rounded-2xl border border-slate-800/60 bg-slate-900/60 p-5 shadow-inner shadow-slate-950/30">
+                <h3 class="text-lg font-semibold text-white">Salons textuels les plus actifs</h3>
+                <p class="mt-1 text-xs text-slate-400">Top ${filters.limitChannels ?? 12} selon le volume de messages.</p>
+                <ul class="mt-3 space-y-2">
+                  ${channelSeries.text.length > 0
+                    ? channelSeries.text.map((channel) => {
+                        const label = channel.name ?? `Salon ${channel.id}`;
+                        return html`<li key=${`text-${channel.id}`} class="flex items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-200">
+                          <span>${label}</span>
+                          <span>${formatInteger(channel.messageCount)} messages</span>
+                        </li>`;
+                      })
+                    : html`<li class="rounded-xl border border-slate-800/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-300">
+                        Aucun salon textuel actif sur cette période.
+                      </li>`}
+                </ul>
+              </div>
+            </section>
 
-      ${filters.includeHeatmap
-        ? html`<section class="space-y-4">
-            <h3 class="text-lg font-semibold text-white">Périodes de pic d’activité</h3>
-            ${heatmapMatrix && heatmapMatrix.max > 0
-              ? html`<div class="rounded-2xl border border-slate-800/60 bg-slate-900/60 p-5 shadow-inner shadow-slate-950/30">
-                  <${HeatmapGrid} matrix=${heatmapMatrix.matrix} max=${heatmapMatrix.max} />
-                </div>`
-              : html`<p class="rounded-2xl border border-slate-800/60 bg-slate-900/60 p-6 text-sm text-slate-300">
-                  Pas encore de heatmap disponible pour cette sélection.
-                </p>`}
-          </section>`
-        : null}
+            ${filters.includeHeatmap
+              ? html`<section class="space-y-4">
+                  <h3 class="text-lg font-semibold text-white">Périodes de pic d’activité</h3>
+                  ${heatmapMatrix && heatmapMatrix.max > 0
+                    ? html`<div class="rounded-2xl border border-slate-800/60 bg-slate-900/60 p-5 shadow-inner shadow-slate-950/30">
+                        <${HeatmapGrid} matrix=${heatmapMatrix.matrix} max=${heatmapMatrix.max} />
+                      </div>`
+                    : html`<p class="rounded-2xl border border-slate-800/60 bg-slate-900/60 p-6 text-sm text-slate-300">
+                        Pas encore de heatmap disponible pour cette sélection.
+                      </p>`}
+                </section>`
+              : null}
+          `}
     </div>
   `;
 };
