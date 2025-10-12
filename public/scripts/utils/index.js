@@ -7,7 +7,6 @@ import {
 const BLOG_PROPOSAL_ALIASES = new Set(['proposer', 'proposal', 'soumettre']);
 const MEMBERS_ALIASES = new Set(['membres', 'members']);
 const SHOP_ALIASES = new Set(['boutique', 'shop']);
-const PREMIUM_ALIASES = new Set(['premium']);
 const BAN_ALIASES = new Set(['bannir', 'ban']);
 const PROFILE_ALIASES = new Set(['profil', 'profile']);
 const CGU_ALIASES = new Set([
@@ -45,8 +44,6 @@ export const buildRoutePath = (name, params = {}) => {
       return '/membres';
     case 'shop':
       return '/boutique';
-    case 'premium':
-      return '/premium';
     case 'classements': {
       const searchParams = new URLSearchParams();
       const normalizedSortBy = params.sortBy ? String(params.sortBy) : undefined;
@@ -157,9 +154,6 @@ export const parseRouteFromLocation = (location) => {
   }
   if (SHOP_ALIASES.has(head)) {
     return { name: 'shop', params: {} };
-  }
-  if (PREMIUM_ALIASES.has(head)) {
-    return { name: 'premium', params: {} };
   }
   if (head === 'classements') {
     return {

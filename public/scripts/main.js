@@ -12,7 +12,6 @@ import {
   AudioLines,
   Users,
   ShoppingBag,
-  Sparkles,
   BadgeCheck,
   MessageSquare,
   ShieldCheck,
@@ -49,7 +48,6 @@ const ROUTE_LOADERS = {
   members: () => import('./pages/members.js').then((module) => module?.MembersPage ?? null),
   profile: () => import('./pages/profile.js').then((module) => module?.ProfilePage ?? null),
   shop: () => import('./pages/shop.js').then((module) => module?.ShopPage ?? null),
-  premium: () => import('./pages/premium.js').then((module) => module?.PremiumPage ?? null),
   statistiques: () =>
     import('./pages/statistiques.js').then((module) => module?.StatistiquesPage ?? null),
 };
@@ -58,7 +56,6 @@ const NAV_LINKS = [
   { label: 'Accueil', route: 'home', href: '/', icon: AudioLines },
   { label: 'Membres', route: 'members', href: '/membres', icon: Users },
   { label: 'Boutique', route: 'shop', href: '/boutique', icon: ShoppingBag },
-  { label: 'Premium', route: 'premium', href: '/premium', icon: Sparkles },
   { label: 'Classements', route: 'classements', href: '/classements', icon: BadgeCheck },
   { label: 'Statistiques', route: 'statistiques', href: '/statistiques', icon: Activity },
   { label: 'Blog', route: 'blog', href: '/blog', icon: MessageSquare },
@@ -1322,8 +1319,6 @@ const App = () => {
               ? renderAsyncPage('members', { onViewProfile: handleProfileOpen })
               : route.name === 'shop'
               ? renderAsyncPage('shop', { bootstrap: BOOTSTRAP_PAGES.shop ?? null })
-              : route.name === 'premium'
-              ? renderAsyncPage('premium')
               : route.name === 'profile'
               ? renderAsyncPage('profile', {
                   params: route.params,
