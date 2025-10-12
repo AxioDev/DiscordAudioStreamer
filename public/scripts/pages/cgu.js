@@ -156,7 +156,7 @@ const CguPage = () => html`
       </div>
     </section>
 
-    <p class="text-xs uppercase tracking-[0.25em] text-slate-500">Dernière mise à jour : 4 novembre 2024</p>
+    <p class="text-xs uppercase tracking-[0.25em] text-slate-300">Dernière mise à jour : 4 novembre 2024</p>
   </${Fragment}>
 `;
 
