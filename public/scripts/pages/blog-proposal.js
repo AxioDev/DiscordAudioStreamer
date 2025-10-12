@@ -460,7 +460,7 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
                 <li>Utilise <code>**texte**</code> pour le gras et <code>*texte*</code> pour l’italique.</li>
                 <li>Insère une image avec <code>!&#91;légende](https://...)</code>.</li>
                 <li>Tu peux créer des listes : <code>- élément</code> ou <code>1. élément</code>.</li>
-                <li>N’oublie pas d’ajouter des liens : <code>[libre-antenne](https://libre-antenne.xyz)</code>.</li>
+                <li>N’oublie pas d’ajouter des liens : <code>[libre-antenne](https://libre-antenne.com)</code>.</li>
               </ul>
               <div class="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
                 Une fois validé, l’article peut être retravaillé par l’équipe éditoriale (titre, image, mise en forme…).
