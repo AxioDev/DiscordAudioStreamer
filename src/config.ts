@@ -1,3 +1,4 @@
+import path from 'path';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -115,6 +116,7 @@ export interface Config {
   timezone?: string;
   port: number;
   ffmpegPath: string;
+  recordingsDirectory: string;
   outputFormat: 'opus' | 'mp3' | string;
   opusBitrate: string;
   mp3Bitrate: string;
@@ -150,6 +152,10 @@ const config: Config = {
   })(),
   port: parseInteger(process.env.PORT, 3000),
   ffmpegPath: process.env.FFMPEG_PATH || 'ffmpeg',
+  recordingsDirectory: (() => {
+    const raw = process.env.RECORDINGS_DIR || 'recordings';
+    return path.isAbsolute(raw) ? raw : path.resolve(process.cwd(), raw);
+  })(),
   outputFormat,
   opusBitrate: process.env.OPUS_BITRATE || '64000',
   mp3Bitrate: process.env.MP3_BITRATE || '96000',

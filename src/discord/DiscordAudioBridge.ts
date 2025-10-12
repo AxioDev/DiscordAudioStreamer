@@ -29,6 +29,8 @@ import type { VoiceStateSnapshot } from '../services/SpeakerTracker';
 import type VoiceActivityRepository from '../services/VoiceActivityRepository';
 import { type UserSyncRecord } from '../services/VoiceActivityRepository';
 import type KaldiTranscriptionService from '../services/KaldiTranscriptionService';
+import type UserAudioRecorder from '../services/UserAudioRecorder';
+import type { UserAudioRecordingSession } from '../services/UserAudioRecorder';
 import type { Config } from '../config';
 
 type DecoderStream = prism.opus.Decoder;
@@ -37,6 +39,7 @@ interface Subscription {
   opusStream: AudioReceiveStream;
   decoder: DecoderStream;
   cleanup: (() => void) | null;
+  recordingSession: UserAudioRecordingSession | null;
 }
 
 export interface DiscordAudioBridgeOptions {
@@ -45,6 +48,7 @@ export interface DiscordAudioBridgeOptions {
   speakerTracker: SpeakerTracker;
   voiceActivityRepository?: VoiceActivityRepository | null;
   transcriptionService?: KaldiTranscriptionService | null;
+  audioRecorder?: UserAudioRecorder | null;
 }
 
 export interface DiscordUserIdentity {
@@ -145,18 +149,22 @@ export default class DiscordAudioBridge {
 
   private readonly transcriptionService: KaldiTranscriptionService | null;
 
+  private readonly audioRecorder: UserAudioRecorder | null;
+
   constructor({
     config,
     mixer,
     speakerTracker,
     voiceActivityRepository = null,
     transcriptionService = null,
+    audioRecorder = null,
   }: DiscordAudioBridgeOptions) {
     this.config = config;
     this.mixer = mixer;
     this.speakerTracker = speakerTracker;
     this.voiceActivityRepository = voiceActivityRepository;
     this.transcriptionService = transcriptionService;
+    this.audioRecorder = audioRecorder;
 
     this.client = new Client({
       intents: [
@@ -658,6 +666,28 @@ export default class DiscordAudioBridge {
     });
   }
 
+  private getRecordingIdentity(userId: Snowflake): { username: string | null; displayName: string | null } {
+    const user = this.client.users.cache.get(userId);
+    let username: string | null = user?.username ?? null;
+    let displayName: string | null = user?.globalName ?? user?.username ?? null;
+
+    if (this.currentGuildId) {
+      const guild = this.client.guilds.cache.get(this.currentGuildId);
+      const member = guild?.members.cache.get(userId);
+      if (member) {
+        const memberDisplayName = member.displayName?.trim() || member.nickname?.trim() || null;
+        if (memberDisplayName) {
+          displayName = memberDisplayName;
+        }
+        if (!username) {
+          username = member.user?.username ?? null;
+        }
+      }
+    }
+
+    return { username, displayName };
+  }
+
   private subscribeToUserAudio(userId: Snowflake, receiver: VoiceReceiver): void {
     if (this.isUserExcluded(userId)) {
       return;
@@ -678,13 +708,20 @@ export default class DiscordAudioBridge {
       });
 
       opusStream.pipe(decoder);
+      const identity = this.getRecordingIdentity(userId);
+      const recordingSession = this.audioRecorder?.openSession({
+        id: userId,
+        username: identity.username,
+        displayName: identity.displayName,
+      }) ?? null;
       const onData = (chunk: Buffer) => {
         this.mixer.pushToSource(userId, chunk);
         this.transcriptionService?.pushAudio(userId, chunk);
+        recordingSession?.write(chunk);
       };
       decoder.on('data', onData);
 
-      const subscription: Subscription = { opusStream, decoder, cleanup: null };
+      const subscription: Subscription = { opusStream, decoder, cleanup: null, recordingSession };
       this.activeSubscriptions.set(userId, subscription);
 
       let cleanedUp = false;
@@ -723,6 +760,18 @@ export default class DiscordAudioBridge {
             error,
           });
         });
+        if (subscription.recordingSession) {
+          const { filePath } = subscription.recordingSession;
+          const finalizeRecording = subscription.recordingSession.finalize();
+          finalizeRecording.catch((error) => {
+            console.error('Failed to finalize audio recording session', {
+              userId,
+              filePath,
+              error,
+            });
+          });
+        }
+        subscription.recordingSession = null;
         console.log('Cleaned resources for user', userId);
       };
 
