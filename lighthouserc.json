@@ -10,7 +10,14 @@
       }
     },
     "assert": {
-      "assertions": {}
+      "preset": "lighthouse:recommended",
+      "assertions": {
+        "categories:performance": "off",
+        "categories:accessibility": "off",
+        "categories:best-practices": "off",
+        "categories:seo": "off",
+        "categories:pwa": "off"
+      }
     },
     "upload": {
       "target": "filesystem",
