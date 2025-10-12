@@ -26,6 +26,7 @@ import {
   ProfileSummaryCards,
   ProfileActivityTimeline,
   DailyBreakdown,
+  ProfileVoiceRecordingsCard,
   ProfileVoiceTranscriptionsCard,
   ProfileMessagesCard,
 } from '../components/index.js';
@@ -331,6 +332,7 @@ const ProfilePage = ({ params, onNavigateHome, onUpdateRange }) => {
                       speakingSegments=${data.speakingSegments}
                       messageEvents=${data.messageEvents}
                     />
+                    <${ProfileVoiceRecordingsCard} userId=${userId} />
                     <${ProfileVoiceTranscriptionsCard} userId=${userId} />
                     <${ProfileMessagesCard} messageEvents=${data.messageEvents} />
                   `

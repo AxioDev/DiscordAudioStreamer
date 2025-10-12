@@ -26,6 +26,7 @@ import {
   Pause,
   Play,
   RefreshCcw,
+  Download,
   ShieldCheck,
   ShoppingBag,
   Shirt,
@@ -3292,6 +3293,176 @@ const ProfileActivityTimeline = ({
   `;
 };
 
+const ProfileVoiceRecordingsCard = ({ userId }) => {
+  const [state, setState] = useState({ status: 'idle', entries: [], range: null, error: null });
+  const [refreshNonce, setRefreshNonce] = useState(0);
+
+  useEffect(() => {
+    if (!userId) {
+      setState({ status: 'idle', entries: [], range: null, error: null });
+      return () => {};
+    }
+
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    let isActive = true;
+
+    const loadRecordings = async () => {
+      setState((prev) => ({
+        status: 'loading',
+        entries: Array.isArray(prev.entries) ? prev.entries : [],
+        range: prev.range ?? null,
+        error: null,
+      }));
+      try {
+        const query = new URLSearchParams({ limit: '20' });
+        const response = await fetch(
+          `/api/users/${encodeURIComponent(userId)}/recordings?${query.toString()}`,
+          { signal: controller?.signal },
+        );
+        if (!response.ok) {
+          let message = 'Impossible de récupérer les enregistrements audio.';
+          try {
+            const body = await response.json();
+            if (body?.message) {
+              message = body.message;
+            }
+          } catch (error) {
+            // ignore JSON parsing errors
+          }
+          throw new Error(message);
+        }
+
+        const payload = await response.json();
+        if (!isActive) {
+          return;
+        }
+        const entries = Array.isArray(payload?.entries) ? payload.entries : [];
+        const range = payload?.range && typeof payload.range === 'object' ? payload.range : null;
+        setState({ status: 'success', entries, range, error: null });
+      } catch (error) {
+        if (!isActive) {
+          return;
+        }
+        const message = error instanceof Error && error.message
+          ? error.message
+          : 'Impossible de récupérer les enregistrements audio.';
+        setState({ status: 'error', entries: [], range: null, error: message });
+      }
+    };
+
+    loadRecordings();
+    return () => {
+      isActive = false;
+      controller?.abort();
+    };
+  }, [userId, refreshNonce]);
+
+  const handleRefresh = () => {
+    setRefreshNonce((value) => value + 1);
+  };
+
+  const formatFileSize = (bytes) => {
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+      return null;
+    }
+    const units = ['octets', 'Ko', 'Mo', 'Go'];
+    let value = bytes;
+    let unitIndex = 0;
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024;
+      unitIndex += 1;
+    }
+    if (unitIndex === 0) {
+      return `${Math.round(value)} ${units[unitIndex]}`;
+    }
+    const precision = value >= 10 ? 0 : 1;
+    return `${value.toFixed(precision)} ${units[unitIndex]}`;
+  };
+
+  const isLoading = state.status === 'loading';
+  const entries = Array.isArray(state.entries) ? state.entries : [];
+
+  return html`
+    <section class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-xl shadow-slate-950/40 backdrop-blur">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 class="text-lg font-semibold text-white">Enregistrements audio</h2>
+          <p class="text-xs text-slate-400">Derniers fichiers conservés sur les sept derniers jours.</p>
+        </div>
+        <button
+          type="button"
+          onClick=${handleRefresh}
+          class=${`inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold transition ${
+            isLoading ? 'bg-white/5 text-slate-300' : 'bg-white/10 text-slate-200 hover:bg-white/20'
+          }`}
+          disabled=${isLoading}
+        >
+          <${RefreshCcw} class=${`h-4 w-4 ${isLoading ? 'animate-spin text-indigo-200' : ''}`} aria-hidden="true" />
+          Rafraîchir
+        </button>
+      </div>
+
+      ${state.error
+        ? html`<p class="mt-4 rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+            ${state.error}
+          </p>`
+        : null}
+
+      ${!state.error && entries.length === 0 && !isLoading
+        ? html`<p class="mt-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+            Aucun enregistrement audio disponible sur cette période.
+          </p>`
+        : null}
+
+      ${entries.length > 0
+        ? html`<ul class="mt-4 space-y-3">
+            ${entries.map((entry) => {
+              const key = entry?.id || entry?.fileName || entry?.createdAt;
+              const timestamp = Number.isFinite(entry?.createdAtMs)
+                ? entry.createdAtMs
+                : Number.isFinite(entry?.timestampMs)
+                  ? entry.timestampMs
+                  : null;
+              const downloadUrl = typeof entry?.downloadUrl === 'string' ? entry.downloadUrl : null;
+              const durationLabel = Number.isFinite(entry?.durationMs)
+                ? `Durée approx. ${formatDuration(entry.durationMs)}`
+                : null;
+              const sizeLabel = formatFileSize(entry?.sizeBytes);
+              const metaParts = [durationLabel, sizeLabel].filter((part) => part && part.length > 0);
+              return html`<li
+                key=${key || Math.random()}
+                class="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-slate-200"
+              >
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p class="font-semibold text-white">
+                      ${timestamp
+                        ? formatDateTimeLabel(timestamp, { includeDate: true, includeSeconds: true })
+                        : entry?.fileName || 'Enregistrement audio'}
+                    </p>
+                    ${metaParts.length > 0
+                      ? html`<p class="text-xs text-slate-400">${metaParts.join(' · ')}</p>`
+                      : null}
+                  </div>
+                  ${downloadUrl
+                    ? html`<a
+                        href=${downloadUrl}
+                        download
+                        class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-semibold text-slate-100 transition hover:bg-white/20"
+                      >
+                        <${Download} class="h-4 w-4" aria-hidden="true" />
+                        Télécharger
+                      </a>`
+                    : null}
+                </div>
+              </li>`;
+            })}
+          </ul>`
+        : null}
+    </section>
+  `;
+};
+
 const ProfileVoiceTranscriptionsCard = ({ userId }) => {
   const [state, setState] = useState({ status: 'idle', entries: [], error: null });
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -4100,6 +4271,7 @@ export {
   ProfileSummaryCards,
   ProfileActivityTimeline,
   DailyBreakdown,
+  ProfileVoiceRecordingsCard,
   ProfileVoiceTranscriptionsCard,
   ProfileMessagesCard,
   MODERATION_SERVICES,

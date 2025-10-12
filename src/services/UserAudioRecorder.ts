@@ -23,6 +23,22 @@ export interface UserAudioRecordingSession {
   finalize(): Promise<void>;
 }
 
+export interface ListUserAudioRecordingsOptions {
+  since?: Date | null;
+  until?: Date | null;
+  limit?: number | null;
+}
+
+export interface UserAudioRecordingMetadata {
+  readonly id: string;
+  readonly fileName: string;
+  readonly directoryName: string;
+  readonly filePath: string;
+  readonly createdAt: Date;
+  readonly sizeBytes: number;
+  readonly durationMs: number | null;
+}
+
 class RecordingSession implements UserAudioRecordingSession {
   private dataLength = 0;
 
@@ -164,6 +180,134 @@ export default class UserAudioRecorder {
     }
   }
 
+  public async listRecordings(
+    userId: string,
+    { since = null, until = null, limit = null }: ListUserAudioRecordingsOptions = {},
+  ): Promise<UserAudioRecordingMetadata[]> {
+    const normalizedUserId = typeof userId === 'string' ? userId.trim() : '';
+    if (!normalizedUserId) {
+      return [];
+    }
+
+    const nowMs = Date.now();
+    const untilMs = this.normalizeTimestamp(until) ?? nowMs;
+    const defaultSince = untilMs - 7 * 24 * 60 * 60 * 1000;
+    const sinceMs = this.normalizeTimestamp(since) ?? defaultSince;
+
+    if (!Number.isFinite(sinceMs) || !Number.isFinite(untilMs) || untilMs <= sinceMs) {
+      return [];
+    }
+
+    const maxEntries = Math.min(Math.max(Math.floor(limit ?? 25), 1), 100);
+
+    const directories = await this.listUserDirectories(normalizedUserId);
+    if (directories.length === 0) {
+      return [];
+    }
+
+    const results: UserAudioRecordingMetadata[] = [];
+
+    for (const directoryName of directories) {
+      const directoryPath = path.join(this.baseDirectory, directoryName);
+      let entries: Array<{ name: string; isFile(): boolean }> = [];
+      try {
+        const dirEntries = await fs.readdir(directoryPath, { withFileTypes: true });
+        entries = dirEntries.filter((entry) => entry.isFile());
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          console.warn('Failed to read recordings directory', { directory: directoryPath, error });
+        }
+        continue;
+      }
+
+      for (const entry of entries) {
+        const fileName = entry.name;
+        if (!this.isAudioFile(fileName)) {
+          continue;
+        }
+
+        const filePath = path.join(directoryPath, fileName);
+        let stats;
+        try {
+          stats = await fs.stat(filePath);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+            console.warn('Failed to read audio recording stats', { filePath, error });
+          }
+          continue;
+        }
+
+        const createdAtMs = this.resolveTimestamp(stats);
+        if (createdAtMs == null || Number.isNaN(createdAtMs) || createdAtMs < sinceMs || createdAtMs > untilMs) {
+          continue;
+        }
+
+        const id = this.encodeRecordingId(directoryName, fileName);
+        const durationMs = this.estimateDuration(stats.size);
+        results.push({
+          id,
+          fileName,
+          directoryName,
+          filePath,
+          createdAt: new Date(createdAtMs),
+          sizeBytes: stats.size,
+          durationMs,
+        });
+      }
+    }
+
+    results.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return results.slice(0, maxEntries);
+  }
+
+  public async resolveRecording(userId: string, recordingId: string): Promise<UserAudioRecordingMetadata | null> {
+    const normalizedUserId = typeof userId === 'string' ? userId.trim() : '';
+    if (!normalizedUserId) {
+      return null;
+    }
+
+    const decoded = this.decodeRecordingId(recordingId);
+    if (!decoded) {
+      return null;
+    }
+
+    const { directoryName, fileName } = decoded;
+    if (!directoryName.startsWith(`${normalizedUserId}-`)) {
+      return null;
+    }
+
+    if (!this.isSafeSegment(directoryName) || !this.isSafeSegment(fileName)) {
+      return null;
+    }
+
+    const filePath = path.join(this.baseDirectory, directoryName, fileName);
+
+    let stats;
+    try {
+      stats = await fs.stat(filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.warn('Failed to read audio recording for download', { filePath, error });
+      }
+      return null;
+    }
+
+    const createdAtMs = this.resolveTimestamp(stats);
+    if (createdAtMs == null || Number.isNaN(createdAtMs)) {
+      return null;
+    }
+
+    return {
+      id: recordingId,
+      fileName,
+      directoryName,
+      filePath,
+      createdAt: new Date(createdAtMs),
+      sizeBytes: stats.size,
+      durationMs: this.estimateDuration(stats.size),
+    };
+  }
+
   private startCleanupTask(): void {
     if (this.cleanupIntervalMs <= 0 || this.retentionPeriodMs <= 0) {
       return;
@@ -262,6 +406,107 @@ export default class UserAudioRecorder {
         console.warn('Failed to delete expired recording file', { filePath, error });
       }
     }
+  }
+
+  private async listUserDirectories(userId: string): Promise<string[]> {
+    let entries: Array<{ name: string; isDirectory(): boolean }> = [];
+    try {
+      const dirEntries = await fs.readdir(this.baseDirectory, { withFileTypes: true });
+      entries = dirEntries.filter((entry) => entry.isDirectory());
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.warn('Failed to list user recording directories', { userId, error });
+      }
+      return [];
+    }
+
+    const prefix = `${userId}-`;
+    return entries
+      .map((entry) => entry.name)
+      .filter((name) => typeof name === 'string' && name.startsWith(prefix));
+  }
+
+  private normalizeTimestamp(value: Date | null | undefined): number | null {
+    if (!value || !(value instanceof Date)) {
+      return null;
+    }
+    const time = value.getTime();
+    return Number.isFinite(time) ? time : null;
+  }
+
+  private resolveTimestamp(stats: import('node:fs').Stats): number | null {
+    const modified = Number.isFinite(stats.mtimeMs) ? stats.mtimeMs : null;
+    const created = Number.isFinite(stats.birthtimeMs) ? stats.birthtimeMs : null;
+    return modified ?? created;
+  }
+
+  private isAudioFile(fileName: string): boolean {
+    if (typeof fileName !== 'string') {
+      return false;
+    }
+    const lower = fileName.toLowerCase();
+    return lower.endsWith('.wav') || lower.endsWith('.mp3') || lower.endsWith('.ogg');
+  }
+
+  private estimateDuration(sizeBytes: number): number | null {
+    if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+      return null;
+    }
+
+    const payloadBytes = Math.max(0, sizeBytes - 44);
+    const bytesPerSecond = this.sampleRate * this.channels * this.bytesPerSample;
+    if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) {
+      return null;
+    }
+
+    const seconds = payloadBytes / bytesPerSecond;
+    return Math.max(0, Math.round(seconds * 1000));
+  }
+
+  private encodeRecordingId(directoryName: string, fileName: string): string {
+    const value = `${directoryName}/${fileName}`;
+    const base64 = Buffer.from(value, 'utf8').toString('base64');
+    return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  }
+
+  private decodeRecordingId(recordingId: string): { directoryName: string; fileName: string } | null {
+    if (typeof recordingId !== 'string' || recordingId.trim().length === 0) {
+      return null;
+    }
+
+    const normalized = recordingId.replace(/-/g, '+').replace(/_/g, '/');
+    const padding = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4));
+
+    let decoded: string;
+    try {
+      decoded = Buffer.from(normalized + padding, 'base64').toString('utf8');
+    } catch (error) {
+      console.warn('Failed to decode audio recording identifier', { recordingId, error });
+      return null;
+    }
+
+    const normalizedPath = decoded.replace(/\\/g, '/');
+    const segments = normalizedPath.split('/').filter((segment) => segment.length > 0);
+    if (segments.length !== 2) {
+      return null;
+    }
+
+    const [directoryName, fileName] = segments;
+    if (!this.isSafeSegment(directoryName) || !this.isSafeSegment(fileName)) {
+      return null;
+    }
+
+    return { directoryName, fileName };
+  }
+
+  private isSafeSegment(segment: string): boolean {
+    if (typeof segment !== 'string' || segment.length === 0) {
+      return false;
+    }
+    if (segment === '.' || segment === '..') {
+      return false;
+    }
+    return !segment.includes('/') && !segment.includes('\\');
   }
 
   private resolveUserDirectory(identity: UserAudioIdentity): string {
