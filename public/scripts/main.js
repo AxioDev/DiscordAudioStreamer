@@ -1371,7 +1371,7 @@ const App = () => {
       </main>
 
       <footer class="border-t border-slate-800 bg-slate-900/80 py-6 text-center text-sm text-slate-400">
-        <div class="flex flex-col items-center gap-2 sm:flex-row sm:justify-center sm:gap-4">
+        <div class="mx-auto flex w-full max-w-5xl flex-col items-center gap-2 px-4 sm:flex-row sm:justify-center sm:gap-4 sm:px-6">
           <span>Libre Antenne · Tous droits réservés</span>
           <span class="hidden sm:inline">•</span>
           <a
