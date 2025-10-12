@@ -1,4 +1,4 @@
 # Lighthouse Performance Summary
 
-Audit skipped: Lighthouse execution failed: /Users/user/DiscordAudioStreamer/node_modules/.bin/lhci exited with code 1.
+Audit skipped: No Chromium/Chrome binary available for Lighthouse audits.
 
