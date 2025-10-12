@@ -38,6 +38,8 @@ import type {
   HypeLeaderboardQueryOptions,
   HypeLeaderboardSortBy,
   HypeLeaderboardSortOrder,
+  MemberEngagementCursor,
+  MemberEngagementSort,
   UserMessageActivityEntry,
   UserVoiceActivitySegment,
   UserVoicePresenceSegment,
@@ -5554,12 +5556,148 @@ export default class AppServer {
       const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
       const afterParam = Array.isArray(req.query.after) ? req.query.after[0] : req.query.after;
       const searchParam = Array.isArray(req.query.search) ? req.query.search[0] : req.query.search;
+      const sortParam = Array.isArray(req.query.sort) ? req.query.sort[0] : req.query.sort;
 
       const parsedLimit = typeof limitParam === 'string' ? Number.parseInt(limitParam, 10) : NaN;
       const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 24;
 
       const after = typeof afterParam === 'string' ? afterParam.trim() : '';
       const search = typeof searchParam === 'string' ? searchParam.trim() : '';
+      const sortValue = typeof sortParam === 'string' ? sortParam.trim().toLowerCase() : '';
+      const sort: MemberEngagementSort = sortValue === 'messages' ? 'messages' : 'voice';
+
+      const decodeCursor = (value: string, expectedSort: MemberEngagementSort): MemberEngagementCursor | null => {
+        if (!value) {
+          return null;
+        }
+
+        try {
+          const buffer = Buffer.from(value, 'base64url');
+          const payload = JSON.parse(buffer.toString('utf8')) as {
+            s?: string;
+            p?: unknown;
+            m?: unknown;
+            u?: unknown;
+          } | null;
+
+          if (!payload || payload.s !== expectedSort) {
+            return null;
+          }
+
+          const primaryMetric = Number(payload.p);
+          const secondaryMetric = Number(payload.m);
+          const userId = typeof payload.u === 'string' ? payload.u : '';
+
+          if (!Number.isFinite(primaryMetric) || !Number.isFinite(secondaryMetric) || userId.length === 0) {
+            return null;
+          }
+
+          return {
+            primaryMetric,
+            secondaryMetric,
+            userId,
+          };
+        } catch (error) {
+          console.warn('Failed to decode member pagination cursor', error);
+          return null;
+        }
+      };
+
+      const encodeCursor = (cursor: MemberEngagementCursor | null, currentSort: MemberEngagementSort): string | null => {
+        if (!cursor || !cursor.userId) {
+          return null;
+        }
+
+        try {
+          const payload = JSON.stringify({
+            s: currentSort,
+            p: cursor.primaryMetric,
+            m: cursor.secondaryMetric,
+            u: cursor.userId,
+          });
+          return Buffer.from(payload, 'utf8').toString('base64url');
+        } catch (error) {
+          console.warn('Failed to encode member pagination cursor', error);
+          return null;
+        }
+      };
+
+      const hiddenMemberIds = await this.adminService.getHiddenMemberIds();
+
+      if (this.voiceActivityRepository) {
+        try {
+          const decodedCursor = decodeCursor(after, sort);
+          const aggregated = await this.voiceActivityRepository.listMembersByEngagement({
+            guildId: this.config.guildId ?? null,
+            limit,
+            cursor: decodedCursor,
+            sortBy: sort,
+            search: search.length > 0 ? search : null,
+            hiddenUserIds: hiddenMemberIds,
+          });
+
+          const userIds = aggregated.members
+            .map((member) => (typeof member?.userId === 'string' ? member.userId : ''))
+            .filter((id): id is string => id.length > 0);
+
+          let recentMessagesByUser: Record<string, UserMessageActivityEntry[]> = {};
+          if (userIds.length > 0) {
+            try {
+              recentMessagesByUser = await this.voiceActivityRepository.listRecentUserMessages({
+                userIds,
+                limitPerUser: 3,
+              });
+            } catch (recentMessageError) {
+              console.warn('Failed to load recent member messages', recentMessageError);
+            }
+          }
+
+          const members = aggregated.members.map((member) => {
+            const joinedAt = member.firstSeenAt instanceof Date ? member.firstSeenAt.toISOString() : null;
+            const lastSeenAt = member.lastSeenAt instanceof Date ? member.lastSeenAt.toISOString() : null;
+            const lastActivityAt = member.lastActivityAt instanceof Date ? member.lastActivityAt.toISOString() : null;
+            const recentMessages = (recentMessagesByUser[member.userId] ?? []).map((entry) => ({
+              messageId: entry.messageId,
+              channelId: entry.channelId,
+              guildId: entry.guildId,
+              content: entry.content,
+              timestamp: entry.timestamp.toISOString(),
+              timestampMs: entry.timestamp.getTime(),
+            }));
+
+            return {
+              id: member.userId,
+              displayName:
+                member.displayName
+                ?? member.nickname
+                ?? member.username
+                ?? member.userId,
+              username: member.username,
+              nickname: member.nickname,
+              avatarUrl: member.avatarUrl,
+              joinedAt,
+              lastSeenAt,
+              lastActivityAt,
+              roles: member.roles,
+              isBot: member.isBot,
+              voiceMinutes: member.voiceMinutes,
+              messageCount: member.messageCount,
+              recentMessages,
+            };
+          });
+
+          const nextCursor = encodeCursor(aggregated.nextCursor, sort);
+
+          res.json({
+            members,
+            nextCursor,
+            hasMore: Boolean(nextCursor),
+          });
+          return;
+        } catch (error) {
+          console.warn('Falling back to live Discord member list', error);
+        }
+      }
 
       try {
         const result = await this.discordBridge.listGuildMembers({
@@ -5568,7 +5706,6 @@ export default class AppServer {
           search: search.length > 0 ? search : null,
         });
 
-        const hiddenMemberIds = await this.adminService.getHiddenMemberIds();
         const visibleMembers = result.members.filter((member) => !hiddenMemberIds.has(member.id));
 
         let recentMessagesByUser: Record<string, UserMessageActivityEntry[]> = {};
@@ -5591,6 +5728,9 @@ export default class AppServer {
 
         const membersWithMessages = visibleMembers.map((member) => ({
           ...member,
+          voiceMinutes: 0,
+          messageCount: 0,
+          lastActivityAt: null,
           recentMessages: (recentMessagesByUser[member.id] ?? []).map((entry) => ({
             messageId: entry.messageId,
             channelId: entry.channelId,
