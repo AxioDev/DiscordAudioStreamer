@@ -1,5 +1,4 @@
 import compression from 'compression';
-import crypto from 'crypto';
 import express, { type Request, type Response } from 'express';
 import helmet from 'helmet';
 import minifyHTML from 'express-minify-html-terser';
@@ -852,11 +851,9 @@ export default class AppServer {
         ...(options.preloadState ?? {}),
         bridgeStatus: this.speakerTracker.getBridgeStatus(),
       };
-      const cspNonce = typeof res.locals.cspNonce === 'string' ? res.locals.cspNonce : undefined;
       const html = this.seoRenderer.render(metadata, {
         appHtml: options.appHtml ?? null,
         preloadState,
-        cspNonce,
       });
       const status = options.status ?? 200;
       res.status(status);
@@ -1546,7 +1543,7 @@ export default class AppServer {
     };
   }
 
-  private renderAdminAppShell(cspNonce: string | undefined): string | null {
+  private renderAdminAppShell(): string | null {
     const metadata: SeoPageMetadata = {
       title: `${this.config.siteName} · Administration`,
       description: 'Interface de gestion des contenus et des membres pour Libre Antenne.',
@@ -1561,7 +1558,6 @@ export default class AppServer {
 
     const shell = this.seoRenderer.render(metadata, {
       appHtml: '<div id="admin-root" class="min-h-screen bg-slate-950 text-slate-100"></div>',
-      cspNonce,
       injectScripts: false,
       stripFallbackScripts: true,
     });
@@ -2233,10 +2229,10 @@ export default class AppServer {
         }
         parts.push(`<span class="sr-only">${this.escapeHtml(metric.changeAccessibleLabel)}</span>`);
         parts.push(
-          `<span aria-hidden="true" class="ml-2 text-slate-300">· ${this.escapeHtml(pulse.comparisonLabel)}</span>`,
+          `<span aria-hidden="true" class="ml-2 text-slate-500">· ${this.escapeHtml(pulse.comparisonLabel)}</span>`,
         );
         parts.push('</p>');
-        parts.push(`<p class="mt-1 text-xs text-slate-300">Précédemment ${this.escapeHtml(metric.previousLabel)}</p>`);
+        parts.push(`<p class="mt-1 text-xs text-slate-500">Précédemment ${this.escapeHtml(metric.previousLabel)}</p>`);
         parts.push(`<p class="mt-3 text-xs text-slate-400">${this.escapeHtml(metric.description)}</p>`);
         parts.push('</article>');
       }
@@ -2332,7 +2328,7 @@ export default class AppServer {
         parts.push('<article class="latest-post flex h-full flex-col justify-between rounded-2xl bg-slate-900/70 p-6">');
         parts.push('<div>');
         if (dateLabel) {
-          parts.push(`<p class="text-xs uppercase tracking-[0.15em] text-slate-300">${this.escapeHtml(dateLabel)}</p>`);
+          parts.push(`<p class="text-xs uppercase tracking-[0.15em] text-slate-500">${this.escapeHtml(dateLabel)}</p>`);
         }
         parts.push(`<h3 class="mt-3 text-lg font-semibold text-white"><a class="hover:text-amber-200" href="/blog/${encodeURIComponent(post.slug)}">${title}</a></h3>`);
         parts.push(`<p class="mt-3 text-sm text-slate-400">${excerpt}</p>`);
@@ -2407,7 +2403,7 @@ export default class AppServer {
         parts.push('<div class="min-w-0 flex-1">');
         parts.push(`<p class="truncate text-base font-semibold text-white">${name}</p>`);
         if (username) {
-          parts.push(`<p class="truncate text-xs uppercase tracking-[0.2em] text-slate-300">${username}</p>`);
+          parts.push(`<p class="truncate text-xs uppercase tracking-[0.2em] text-slate-500">${username}</p>`);
         }
         if (joinedLabel) {
           parts.push(`<p class="mt-1 text-xs text-slate-400">Membre depuis ${this.escapeHtml(joinedLabel)}</p>`);
@@ -2425,7 +2421,7 @@ export default class AppServer {
           parts.push('<p class="text-xs uppercase tracking-[0.18em] text-amber-300">Vu sur le Discord</p>');
           parts.push(`<p class="mt-2 text-sm text-slate-200">${message}</p>`);
           if (messageDate) {
-            parts.push(`<p class="mt-2 text-xs text-slate-300">${this.escapeHtml(messageDate)}</p>`);
+            parts.push(`<p class="mt-2 text-xs text-slate-500">${this.escapeHtml(messageDate)}</p>`);
           }
           parts.push('</div>');
         }
@@ -2483,7 +2479,7 @@ export default class AppServer {
         parts.push('<article class="rounded-3xl border border-slate-800/40 bg-slate-950/60 p-6">');
         parts.push(`<h2 class="text-2xl font-semibold text-white"><a class="hover:text-amber-200" href="/blog/${encodeURIComponent(post.slug)}">${title}</a></h2>`);
         if (dateLabel || author) {
-          parts.push('<p class="mt-2 text-xs uppercase tracking-[0.18em] text-slate-300">');
+          parts.push('<p class="mt-2 text-xs uppercase tracking-[0.18em] text-slate-500">');
           if (dateLabel) {
             parts.push(this.escapeHtml(dateLabel));
           }
@@ -2534,7 +2530,7 @@ export default class AppServer {
     parts.push(`<p class="text-xs uppercase tracking-[0.18em] text-amber-300">Chronique Libre Antenne</p>`);
     parts.push(`<h1 class="text-3xl font-bold text-white">${this.escapeHtml(data.title)}</h1>`);
     if (data.authorName || publishedLabel || updatedLabel) {
-      parts.push('<p class="text-xs uppercase tracking-[0.2em] text-slate-300">');
+      parts.push('<p class="text-xs uppercase tracking-[0.2em] text-slate-500">');
       if (publishedLabel) {
         parts.push(`Publié le ${this.escapeHtml(publishedLabel)}`);
       }
@@ -2620,13 +2616,13 @@ export default class AppServer {
     parts.push('<div class="space-y-2">');
     parts.push(`<h1 class="text-3xl font-bold text-white">${safeProfileName}</h1>`);
     if (username) {
-      parts.push(`<p class="text-xs uppercase tracking-[0.2em] text-slate-300">@${this.escapeHtml(username)}</p>`);
+      parts.push(`<p class="text-xs uppercase tracking-[0.2em] text-slate-500">@${this.escapeHtml(username)}</p>`);
     }
     if (joinedLabel) {
       parts.push(`<p class="text-sm text-slate-300">Membre depuis ${this.escapeHtml(joinedLabel)}</p>`);
     }
     if (lastActivity) {
-      parts.push(`<p class="text-xs text-slate-300">Dernière activité relevée le ${this.escapeHtml(lastActivity)}</p>`);
+      parts.push(`<p class="text-xs text-slate-500">Dernière activité relevée le ${this.escapeHtml(lastActivity)}</p>`);
     }
     parts.push('</div>');
     parts.push('</div>');
@@ -2635,7 +2631,7 @@ export default class AppServer {
     parts.push('<section class="grid gap-4 sm:grid-cols-2">');
     for (const metric of metrics) {
       parts.push('<div class="rounded-2xl border border-slate-800/50 bg-slate-950/60 p-5">');
-      parts.push(`<p class="text-xs uppercase tracking-[0.18em] text-slate-300">${this.escapeHtml(metric.label)}</p>`);
+      parts.push(`<p class="text-xs uppercase tracking-[0.18em] text-slate-500">${this.escapeHtml(metric.label)}</p>`);
       parts.push(`<p class="mt-2 text-xl font-semibold text-white">${this.escapeHtml(metric.value)}</p>`);
       parts.push('</div>');
     }
@@ -2652,7 +2648,7 @@ export default class AppServer {
         parts.push('<li class="rounded-2xl border border-slate-800/40 bg-slate-950/60 p-4">');
         parts.push(`<p class="text-sm text-slate-200">${content}</p>`);
         if (timestamp) {
-          parts.push(`<p class="mt-2 text-xs text-slate-300">${this.escapeHtml(timestamp)}</p>`);
+          parts.push(`<p class="mt-2 text-xs text-slate-500">${this.escapeHtml(timestamp)}</p>`);
         }
         parts.push('</li>');
       }
@@ -3735,7 +3731,7 @@ export default class AppServer {
     parts.push('</div>');
     parts.push('</section>');
 
-    parts.push('<p class="text-xs uppercase tracking-[0.25em] text-slate-300">Dernière mise à jour : 4 novembre 2024</p>');
+    parts.push('<p class="text-xs uppercase tracking-[0.25em] text-slate-500">Dernière mise à jour : 4 novembre 2024</p>');
     parts.push('</div>');
 
     return parts.join('');
@@ -3912,11 +3908,6 @@ export default class AppServer {
   private configureMiddleware(): void {
     this.app.disable('x-powered-by');
 
-    this.app.use((_req, res, next) => {
-      res.locals.cspNonce = crypto.randomBytes(16).toString('base64');
-      next();
-    });
-
     this.app.use((req, res, next) => {
       const hostHeader = req.headers.host;
       if (!hostHeader) {
@@ -3944,60 +3935,14 @@ export default class AppServer {
       return;
     });
 
-    this.app.use((req, res, next) => {
-      const nonce = typeof res.locals.cspNonce === 'string' ? res.locals.cspNonce : '';
-      const scriptSrc = ["'self'", 'https://esm.sh'];
-      if (nonce) {
-        scriptSrc.push(`'nonce-${nonce}'`);
-      }
-
-      const connectSrc = [
-        "'self'",
-        'wss:',
-        'https://api.stripe.com',
-        'https://checkout.stripe.com',
-        'https://hooks.stripe.com',
-      ];
-      const imgSrc = [
-        "'self'",
-        'data:',
-        'https://cdn.discordapp.com',
-        'https://media.discordapp.net',
-        'https:',
-      ];
-
+    this.app.use(
       helmet({
+        contentSecurityPolicy: false,
         crossOriginEmbedderPolicy: false,
         crossOriginResourcePolicy: { policy: 'cross-origin' },
         referrerPolicy: { policy: 'no-referrer-when-downgrade' },
-        hsts: {
-          maxAge: 63_072_000,
-          includeSubDomains: true,
-          preload: true,
-        },
-        contentSecurityPolicy: {
-          useDefaults: false,
-          directives: {
-            'default-src': ["'self'"],
-            'base-uri': ["'self'"],
-            'connect-src': connectSrc,
-            'font-src': ["'self'", 'data:'],
-            'form-action': ["'self'", 'https://checkout.stripe.com', 'https://hooks.stripe.com'],
-            'frame-ancestors': ["'self'"],
-            'frame-src': ["'self'", 'https://checkout.stripe.com'],
-            'img-src': imgSrc,
-            'manifest-src': ["'self'"],
-            'media-src': ["'self'"],
-            'object-src': ["'none'"],
-            'script-src': scriptSrc,
-            'style-src': ["'self'", "'unsafe-inline'"],
-            'trusted-types': ['default'],
-            'require-trusted-types-for': ["'script'"],
-            'upgrade-insecure-requests': [],
-          },
-        },
-      })(req, res, next);
-    });
+      }),
+    );
 
     this.app.use((req, res, next) => {
       res.header('Access-Control-Allow-Origin', '*');
@@ -4130,8 +4075,7 @@ export default class AppServer {
         return;
       }
 
-      const nonce = typeof res.locals.cspNonce === 'string' ? res.locals.cspNonce : undefined;
-      const html = this.renderAdminAppShell(nonce);
+      const html = this.renderAdminAppShell();
       if (!html) {
         res
           .status(503)
