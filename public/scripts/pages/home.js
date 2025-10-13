@@ -220,11 +220,11 @@ const HomePage = ({
                   </div>
                   <div class="mt-4 flex flex-col gap-2 text-sm text-slate-300">
                     <div class="flex items-baseline justify-between gap-3">
-                      <span class="text-xs uppercase tracking-[0.2em] text-slate-300">Variation</span>
+                      <span class="text-xs uppercase tracking-[0.2em] text-slate-500">Variation</span>
                       <span aria-hidden="true" class="font-semibold text-white">${metric.changeLabel}</span>
                     </div>
                     <span class="sr-only">${metric.changeAccessibleLabel}</span>
-                    <div class="flex items-baseline justify-between gap-3 text-xs text-slate-300">
+                    <div class="flex items-baseline justify-between gap-3 text-xs text-slate-500">
                       <span>Précédent</span>
                       <span aria-hidden="true">${metric.previousLabel}</span>
                     </div>
