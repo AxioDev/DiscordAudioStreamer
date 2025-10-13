@@ -369,9 +369,11 @@ const DailyActivityChart = ({ history, now, isHistoryLoading }) => {
     anchor.setHours(0, 0, 0, 0);
     const dayStart = anchor.getTime();
     const dayEnd = dayStart + HOURS_IN_DAY * HOUR_MS;
+    const windowStart = dayStart - HOURS_IN_DAY * HOUR_MS;
+    const windowEnd = dayEnd;
 
-    const bins = Array.from({ length: HOURS_IN_DAY }, (_, index) => {
-      const start = dayStart + index * HOUR_MS;
+    const bins = Array.from({ length: HOURS_IN_DAY * 2 }, (_, index) => {
+      const start = windowStart + index * HOUR_MS;
       return {
         index,
         start,
@@ -386,8 +388,8 @@ const DailyActivityChart = ({ history, now, isHistoryLoading }) => {
       const rawStart = Number.isFinite(segment.start) ? segment.start : effectiveNow;
       const rawEndCandidate = Number.isFinite(segment.end) ? segment.end : effectiveNow;
       const safeEnd = Math.max(rawEndCandidate, rawStart);
-      const normalizedStart = Math.max(rawStart, dayStart);
-      const normalizedEnd = Math.min(safeEnd, dayEnd);
+      const normalizedStart = Math.max(rawStart, windowStart);
+      const normalizedEnd = Math.min(safeEnd, windowEnd);
       if (Number.isNaN(normalizedStart) || Number.isNaN(normalizedEnd) || normalizedEnd <= normalizedStart) {
         continue;
       }
@@ -407,35 +409,54 @@ const DailyActivityChart = ({ history, now, isHistoryLoading }) => {
       }
     }
 
+    const shortDayFormatter = new Intl.DateTimeFormat('fr-FR', { weekday: 'short' });
+    const longDayFormatter = new Intl.DateTimeFormat('fr-FR', { weekday: 'long' });
+    const hourFormatter = new Intl.DateTimeFormat('fr-FR', { hour: '2-digit' });
+
+    let currentDayTotalDuration = 0;
+    let currentDayMaxDuration = 0;
+    let peakCurrentDayBin = null;
+    let globalMaxDuration = 0;
+
     const binsWithMeta = bins.map((bin) => {
-      const hourLabel = new Date(bin.start)
-        .toLocaleTimeString('fr-FR', { hour: '2-digit' })
-        .replace(/\s*[hH]$/, '');
-      return {
+      const date = new Date(bin.start);
+      const hourLabel = hourFormatter.format(date).replace(/\s*[hH]$/, '');
+      const rawDayLabel = shortDayFormatter.format(date).replace('.', '').trim();
+      const dayLabel = rawDayLabel ? rawDayLabel.charAt(0).toUpperCase() + rawDayLabel.slice(1) : '';
+      const srDayLabel = longDayFormatter.format(date);
+      const enriched = {
         ...bin,
-        label: `${hourLabel}h`,
+        label: [dayLabel, `${hourLabel}h`].filter(Boolean).join(' ').trim(),
+        hourLabel: `${hourLabel}h`,
+        dayLabel,
+        srLabel: `${srDayLabel} ${hourLabel} heures`,
         isCurrent: effectiveNow >= bin.start && effectiveNow < bin.end,
         isPast: effectiveNow >= bin.end,
+        isCurrentDay: bin.start >= dayStart,
+        isPreviousDay: bin.end <= dayStart,
       };
-    });
 
-    const totalDuration = binsWithMeta.reduce((acc, bin) => acc + bin.duration, 0);
-    const maxDuration = binsWithMeta.reduce((acc, bin) => Math.max(acc, bin.duration), 0);
-    const peakBin = binsWithMeta.reduce((best, bin) => {
-      if (bin.duration <= 0) {
-        return best;
+      if (enriched.duration > globalMaxDuration) {
+        globalMaxDuration = enriched.duration;
       }
-      if (!best || bin.duration > best.duration) {
-        return bin;
+
+      if (enriched.isCurrentDay) {
+        currentDayTotalDuration += enriched.duration;
+        if (enriched.duration > currentDayMaxDuration) {
+          currentDayMaxDuration = enriched.duration;
+          peakCurrentDayBin = enriched;
+        }
       }
-      return best;
-    }, null);
+
+      return enriched;
+    });
 
     return {
       bins: binsWithMeta,
-      totalDuration,
-      maxDuration,
-      peakBin,
+      totalDuration: currentDayTotalDuration,
+      maxDuration: globalMaxDuration,
+      peakBin: peakCurrentDayBin,
+      currentDayMaxDuration,
     };
   }, [history, now]);
 
@@ -466,7 +487,7 @@ const DailyActivityChart = ({ history, now, isHistoryLoading }) => {
 
   const totalLabel = chart.totalDuration > 0 ? formatDuration(chart.totalDuration) : '0s';
   const peakLabel = chart.peakBin ? `${formatDuration(chart.peakBin.duration)} vers ${chart.peakBin.label}` : null;
-  const hasData = chart.maxDuration > 0;
+  const hasData = chart.currentDayMaxDuration > 0;
 
   return html`
     <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-slate-950/60 p-8 shadow-xl shadow-slate-950/50 backdrop-blur-xl">
@@ -478,7 +499,7 @@ const DailyActivityChart = ({ history, now, isHistoryLoading }) => {
             <p class="text-xs uppercase tracking-[0.35em] text-indigo-200/80">Chronologie</p>
             <h2 class="text-2xl font-semibold text-white">Activité vocale par heure</h2>
             <p class="text-sm text-slate-300">
-              Observe la répartition des interventions tout au long de la journée actuelle. Le graphique se met à jour en temps réel.
+              Observe la répartition des interventions sur le jour en cours et la veille. Le graphique se met à jour en temps réel.
             </p>
           </div>
           <div class="flex flex-col gap-1 rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-xs text-slate-300">
@@ -525,7 +546,7 @@ const DailyActivityChart = ({ history, now, isHistoryLoading }) => {
                   .filter(Boolean)
                   .join(' ');
                 const tooltip = bin.duration > 0 ? `≈ ${formatDuration(bin.duration)}` : 'Aucune activité';
-                const srText = `${bin.label} · ${tooltip}`;
+                const srText = `${bin.srLabel} · ${tooltip}`;
                 return html`
                   <div
                     key=${bin.start}
@@ -539,7 +560,12 @@ const DailyActivityChart = ({ history, now, isHistoryLoading }) => {
                       <span class="sr-only">${srText}</span>
                       <div aria-hidden="true" class=${barClass} style=${barStyle}></div>
                     </div>
-                    <span class=${`font-semibold ${bin.isCurrent ? 'text-white' : 'text-slate-200'}`}>${bin.label}</span>
+                    <div class="flex flex-col items-center gap-1">
+                      <span class=${`text-[0.65rem] uppercase tracking-[0.2em] ${
+                        bin.isCurrentDay ? 'text-indigo-200/80' : 'text-slate-500'
+                      }`}>${bin.dayLabel}</span>
+                      <span class=${`font-semibold ${bin.isCurrent ? 'text-white' : 'text-slate-200'}`}>${bin.hourLabel}</span>
+                    </div>
                   </div>
                 `;
               })}
