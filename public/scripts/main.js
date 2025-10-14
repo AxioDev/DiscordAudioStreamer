@@ -9,6 +9,7 @@ import {
   useState,
   Menu,
   X,
+  Download,
   AudioLines,
   Users,
   ShoppingBag,
@@ -69,6 +70,93 @@ const PRERENDER_CLASS_TOKENS = [
   'about-page',
   'cgu-page',
 ];
+
+const PWA_PROMPT_STORAGE_KEY = 'libre-antenne:pwa-prompt';
+
+const PWA_GUIDES = {
+  android: {
+    title: 'Installe Libre Antenne sur ton écran d’accueil',
+    description: 'Ajoute la radio comme une application pour la lancer en un geste, même en déplacement.',
+    steps: [
+      'Ouvre le menu ⋮ de ton navigateur (Chrome ou Edge).',
+      'Sélectionne « Ajouter à l’écran d’accueil » ou « Installer l’application ».',
+      'Confirme en appuyant sur « Ajouter » pour créer le raccourci.',
+    ],
+    hint: 'Une icône Libre Antenne apparaîtra ensuite parmi tes applications pour un accès instantané.',
+    ctaLabel: 'Installer depuis le navigateur',
+  },
+  'ios-iphone': {
+    title: 'Ajoute Libre Antenne à ton écran d’accueil',
+    description: 'Retrouve la station directement depuis l’écran d’accueil de ton iPhone.',
+    steps: [
+      'Dans Safari, touche le bouton Partager (carré avec une flèche).',
+      'Fais défiler les actions puis choisis « Sur l’écran d’accueil ».',
+      'Renomme si tu le souhaites, puis valide avec « Ajouter ».',
+    ],
+    hint: 'Cette installation se fait depuis Safari. Si tu utilises un autre navigateur, ouvre cette page dans Safari pour terminer.',
+  },
+  'ios-ipad': {
+    title: 'Ajoute Libre Antenne à l’écran d’accueil de ton iPad',
+    description: 'Garde la radio à portée de main depuis l’écran d’accueil de ta tablette.',
+    steps: [
+      'Dans la barre d’outils Safari, touche le bouton Partager (carré avec une flèche).',
+      'Sélectionne « Sur l’écran d’accueil » dans la liste des actions.',
+      'Confirme en appuyant sur « Ajouter » pour créer l’icône.',
+    ],
+    hint: 'Si tu navigues depuis un autre navigateur, ouvre cette page dans Safari pour finaliser l’installation.',
+  },
+};
+
+const detectPwaContext = (win) => {
+  if (!win || typeof win !== 'object') {
+    return null;
+  }
+  const nav = win.navigator;
+  if (!nav) {
+    return null;
+  }
+
+  const isStandalone = (() => {
+    if (typeof win.matchMedia === 'function') {
+      try {
+        if (win.matchMedia('(display-mode: standalone)').matches) {
+          return true;
+        }
+      } catch (error) {
+        // Ignorer les erreurs provenant de matchMedia.
+      }
+    }
+    if (typeof nav.standalone === 'boolean' && nav.standalone) {
+      return true;
+    }
+    return false;
+  })();
+  if (isStandalone) {
+    return null;
+  }
+
+  const userAgent = typeof nav.userAgent === 'string' ? nav.userAgent.toLowerCase() : '';
+  const mobileFlag = nav.userAgentData && typeof nav.userAgentData.mobile === 'boolean'
+    ? nav.userAgentData.mobile
+    : null;
+  const maxTouchPoints = typeof nav.maxTouchPoints === 'number' ? nav.maxTouchPoints : 0;
+
+  const isAndroid = userAgent.includes('android');
+  if (isAndroid && (mobileFlag !== false || maxTouchPoints > 0)) {
+    return { platform: 'android' };
+  }
+
+  const isIpad = userAgent.includes('ipad') || (userAgent.includes('macintosh') && maxTouchPoints > 1);
+  const isIphone = userAgent.includes('iphone') || userAgent.includes('ipod');
+  if (isIpad) {
+    return { platform: 'ios-ipad' };
+  }
+  if (isIphone) {
+    return { platform: 'ios-iphone' };
+  }
+
+  return null;
+};
 
 const hasHydratableAppShell = (node) => {
   if (!node || typeof node !== 'object') {
@@ -433,10 +521,124 @@ const App = () => {
   const asyncPagesRef = useRef(asyncPages);
   const pendingPageLoadsRef = useRef(new Map());
   const initialRouteRef = useRef(true);
+  const [pwaPromptContext, setPwaPromptContext] = useState(null);
+  const [isPwaSheetVisible, setIsPwaSheetVisible] = useState(false);
+  const deferredInstallPromptRef = useRef(null);
+
+  const persistPromptState = useCallback((value) => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    try {
+      window.localStorage.setItem(PWA_PROMPT_STORAGE_KEY, value);
+    } catch (error) {
+      // Ignorer l’erreur de stockage.
+    }
+  }, []);
+
+  const dismissPwaPrompt = useCallback(
+    (reason = 'dismissed') => {
+      setIsPwaSheetVisible(false);
+      setPwaPromptContext(null);
+      if (reason) {
+        persistPromptState(reason);
+      }
+      deferredInstallPromptRef.current = null;
+    },
+    [persistPromptState],
+  );
+
+  const handlePwaInstallClick = useCallback(async () => {
+    const promptEvent = deferredInstallPromptRef.current;
+    if (!promptEvent) {
+      setPwaPromptContext((previous) => (previous ? { ...previous, hasNativePrompt: false } : previous));
+      return;
+    }
+
+    try {
+      promptEvent.prompt();
+      const choice = await promptEvent.userChoice;
+      if (choice && choice.outcome === 'accepted') {
+        dismissPwaPrompt('installed');
+        return;
+      }
+      deferredInstallPromptRef.current = null;
+      setPwaPromptContext((previous) => (previous ? { ...previous, hasNativePrompt: false } : previous));
+    } catch (error) {
+      console.warn('Impossible de lancer la demande d’installation', error);
+      deferredInstallPromptRef.current = null;
+      setPwaPromptContext((previous) => (previous ? { ...previous, hasNativePrompt: false } : previous));
+    }
+  }, [dismissPwaPrompt]);
 
   useEffect(() => {
     asyncPagesRef.current = asyncPages;
   }, [asyncPages]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const context = detectPwaContext(window);
+    if (!context) {
+      return undefined;
+    }
+
+    let alreadyDismissed = false;
+    try {
+      const storedValue = window.localStorage.getItem(PWA_PROMPT_STORAGE_KEY);
+      alreadyDismissed = Boolean(storedValue);
+    } catch (error) {
+      alreadyDismissed = false;
+    }
+
+    if (alreadyDismissed) {
+      return undefined;
+    }
+
+    let showTimeoutId = window.setTimeout(() => {
+      const hasNativePrompt = deferredInstallPromptRef.current != null;
+      setPwaPromptContext((previous) => {
+        const base = previous ?? context;
+        return { ...base, hasNativePrompt: hasNativePrompt || base?.hasNativePrompt || false };
+      });
+      setIsPwaSheetVisible(true);
+      showTimeoutId = null;
+    }, 2400);
+
+    const handleBeforeInstallPrompt = (event) => {
+      if (context.platform !== 'android') {
+        return;
+      }
+      event.preventDefault();
+      deferredInstallPromptRef.current = event;
+      if (showTimeoutId) {
+        window.clearTimeout(showTimeoutId);
+        showTimeoutId = null;
+      }
+      setPwaPromptContext((previous) => {
+        const base = previous ?? context;
+        return { ...base, hasNativePrompt: true };
+      });
+      setIsPwaSheetVisible(true);
+    };
+
+    const handleAppInstalled = () => {
+      dismissPwaPrompt('installed');
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+      if (showTimeoutId) {
+        window.clearTimeout(showTimeoutId);
+      }
+    };
+  }, [dismissPwaPrompt]);
 
   const loadPageComponent = useCallback(
     (name) => {
@@ -1304,6 +1506,15 @@ const App = () => {
     ? `route-link-animate route-link-animate-${routeTransitionPhase}`
     : '';
   const routePhaseValue = routeTransitionActive ? String(routeTransitionPhase) : 'initial';
+  const pwaGuide = useMemo(() => {
+    if (!pwaPromptContext) {
+      return null;
+    }
+    return PWA_GUIDES[pwaPromptContext.platform] ?? null;
+  }, [pwaPromptContext]);
+  const showPwaSheet = Boolean(isPwaSheetVisible && pwaGuide);
+  const pwaDialogTitleId = 'pwa-install-bottom-sheet-title';
+  const pwaDialogDescriptionId = 'pwa-install-bottom-sheet-description';
 
   return html`
     <div class="flex min-h-screen flex-col bg-slate-950 text-slate-100" data-app-shell="true">
@@ -1573,6 +1784,80 @@ const App = () => {
           </a>
         </div>
       </footer>
+      ${
+        showPwaSheet && pwaGuide
+          ? html`
+              <div class="fixed inset-0 z-50 flex flex-col justify-end px-4 pb-6 sm:pb-10">
+                <div
+                  class="absolute inset-0 z-0 bg-slate-950/70 backdrop-blur-sm"
+                  onClick=${() => dismissPwaPrompt('dismissed')}
+                  aria-hidden="true"
+                ></div>
+                <section
+                  class="relative z-10 mx-auto w-full max-w-lg"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby=${pwaDialogTitleId}
+                  aria-describedby=${pwaDialogDescriptionId}
+                >
+                  <div class="overflow-hidden rounded-3xl border border-white/10 bg-slate-900/95 p-6 shadow-2xl shadow-black/40">
+                    <div class="flex items-start justify-between gap-4">
+                      <div class="space-y-1">
+                        <p class="text-xs font-semibold uppercase tracking-[0.35em] text-indigo-200">Astuce mobile</p>
+                        <h2 id=${pwaDialogTitleId} class="text-lg font-semibold text-white">${pwaGuide.title}</h2>
+                      </div>
+                      <button
+                        type="button"
+                        class="rounded-full border border-white/10 p-2 text-slate-300 transition hover:border-white/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        aria-label="Fermer la suggestion"
+                        onClick=${() => dismissPwaPrompt('dismissed')}
+                      >
+                        <${X} class="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    </div>
+                    <p id=${pwaDialogDescriptionId} class="mt-3 text-sm text-slate-300">${pwaGuide.description}</p>
+                    <ol class="mt-4 space-y-3 text-sm text-slate-100">
+                      ${pwaGuide.steps.map(
+                        (step, index) => html`<li class="flex items-start gap-3">
+                          <span class="mt-0.5 flex h-6 w-6 flex-none items-center justify-center rounded-full bg-indigo-500/15 text-xs font-semibold text-indigo-200">
+                            ${index + 1}
+                          </span>
+                          <span class="leading-relaxed">${step}</span>
+                        </li>`,
+                      )}
+                    </ol>
+                    ${
+                      pwaGuide.hint
+                        ? html`<p class="mt-4 text-xs text-slate-400">${pwaGuide.hint}</p>`
+                        : null
+                    }
+                    <div class="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+                      ${
+                        pwaPromptContext.platform === 'android' && pwaPromptContext.hasNativePrompt
+                          ? html`<button
+                              type="button"
+                              class="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-indigo-400/40 bg-indigo-500/10 px-4 py-3 text-sm font-semibold text-indigo-100 transition hover:border-indigo-300 hover:bg-indigo-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                              onClick=${handlePwaInstallClick}
+                            >
+                              <${Download} class="h-4 w-4" aria-hidden="true" />
+                              ${pwaGuide.ctaLabel ?? 'Installer maintenant'}
+                            </button>`
+                          : null
+                      }
+                      <button
+                        type="button"
+                        class="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-200 transition hover:border-white/30 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        onClick=${() => dismissPwaPrompt('dismissed')}
+                      >
+                        Je l’ajouterai plus tard
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            `
+          : null
+      }
     </div>
   `;
 };
