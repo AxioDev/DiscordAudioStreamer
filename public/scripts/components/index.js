@@ -1793,7 +1793,7 @@ const MemberAvatar = ({ member }) => {
   }
 
   return html`<div
-    class="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-br from-indigo-500/40 via-purple-500/30 to-fuchsia-500/30 text-base font-semibold text-white shadow-inner shadow-black/30"
+    class="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-br from-indigo-500/40 via-purple-500/30 to-fuchsia-500/30 text-base font-semibold text-white text-on-accent shadow-inner shadow-black/30"
     aria-hidden="true"
   >
     ${initials}
@@ -2142,7 +2142,7 @@ const AudioPlayer = ({ streamInfo, audioKey, status, bridgeStatus = { serverDeaf
           <div class="flex items-center gap-5">
             <button
               type="button"
-              class="relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-fuchsia-500 via-indigo-500 to-sky-400 text-white shadow-lg shadow-fuchsia-900/40 transition focus:outline-none focus:ring-2 focus:ring-fuchsia-300 focus:ring-offset-2 focus:ring-offset-slate-950 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
+              class="relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-fuchsia-500 via-indigo-500 to-sky-400 text-white text-on-accent shadow-lg shadow-fuchsia-900/40 transition focus:outline-none focus:ring-2 focus:ring-fuchsia-300 focus:ring-offset-2 focus:ring-offset-slate-950 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
               aria-label=${playButtonLabel}
               onClick=${togglePlay}
               disabled=${isBridgeServerDeafened || (isLoading && !isPlaying && !hasError)}
@@ -3136,7 +3136,7 @@ const ProfileActivityTimeline = ({
     },
     plugins: {
       legend: {
-        labels: { color: '#e2e8f0', usePointStyle: true },
+        labels: { color: '#1f2937', usePointStyle: true },
       },
       tooltip: {
         callbacks: {

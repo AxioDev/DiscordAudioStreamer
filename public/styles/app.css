@@ -5096,3 +5096,207 @@ body {
     justify-content: space-between;
   }
 }
+
+body {
+  font-family: inherit;
+  background-color: #f8fafc;
+  background-image:
+    radial-gradient(at 18% 18%, rgba(96, 165, 250, 0.2), transparent 55%),
+    radial-gradient(at 82% 12%, rgba(236, 72, 153, 0.16), transparent 62%),
+    radial-gradient(at 50% 82%, rgba(45, 212, 191, 0.18), transparent 70%);
+  background-repeat: no-repeat;
+  background-size: 120% 120%, 145% 145%, 160% 160%;
+  background-position: 0% 30%, 80% 20%, 50% 85%;
+  color: #0f172a;
+  color-scheme: light;
+}
+
+body.light-mode {
+  background-color: #f8fafc;
+}
+
+body.light-mode::selection {
+  background-color: rgba(96, 165, 250, 0.25);
+  color: #0f172a;
+}
+
+body.light-mode :where(.text-white):not(.text-on-accent) {
+  color: #0f172a !important;
+}
+
+body.light-mode :where(.text-white\/80):not(.text-on-accent),
+body.light-mode :where(.text-white\/90):not(.text-on-accent) {
+  color: rgba(15, 23, 42, 0.85) !important;
+}
+
+body.light-mode :where(.text-slate-100, .text-slate-200, .text-slate-200\/80, .text-slate-200\/90) {
+  color: #475569 !important;
+}
+
+body.light-mode :where(.text-slate-300, .text-slate-300\/80) {
+  color: #475569 !important;
+}
+
+body.light-mode :where(.text-slate-400, .text-slate-400\/70, .text-slate-400\/80) {
+  color: #64748b !important;
+}
+
+body.light-mode :where(.border-white\/5) {
+  border-color: rgba(15, 23, 42, 0.06) !important;
+}
+
+body.light-mode :where(.border-white\/10) {
+  border-color: rgba(15, 23, 42, 0.08) !important;
+}
+
+body.light-mode :where(.border-white\/15) {
+  border-color: rgba(15, 23, 42, 0.12) !important;
+}
+
+body.light-mode :where(.border-white\/20) {
+  border-color: rgba(15, 23, 42, 0.16) !important;
+}
+
+body.light-mode :where(.border-white\/30) {
+  border-color: rgba(15, 23, 42, 0.22) !important;
+}
+
+body.light-mode :where(.border-white\/70) {
+  border-color: rgba(15, 23, 42, 0.38) !important;
+}
+
+body.light-mode :where(.border-slate-800, .border-slate-800\/60, .border-slate-800\/70, .border-slate-800\/80) {
+  border-color: rgba(148, 163, 184, 0.35) !important;
+}
+
+body.light-mode :where(.bg-slate-950) {
+  background-color: #ffffff !important;
+}
+
+body.light-mode :where(.bg-slate-950\/50, .bg-slate-950\/60, .bg-slate-950\/70, .bg-slate-950\/75, .bg-slate-950\/80, .bg-slate-950\/90, .bg-slate-950\/95) {
+  background-color: rgba(255, 255, 255, 0.94) !important;
+}
+
+body.light-mode :where(.bg-slate-900\/50, .bg-slate-900\/60, .bg-slate-900\/70, .bg-slate-900\/80, .bg-slate-900\/90, .bg-slate-900\/95) {
+  background-color: rgba(248, 250, 252, 0.92) !important;
+}
+
+body.light-mode :where(.bg-slate-800) {
+  background-color: #e2e8f0 !important;
+}
+
+body.light-mode :where(.bg-black\/10) {
+  background-color: rgba(148, 163, 184, 0.08) !important;
+}
+
+body.light-mode :where(.bg-black\/20) {
+  background-color: rgba(148, 163, 184, 0.12) !important;
+}
+
+body.light-mode :where(.bg-black\/30) {
+  background-color: rgba(148, 163, 184, 0.16) !important;
+}
+
+body.light-mode :where(.bg-black\/40, .bg-black\/45) {
+  background-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+body.light-mode :where(.bg-black\/50) {
+  background-color: rgba(148, 163, 184, 0.24) !important;
+}
+
+body.light-mode :where(.bg-white\/5) {
+  background-color: rgba(148, 163, 184, 0.08) !important;
+}
+
+body.light-mode :where(.bg-white\/10) {
+  background-color: rgba(148, 163, 184, 0.12) !important;
+}
+
+body.light-mode :where(.bg-white\/15) {
+  background-color: rgba(148, 163, 184, 0.16) !important;
+}
+
+body.light-mode :where(.bg-white\/20) {
+  background-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+body.light-mode :where(.shadow-slate-900\/40, .shadow-slate-950\/20, .shadow-slate-950\/30, .shadow-slate-950\/40, .shadow-slate-950\/50, .shadow-slate-950\/60, .shadow-slate-950\/80, .shadow-black\/30) {
+  --tw-shadow-color: rgba(15, 23, 42, 0.14) !important;
+  --tw-shadow: var(--tw-shadow-colored) !important;
+}
+
+body.light-mode :where(.ring-offset-slate-950) {
+  --tw-ring-offset-color: #f8fafc !important;
+}
+
+body.light-mode :where(.from-slate-950) {
+  --tw-gradient-from: #e0f2fe var(--tw-gradient-from-position);
+  --tw-gradient-to: rgba(224, 242, 254, 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+
+body.light-mode :where(.from-slate-950\/80) {
+  --tw-gradient-from: rgba(226, 232, 240, 0.85) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgba(226, 232, 240, 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+
+body.light-mode :where(.from-slate-950\/90) {
+  --tw-gradient-from: rgba(226, 232, 240, 0.9) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgba(226, 232, 240, 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+
+body.light-mode :where(.via-slate-950, .via-slate-950\/80, .via-slate-950\/90) {
+  --tw-gradient-stops: var(--tw-gradient-from), rgba(165, 180, 252, 0.28) var(--tw-gradient-via-position), var(--tw-gradient-to);
+}
+
+body.light-mode :where(.via-indigo-950\/60) {
+  --tw-gradient-stops: var(--tw-gradient-from), rgba(99, 102, 241, 0.24) var(--tw-gradient-via-position), var(--tw-gradient-to);
+}
+
+body.light-mode :where(.to-fuchsia-950\/40) {
+  --tw-gradient-to: rgba(236, 72, 153, 0.22) var(--tw-gradient-to-position);
+}
+
+body.light-mode :where(.to-indigo-950\/40) {
+  --tw-gradient-to: rgba(99, 102, 241, 0.2) var(--tw-gradient-to-position);
+}
+
+body.light-mode :where(.to-black\/30) {
+  --tw-gradient-to: rgba(15, 23, 42, 0.15) var(--tw-gradient-to-position);
+}
+
+.text-on-accent {
+  color: #ffffff !important;
+}
+
+.blog-content a {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.blog-content pre,
+.blog-content code {
+  background: rgba(15, 23, 42, 0.08);
+  border-radius: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+  color: #0f172a;
+}
+
+.blog-content pre {
+  padding: 1rem;
+  overflow-x: auto;
+}
+
+.blog-content blockquote {
+  border-left: 4px solid rgba(59, 130, 246, 0.35);
+  padding-left: 1rem;
+  margin: 1rem 0;
+  color: #1f2937;
+  font-style: italic;
+  background: rgba(59, 130, 246, 0.08);
+  border-radius: 0.75rem;
+}
