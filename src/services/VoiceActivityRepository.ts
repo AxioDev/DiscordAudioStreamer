@@ -1726,17 +1726,28 @@ export default class VoiceActivityRepository {
       hiddenClause = `AND NOT (u.user_id::text = ANY($${params.length}::text[]))`;
     }
 
-    const searchableColumns = ['nickname', 'pseudo', 'username'].filter((column) =>
-      this.usersColumns?.has(column),
-    );
+    const searchableExpressions: string[] = [];
+    if (includeNickname) {
+      searchableExpressions.push("COALESCE(u.nickname, '')");
+    }
+    if (includePseudo) {
+      searchableExpressions.push("COALESCE(u.pseudo, '')");
+    }
+    if (includeUsername) {
+      searchableExpressions.push("COALESCE(u.username, '')");
+    }
+    if (includeMetadata) {
+      searchableExpressions.push("COALESCE(u.metadata->>'displayName', '')");
+      searchableExpressions.push("COALESCE(u.metadata->>'display_name', '')");
+    }
 
     let searchClause = '';
-    if (normalizedSearch && searchableColumns.length > 0) {
+    if (normalizedSearch && searchableExpressions.length > 0) {
       const pattern = `%${this.escapeLikePattern(normalizedSearch)}%`;
       params.push(pattern);
       const searchIndex = params.length;
-      const conditions = searchableColumns.map(
-        (column) => `COALESCE(u.${column}, '') ILIKE $${searchIndex} ESCAPE '\\\\'`,
+      const conditions = searchableExpressions.map(
+        (expression) => `${expression} ILIKE $${searchIndex} ESCAPE '\\\\'`,
       );
       searchClause = `AND (${conditions.join(' OR ')})`;
     }
