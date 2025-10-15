@@ -120,8 +120,6 @@ export interface SeoRendererOptions {
 export interface RenderOptions {
   appHtml?: string | null;
   preloadState?: unknown;
-  injectScripts?: boolean;
-  stripFallbackScripts?: boolean;
 }
 
 export default class SeoRenderer {
@@ -468,27 +466,16 @@ export default class SeoRenderer {
     }
 
     let injectedScriptTags = '';
-    const shouldInjectScripts = options.injectScripts !== false;
-
     if (result.includes(scriptsPlaceholder)) {
-      if (shouldInjectScripts) {
-        injectedScriptTags = this.buildScriptTags();
-      }
+      injectedScriptTags = this.buildScriptTags();
       result = result.replace(scriptsPlaceholder, injectedScriptTags);
     }
 
-    const shouldStripFallbackStyles = injectedStyleTags.trim().length > 0;
-    const shouldStripFallbackScripts =
-      (shouldInjectScripts && injectedScriptTags.trim().length > 0) ||
-      (!shouldInjectScripts && options.stripFallbackScripts === true);
-
-    const shouldStripFallbackImportMap = shouldStripFallbackScripts;
-
-    if (shouldStripFallbackStyles || shouldStripFallbackScripts || shouldStripFallbackImportMap) {
+    if (injectedStyleTags.trim().length > 0 || injectedScriptTags.trim().length > 0) {
       result = this.stripFallbackAssets(result, {
-        removeStyles: shouldStripFallbackStyles,
-        removeScripts: shouldStripFallbackScripts,
-        removeImportMap: shouldStripFallbackImportMap,
+        removeStyles: injectedStyleTags.trim().length > 0,
+        removeScripts: injectedScriptTags.trim().length > 0,
+        removeImportMap: injectedScriptTags.trim().length > 0,
       });
     }
 
