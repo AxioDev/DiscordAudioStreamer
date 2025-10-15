@@ -19,32 +19,32 @@ export const DEFAULT_PROFILE_RANGE_MS = 30 * DAY_MS;
 export const STATUS_LABELS = {
   connecting: {
     label: 'Connexion…',
-    ring: 'bg-amber-400/20 text-amber-200 border-amber-400/50',
-    dot: 'bg-amber-300',
+    ring: 'bg-amber-100 text-amber-800 border-amber-300',
+    dot: 'bg-amber-400',
   },
   connected: {
     label: '',
     srLabel: 'Flux en cours',
     Icon: Activity,
-    ring: 'bg-emerald-400/15 text-emerald-200 border-emerald-400/40',
-    dot: 'bg-emerald-300',
+    ring: 'bg-emerald-100 text-emerald-700 border-emerald-300',
+    dot: 'bg-emerald-500',
   },
   reconnecting: {
     label: 'Reconnexion…',
-    ring: 'bg-sky-400/15 text-sky-200 border-sky-400/40',
-    dot: 'bg-sky-300',
+    ring: 'bg-sky-100 text-sky-700 border-sky-300',
+    dot: 'bg-sky-400',
   },
   error: {
     label: 'Hors ligne',
-    ring: 'bg-rose-500/20 text-rose-100 border-rose-400/50',
-    dot: 'bg-rose-300',
+    ring: 'bg-rose-100 text-rose-700 border-rose-300',
+    dot: 'bg-rose-400',
   },
   muted: {
     label: 'Bot mute',
     srLabel: 'Bot mute casque serveur',
     Icon: AlertCircle,
-    ring: 'bg-rose-500/20 text-rose-100 border-rose-400/50',
-    dot: 'bg-rose-300',
+    ring: 'bg-rose-100 text-rose-700 border-rose-300',
+    dot: 'bg-rose-400',
   },
 };
 

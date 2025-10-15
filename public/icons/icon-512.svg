@@ -13,9 +13,9 @@
       <stop offset="100%" stop-color="#d8b4fe" />
     </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="120" fill="#020617" />
+  <rect width="512" height="512" rx="120" fill="#f8fafc" />
   <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#brand-bg)" opacity="0.9" />
-  <rect x="72" y="72" width="368" height="368" rx="96" fill="#020617" opacity="0.6" />
+  <rect x="72" y="72" width="368" height="368" rx="96" fill="#ffffff" opacity="0.85" />
   <g fill="none" stroke="url(#signal)" stroke-linecap="round" stroke-linejoin="round">
     <path d="M104 332c44-96 96-188 152-188s108 92 152 188" stroke-width="34" />
     <path d="M168 332c32-64 64-124 88-124s56 60 88 124" stroke-width="26" />

@@ -4,8 +4,8 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#020617",
-  "theme_color": "#020617",
+  "background_color": "#f8fafc",
+  "theme_color": "#f8fafc",
   "description": "Le chaos en direct : un refuge sans filtre pour drogués, marginaux, alcooliques, gamers nocturnes et esprits libres.",
   "icons": [
     {

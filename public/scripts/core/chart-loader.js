@@ -5,8 +5,8 @@ const configureChartDefaults = (Chart) => {
     return Chart;
   }
   Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
-  Chart.defaults.color = '#e2e8f0';
-  Chart.defaults.borderColor = 'rgba(148, 163, 184, 0.25)';
+  Chart.defaults.color = '#0f172a';
+  Chart.defaults.borderColor = 'rgba(148, 163, 184, 0.35)';
   return Chart;
 };
 
