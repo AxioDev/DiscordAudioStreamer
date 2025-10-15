@@ -3,9 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f8fafc" />
+    <meta name="theme-color" content="#020617" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="mobile-web-app-capable" content="yes" />
     <meta
       name="apple-mobile-web-app-status-bar-style"
       content="black-translucent"
@@ -106,34 +105,23 @@
     <!--ASSET_PRELOADS-->
     <!--ASSET_STYLES-->
     <link rel="stylesheet" href="/styles/app.css" data-fallback-style />
-    <script>
-      (function loadImportMapPolyfillIfNeeded() {
-        const supportsImportMap =
-          typeof HTMLScriptElement !== 'undefined' &&
-          typeof HTMLScriptElement.supports === 'function' &&
-          HTMLScriptElement.supports('importmap');
-
-        if (supportsImportMap) {
-          return;
+    <script type="importmap" data-fallback-importmap>
+      {
+        "imports": {
+          "preact": "https://esm.sh/preact@10.23.2",
+          "preact/hooks": "https://esm.sh/preact@10.23.2/hooks",
+          "htm": "https://esm.sh/htm@3.1.1",
+          "chart.js/auto": "https://esm.sh/chart.js@4.4.6/auto",
+          "three": "https://esm.sh/three@0.170.0",
+          "three/examples/jsm/loaders/GLTFLoader": "https://esm.sh/three@0.170.0/examples/jsm/loaders/GLTFLoader.js?deps=three@0.170.0",
+          "three/examples/jsm/loaders/GLTFLoader.js": "https://esm.sh/three@0.170.0/examples/jsm/loaders/GLTFLoader.js?deps=three@0.170.0",
+          "marked": "https://esm.sh/marked@12.0.2",
+          "lucide-preact": "https://esm.sh/lucide-preact@0.439.0"
         }
-
-        const shimSrc =
-          'https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js';
-        const shimTag = `<script src="${shimSrc}" crossorigin="anonymous" data-importmap-shim><\\/script>`;
-
-        // document.write is used intentionally so that the shim executes
-        // synchronously before the import map and module scripts are parsed.
-        // eslint-disable-next-line no-document-write
-        document.write(shimTag);
-      })();
+      }
     </script>
-    <script
-      type="importmap"
-      src="/scripts/importmap.json"
-      data-fallback-importmap
-    ></script>
   </head>
-  <body class="light-mode min-h-screen bg-slate-50 text-slate-900 antialiased">
+  <body class="min-h-screen bg-slate-950 text-slate-100 antialiased">
     <div id="app" class="min-h-screen"><!--APP_HTML--></div>
 
     <!--APP_STATE-->
