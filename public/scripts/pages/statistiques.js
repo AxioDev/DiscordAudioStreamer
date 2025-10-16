@@ -1562,6 +1562,29 @@ export const StatistiquesPage = ({ params = {}, onSyncRoute, bootstrap = null })
     () => new Map(channelOptions.map((entry) => [entry.channelId, entry])),
     [channelOptions],
   );
+
+  const resolveChannelLabel = useCallback(
+    (channel, fallbackLabel) => {
+      if (!channel) {
+        return fallbackLabel;
+      }
+      const channelId = channel.id ?? channel.channelId ?? null;
+      const optionEntry = channelId ? channelOptionIndex.get(channelId) ?? null : null;
+      const optionName = typeof optionEntry?.channelName === 'string' ? optionEntry.channelName.trim() : '';
+      const providedName = typeof channel.name === 'string' ? channel.name.trim() : '';
+      if (optionName) {
+        return optionName;
+      }
+      if (providedName) {
+        return providedName;
+      }
+      if (channelId) {
+        return `Salon ${channelId}`;
+      }
+      return fallbackLabel;
+    },
+    [channelOptionIndex],
+  );
   const selectedChannels = filters.selectedChannels;
   const selectedChannelDetails = useMemo(
     () =>
@@ -1965,7 +1988,7 @@ export const StatistiquesPage = ({ params = {}, onSyncRoute, bootstrap = null })
                 <ul class="mt-3 space-y-2">
                   ${channelSeries.voice.length > 0
                     ? channelSeries.voice.map((channel) => {
-                        const label = channel.name ?? `Salon ${channel.id}`;
+                        const label = resolveChannelLabel(channel, 'Salon vocal');
                         return html`<li key=${`voice-${channel.id}`} class="flex items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-200">
                           <span>${label}</span>
                           <span>${formatMinutes(channel.voiceMinutes)}</span>
@@ -1982,7 +2005,7 @@ export const StatistiquesPage = ({ params = {}, onSyncRoute, bootstrap = null })
                 <ul class="mt-3 space-y-2">
                   ${channelSeries.text.length > 0
                     ? channelSeries.text.map((channel) => {
-                        const label = channel.name ?? `Salon ${channel.id}`;
+                        const label = resolveChannelLabel(channel, 'Salon textuel');
                         return html`<li key=${`text-${channel.id}`} class="flex items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-200">
                           <span>${label}</span>
                           <span>${formatInteger(channel.messageCount)} messages</span>
