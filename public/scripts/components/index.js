@@ -4284,10 +4284,18 @@ const MicrophoneDisplay = () => {
     <div class="relative flex flex-col items-center gap-3 flex-shrink-0">
       <div class="relative">
         <div
-          ref=${containerRef}
-          class="pointer-events-auto h-48 w-48 sm:h-60 sm:w-60 lg:h-72 lg:w-72 xl:h-80 xl:w-80"
-          role="presentation"
+          class="pointer-events-none absolute inset-0 rounded-full bg-gradient-to-br from-sky-500/35 via-slate-900/70 to-slate-950/90 blur-sm"
+          aria-hidden="true"
         ></div>
+        <div
+          class="relative rounded-full bg-slate-950/95 ring-2 ring-slate-900/80 shadow-[0_18px_45px_rgba(15,23,42,0.55)] overflow-hidden"
+        >
+          <div
+            ref=${containerRef}
+            class="pointer-events-auto h-48 w-48 sm:h-60 sm:w-60 lg:h-72 lg:w-72 xl:h-80 xl:w-80"
+            role="presentation"
+          ></div>
+        </div>
         <span class="sr-only">Microphone 3D interactif qui réagit aux mouvements de la souris.</span>
       </div>
     </div>
