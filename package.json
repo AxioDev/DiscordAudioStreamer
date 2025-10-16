@@ -20,6 +20,7 @@
     "build": "npm run build:client && npm run build:server",
     "postbuild": "node scripts/run-lighthouse.mjs",
     "prestart": "npm run build",
+    "migrate:blog": "ts-node scripts/migrate-proposals-to-posts.ts",
     "start": "node dist/server.js",
     "dev": "npm run build:client && ts-node src/server.ts",
     "verify:performance": "node scripts/run-lighthouse.mjs",

@@ -27,7 +27,7 @@
 - Aucun middleware de compression n'est encore appliqué : même avec des assets minifiés, chaque réponse HTML/JSON reste servie brute. Activer Brotli/Gzip (ou livrer des variantes précompressées) s'impose avant la mise en prod CDN.【F:src/http/AppServer.ts†L3004-L3050】
 
 ### Contenus & sémantique
-- Les articles IA sont maintenant enregistrés comme propositions (`blog_post_proposals`) plutôt que publiés automatiquement. Structurer une revue éditoriale (validation factuelle, enrichissement interne, publication dans `blog_posts`) et tracer les références `proposalReference` reste indispensable pour préserver l'E-E-A-T.【F:src/services/DailyArticleService.ts†L355-L406】【F:src/services/BlogProposalService.ts†L145-L220】【F:src/services/BlogRepository.ts†L573-L609】
+- Les articles IA générés quotidiennement sont désormais publiés directement dans `blog_posts`. Une revue éditoriale a posteriori (vérifications factuelles, enrichissement interne) reste indispensable pour préserver l’E-E-A-T et maintenir un contenu fiable.【F:src/services/DailyArticleService.ts†L360-L411】【F:src/services/BlogRepository.ts†L271-L332】
 - Les sections SSR (home, membres, classements, boutique, about) s'appuient désormais sur un markup riche. Prévoir une routine éditoriale pour rafraîchir les textes/CTA et synchroniser ces contenus avec les actualités du direct garantira la cohérence entre SSR et contenu live.【F:src/http/AppServer.ts†L1205-L2116】【F:src/http/AppServer.ts†L3183-L3434】
 
 ### Données structurées & signaux enrichis

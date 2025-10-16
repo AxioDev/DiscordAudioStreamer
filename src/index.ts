@@ -12,7 +12,7 @@ import VoiceActivityRepository from './services/VoiceActivityRepository';
 import ListenerStatsService from './services/ListenerStatsService';
 import BlogRepository from './services/BlogRepository';
 import BlogService from './services/BlogService';
-import BlogProposalService from './services/BlogProposalService';
+import BlogSubmissionService from './services/BlogSubmissionService';
 import DailyArticleService from './services/DailyArticleService';
 import KaldiTranscriptionService from './services/KaldiTranscriptionService';
 import UserPersonaService from './services/UserPersonaService';
@@ -130,14 +130,13 @@ void blogService.initialize().catch((error) => {
   console.error('BlogService initialization failed', error);
 });
 
-const blogProposalService = new BlogProposalService({
-  proposalsDirectory: path.resolve(__dirname, '..', 'content', 'blog', 'proposals'),
+const blogSubmissionService = new BlogSubmissionService({
   repository: blogRepository,
   blogService,
 });
 
-void blogProposalService.initialize().catch((error) => {
-  console.error('BlogProposalService initialization failed', error);
+void blogSubmissionService.initialize().catch((error) => {
+  console.error('BlogSubmissionService initialization failed', error);
 });
 
 const dailyArticleService = new DailyArticleService({
@@ -193,7 +192,7 @@ const appServer = new AppServer({
   listenerStatsService,
   blogRepository,
   blogService,
-  blogProposalService,
+  blogSubmissionService,
   dailyArticleService,
   adminService,
   statisticsService,

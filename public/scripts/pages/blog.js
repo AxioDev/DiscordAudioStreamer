@@ -164,7 +164,7 @@ const sanitizePostDetail = (post) => {
   };
 };
 
-export const BlogPage = ({ params = {}, bootstrap = null, onNavigateToPost, onNavigateToProposal }) => {
+export const BlogPage = ({ params = {}, bootstrap = null, onNavigateToPost, onNavigateToSubmission }) => {
   const slug = typeof params?.slug === 'string' && params.slug.trim().length > 0 ? params.slug.trim() : null;
   const bootstrapData = bootstrap && typeof bootstrap === 'object' ? bootstrap : {};
   const bootstrapSelectedTags = normalizeTags(bootstrapData.selectedTags);
@@ -393,18 +393,18 @@ export const BlogPage = ({ params = {}, bootstrap = null, onNavigateToPost, onNa
     setSelectedTags([]);
   }, []);
 
-  const handleOpenProposal = useCallback(() => {
-    if (typeof onNavigateToProposal === 'function') {
-      onNavigateToProposal();
+  const handleOpenSubmission = useCallback(() => {
+    if (typeof onNavigateToSubmission === 'function') {
+      onNavigateToSubmission();
       return;
     }
     if (typeof window !== 'undefined' && typeof window.history?.pushState === 'function') {
-      window.history.pushState({ route: { name: 'blog-proposal', params: {} } }, '', '/blog/proposer');
+      window.history.pushState({ route: { name: 'blog-submit', params: {} } }, '', '/blog/publier');
       const popEvent =
         typeof window.PopStateEvent === 'function' ? new PopStateEvent('popstate') : new Event('popstate');
       window.dispatchEvent(popEvent);
     }
-  }, [onNavigateToProposal]);
+  }, [onNavigateToSubmission]);
 
   const handleManualPasswordChange = useCallback((event) => {
     setManualPassword(event.target.value);
@@ -512,11 +512,11 @@ export const BlogPage = ({ params = {}, bootstrap = null, onNavigateToPost, onNa
           </div>
           <button
             type="button"
-            onClick=${() => handleOpenProposal()}
+            onClick=${() => handleOpenSubmission()}
             class="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-amber-400/60 bg-amber-500/10 px-4 py-2 text-sm font-semibold text-amber-100 shadow-sm transition hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
           >
             <${Sparkles} class="h-4 w-4" aria-hidden="true" />
-            Proposer un article
+            Publier un article
           </button>
         </div>
         ${tagOptions.length > 0

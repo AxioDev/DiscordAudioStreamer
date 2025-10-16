@@ -27,11 +27,8 @@ import BlogService, {
   type BlogPostDetail,
   type BlogPostSummary,
 } from '../services/BlogService';
-import BlogRepository, {
-  type BlogPostProposalRow,
-  type BlogPostRow,
-} from '../services/BlogRepository';
-import BlogProposalService, { BlogProposalError } from '../services/BlogProposalService';
+import BlogRepository, { type BlogPostRow } from '../services/BlogRepository';
+import BlogSubmissionService, { BlogSubmissionError } from '../services/BlogSubmissionService';
 import type {
   CommunityPulseSnapshot,
   HypeLeaderboardQueryOptions,
@@ -75,7 +72,7 @@ export interface AppServerOptions {
   listenerStatsService: ListenerStatsService;
   blogRepository?: BlogRepository | null;
   blogService?: BlogService | null;
-  blogProposalService?: BlogProposalService | null;
+  blogSubmissionService?: BlogSubmissionService | null;
   dailyArticleService?: DailyArticleService | null;
   adminService: AdminService;
   statisticsService: StatisticsService;
@@ -149,21 +146,6 @@ interface AdminBlogPostRecord {
   seoDescription: string | null;
   publishedAt: string | null;
   updatedAt: string | null;
-}
-
-interface AdminBlogProposalRecord {
-  id: string;
-  slug: string;
-  title: string;
-  excerpt: string | null;
-  contentMarkdown: string;
-  coverImageUrl: string | null;
-  tags: string[];
-  seoDescription: string | null;
-  authorName: string | null;
-  authorContact: string | null;
-  reference: string;
-  submittedAt: string | null;
 }
 
 interface AdminListRequestParams {
@@ -328,7 +310,7 @@ export default class AppServer {
 
   private readonly blogRepository: BlogRepository | null;
 
-  private readonly blogProposalService: BlogProposalService;
+  private readonly blogSubmissionService: BlogSubmissionService;
 
   private readonly seoRenderer: SeoRenderer;
 
@@ -360,7 +342,7 @@ export default class AppServer {
     listenerStatsService,
     blogRepository = null,
     blogService = null,
-    blogProposalService = null,
+    blogSubmissionService = null,
     dailyArticleService = null,
     adminService,
     statisticsService,
@@ -435,16 +417,15 @@ export default class AppServer {
         repository: this.blogRepository,
       });
 
-    this.blogProposalService =
-      blogProposalService ??
-      new BlogProposalService({
-        proposalsDirectory: path.resolve(__dirname, '..', '..', 'content', 'blog', 'proposals'),
+    this.blogSubmissionService =
+      blogSubmissionService ??
+      new BlogSubmissionService({
         repository: this.blogRepository,
         blogService: this.blogService,
       });
 
-    void this.blogProposalService.initialize().catch((error) => {
-      console.error('Failed to initialize blog proposal service', error);
+    void this.blogSubmissionService.initialize().catch((error) => {
+      console.error('Failed to initialize blog submission service', error);
     });
 
     if (this.hypeLeaderboardService) {
@@ -974,7 +955,7 @@ export default class AppServer {
       { path: '/statistiques', changeFreq: 'hourly', priority: 0.75 },
       { path: '/classements', changeFreq: 'hourly', priority: 0.7 },
       { path: '/blog', changeFreq: 'daily', priority: 0.7 },
-      { path: '/blog/proposer', changeFreq: 'monthly', priority: 0.5 },
+      { path: '/blog/publier', changeFreq: 'monthly', priority: 0.5 },
       { path: '/about', changeFreq: 'monthly', priority: 0.5 },
       { path: '/cgu', changeFreq: 'yearly', priority: 0.4 },
     ];
@@ -1091,7 +1072,7 @@ export default class AppServer {
         case '/classements':
           return [context.latestClassementsSnapshot];
         case '/blog':
-        case '/blog/proposer':
+        case '/blog/publier':
           return [context.latestBlogPostDate];
         case '/about':
         case '/cgu':
@@ -1501,38 +1482,6 @@ export default class AppServer {
       seoDescription: row.seo_description ?? null,
       publishedAt: toIso(row.published_at),
       updatedAt: toIso(row.updated_at),
-    };
-  }
-
-  private mapBlogProposalRowToAdmin(row: BlogPostProposalRow): AdminBlogProposalRecord {
-    const toIso = (value: Date | string | null | undefined): string | null => {
-      if (!value) {
-        return null;
-      }
-      if (value instanceof Date) {
-        return Number.isNaN(value.getTime()) ? null : value.toISOString();
-      }
-      const parsed = new Date(value);
-      return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-    };
-
-    const tags = Array.isArray(row.tags)
-      ? row.tags.map((entry) => (typeof entry === 'string' ? entry.trim() : '')).filter((entry) => entry.length > 0)
-      : [];
-
-    return {
-      id: row.slug,
-      slug: row.slug,
-      title: row.title,
-      excerpt: row.excerpt ?? null,
-      contentMarkdown: row.content_markdown,
-      coverImageUrl: row.cover_image_url ?? null,
-      tags,
-      seoDescription: row.seo_description ?? null,
-      authorName: row.author_name ?? null,
-      authorContact: row.author_contact ?? null,
-      reference: row.reference,
-      submittedAt: toIso(row.submitted_at),
     };
   }
 
@@ -2167,7 +2116,7 @@ export default class AppServer {
       '<h1 class="mt-3 text-3xl font-bold text-white sm:text-4xl">Libre Antenne · Voix nocturnes du Discord</h1>',
     );
     parts.push(
-      '<p data-speakable="description" class="mt-4 text-lg text-slate-300">La communauté Libre Antenne diffuse en continu ses débats, confidences et sessions de jeu. Branche-toi pour suivre le direct, proposer un sujet ou prendre le micro.</p>',
+      '<p data-speakable="description" class="mt-4 text-lg text-slate-300">La communauté Libre Antenne diffuse en continu ses débats, confidences et sessions de jeu. Branche-toi pour suivre le direct, suggérer un sujet ou prendre le micro.</p>',
     );
     parts.push(
       `<p class="mt-6 inline-flex items-center gap-2 rounded-full bg-emerald-500/20 px-4 py-2 text-sm font-semibold text-emerald-300"><span class="h-2 w-2 animate-pulse rounded-full bg-emerald-300"></span>${this.escapeHtml(listenerLabel)}</p>`,
@@ -2456,7 +2405,7 @@ export default class AppServer {
 
     if (data.posts.length === 0) {
       parts.push(
-        '<p class="rounded-3xl border border-slate-800/60 bg-slate-950/60 p-6 text-sm text-slate-400">Aucun article ne correspond à ces filtres pour le moment. N’hésite pas à proposer un sujet ou à explorer d’autres tags.</p>',
+        '<p class="rounded-3xl border border-slate-800/60 bg-slate-950/60 p-6 text-sm text-slate-400">Aucun article ne correspond à ces filtres pour le moment. N’hésite pas à publier un article ou à explorer d’autres tags.</p>',
       );
     } else {
       parts.push('<section class="space-y-6">');
@@ -2552,8 +2501,8 @@ export default class AppServer {
     parts.push('</article>');
 
     parts.push('<footer class="rounded-3xl border border-slate-800/40 bg-slate-950/60 p-6 text-sm text-slate-300">');
-    parts.push('<p>Envie de participer ? Rejoins la communauté sur Discord et propose ta chronique via l’outil dédié.</p>');
-    parts.push('<a class="mt-3 inline-flex items-center gap-2 font-semibold text-amber-300 hover:text-amber-200" href="/blog/proposer">Proposer un article →</a>');
+    parts.push('<p>Envie de participer ? Rejoins la communauté sur Discord et publie ta chronique via l’outil dédié.</p>');
+    parts.push('<a class="mt-3 inline-flex items-center gap-2 font-semibold text-amber-300 hover:text-amber-200" href="/blog/publier">Publier un article →</a>');
     parts.push('</footer>');
 
     parts.push('</main>');
@@ -2654,13 +2603,13 @@ export default class AppServer {
     return parts.join('');
   }
 
-  private buildBlogProposalHtml(): string {
+  private buildBlogSubmissionHtml(): string {
     const parts: string[] = [];
-    parts.push('<main class="blog-proposal-prerender mx-auto max-w-3xl space-y-10 px-4 py-16">');
+    parts.push('<main class="blog-submission-prerender mx-auto max-w-3xl space-y-10 px-4 py-16">');
     parts.push('<section class="rounded-3xl border border-slate-800/60 bg-slate-950/70 p-8 text-center">');
-    parts.push('<p class="text-xs uppercase tracking-[0.2em] text-amber-300">Contribuer</p>');
-    parts.push('<h1 class="mt-3 text-3xl font-bold text-white">Proposer un article pour le blog Libre Antenne</h1>');
-    parts.push('<p class="mt-4 text-sm text-slate-300">Partage une chronique de nuit, un portrait de membre ou un guide pour rejoindre la radio libre. Notre équipe relit et publie les meilleures contributions.</p>');
+    parts.push('<p class="text-xs uppercase tracking-[0.2em] text-amber-300">Contribution immédiate</p>');
+    parts.push('<h1 class="mt-3 text-3xl font-bold text-white">Publier un article sur le blog Libre Antenne</h1>');
+    parts.push('<p class="mt-4 text-sm text-slate-300">Partage un moment marquant, un portrait ou un guide pratique : ta contribution est en ligne dès l’envoi.</p>');
     parts.push('</section>');
 
     parts.push('<section class="space-y-6 rounded-3xl border border-slate-800/40 bg-slate-950/60 p-6 text-sm text-slate-200">');
@@ -2668,19 +2617,23 @@ export default class AppServer {
     parts.push('<ol class="list-decimal space-y-3 pl-6 text-left text-slate-300">');
     parts.push('<li>Décris ton idée : titre, accroche, tags et visuel éventuel.</li>');
     parts.push('<li>Rédige ton article en Markdown avec un ton authentique et sourcé.</li>');
-    parts.push('<li>Indique un moyen de contact pour la relecture (Discord ou e-mail).</li>');
+    parts.push('<li>Publie : l’article rejoint immédiatement le blog Libre Antenne.</li>');
     parts.push('</ol>');
-    parts.push('<p class="text-sm text-slate-400">Un membre de la rédaction vérifie chaque proposition avant publication pour garantir la qualité éditoriale et la conformité aux règles communautaires.</p>');
     parts.push('</section>');
 
     parts.push('<section class="rounded-3xl border border-slate-800/40 bg-slate-950/60 p-6 text-sm text-slate-200">');
-    parts.push('<h2 class="text-lg font-semibold text-white">Prépare ton article</h2>');
+    parts.push('<h2 class="text-lg font-semibold text-white">Prépare un contenu de qualité</h2>');
     parts.push('<ul class="list-disc space-y-2 pl-6 text-left">');
-    parts.push('<li>Format recommandé : 800 à 1 200 mots.</li>');
-    parts.push('<li>Ajoute des sources ou liens utiles si tu annonces une information.</li>');
-    parts.push('<li>Évite les contenus promotionnels ou générés automatiquement sans relecture humaine.</li>');
+    parts.push('<li>Format recommandé : 800 à 1 200 mots avec des intertitres clairs.</li>');
+    parts.push('<li>Ajoute des sources ou liens utiles si tu cites une information.</li>');
+    parts.push('<li>Reste fidèle à l’esprit communautaire : respect, bienveillance et transparence.</li>');
     parts.push('</ul>');
     parts.push('<a class="mt-4 inline-flex items-center gap-2 font-semibold text-amber-300 hover:text-amber-200" href="/blog">Voir les articles publiés →</a>');
+    parts.push('</section>');
+
+    parts.push('<section class="rounded-3xl border border-slate-800/40 bg-slate-950/60 p-6 text-sm text-slate-200">');
+    parts.push('<h2 class="text-lg font-semibold text-white">Après la publication</h2>');
+    parts.push('<p class="text-slate-300">Ton article apparaît immédiatement dans le blog. L’équipe éditoriale peut ensuite le relire, le partager et le mettre en avant pendant le direct.</p>');
     parts.push('</section>');
 
     parts.push('</main>');
@@ -4300,71 +4253,6 @@ export default class AppServer {
       }
     });
 
-    adminRouter.get('/blog/proposals', async (req, res) => {
-      if (!this.blogRepository) {
-        res.status(503).json({
-          error: 'BLOG_REPOSITORY_DISABLED',
-          message: "La gestion des propositions est indisponible sur ce serveur.",
-        });
-        return;
-      }
-
-      const listRequest = this.parseAdminListRequest(req);
-      const searchFilter = this.extractAdminSearchFilter(listRequest.filters);
-      const limit = listRequest.perPage;
-      const offset = (listRequest.page - 1) * listRequest.perPage;
-
-      try {
-        const [rows, total] = await Promise.all([
-          this.blogRepository.listProposals({
-            search: searchFilter,
-            limit,
-            offset,
-            sortOrder: listRequest.sortOrder,
-          }),
-          this.blogRepository.countProposals({ search: searchFilter }),
-        ]);
-        res.json({ data: rows.map((row) => this.mapBlogProposalRowToAdmin(row)), total });
-      } catch (error) {
-        console.error('Failed to list admin blog proposals', error);
-        res.status(500).json({
-          error: 'ADMIN_BLOG_PROPOSALS_LIST_FAILED',
-          message: 'Impossible de récupérer les propositions.',
-        });
-      }
-    });
-
-    adminRouter.get('/blog/proposals/:slug', async (req, res) => {
-      if (!this.blogRepository) {
-        res.status(503).json({
-          error: 'BLOG_REPOSITORY_DISABLED',
-          message: "La gestion des propositions est indisponible sur ce serveur.",
-        });
-        return;
-      }
-
-      const slug = this.normalizeSlug(typeof req.params.slug === 'string' ? req.params.slug : null);
-      if (!slug) {
-        res.status(400).json({ error: 'SLUG_REQUIRED', message: 'Le slug de la proposition est requis.' });
-        return;
-      }
-
-      try {
-        const proposal = await this.blogRepository.getProposalBySlug(slug);
-        if (!proposal) {
-          res.status(404).json({ error: 'ADMIN_BLOG_PROPOSAL_NOT_FOUND', message: 'Proposition introuvable.' });
-          return;
-        }
-        res.json({ data: this.mapBlogProposalRowToAdmin(proposal) });
-      } catch (error) {
-        console.error('Failed to load admin blog proposal', error);
-        res.status(500).json({
-          error: 'ADMIN_BLOG_PROPOSAL_LOAD_FAILED',
-          message: 'Impossible de charger cette proposition.',
-        });
-      }
-    });
-
     adminRouter.get('/members/hidden', async (_req, res) => {
       try {
         const members = await this.adminService.listHiddenMembers();
@@ -4731,7 +4619,7 @@ export default class AppServer {
       }
     });
 
-    this.app.post('/api/blog/proposals', async (req, res) => {
+    this.app.post('/api/blog/submissions', async (req, res) => {
       const payload = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
 
       const tagsRaw = payload.tags;
@@ -4746,7 +4634,7 @@ export default class AppServer {
       }
 
       try {
-        const result = await this.blogProposalService.submitProposal({
+        const result = await this.blogSubmissionService.publish({
           title: typeof payload.title === 'string' ? payload.title : '',
           slug: typeof payload.slug === 'string' ? payload.slug : null,
           excerpt: typeof payload.excerpt === 'string' ? payload.excerpt : null,
@@ -4754,16 +4642,14 @@ export default class AppServer {
           coverImageUrl: typeof payload.coverImageUrl === 'string' ? payload.coverImageUrl : null,
           tags,
           seoDescription: typeof payload.seoDescription === 'string' ? payload.seoDescription : null,
-          authorName: typeof payload.authorName === 'string' ? payload.authorName : null,
-          authorContact: typeof payload.authorContact === 'string' ? payload.authorContact : null,
         });
 
         res.status(201).json({
-          message: 'Merci ! Ta proposition a bien été envoyée à la rédaction.',
-          proposal: result,
+          message: 'Merci ! Ton article est désormais publié sur le blog.',
+          article: result,
         });
       } catch (error) {
-        if (error instanceof BlogProposalError) {
+        if (error instanceof BlogSubmissionError) {
           const status =
             error.code === 'VALIDATION_ERROR'
               ? 400
@@ -4780,10 +4666,10 @@ export default class AppServer {
           return;
         }
 
-        console.error('Failed to submit blog proposal', error);
+        console.error('Failed to publish community article', error);
         res.status(500).json({
-          error: 'BLOG_PROPOSAL_FAILED',
-          message: 'Impossible de transmettre la proposition pour le moment.',
+          error: 'BLOG_SUBMISSION_FAILED',
+          message: "Impossible de publier l’article pour le moment.",
         });
       }
     });
@@ -4816,8 +4702,10 @@ export default class AppServer {
 
         let message = 'Génération traitée.';
         if (result.status === 'generated') {
-          const referenceNote = result.proposalReference ? ` (référence ${result.proposalReference})` : '';
-          message = `Un brouillon a été sauvegardé pour relecture${referenceNote}.`;
+          const publicationNote = result.publishedAt
+            ? ` (publié le ${new Date(result.publishedAt).toLocaleString('fr-FR')})`
+            : '';
+          message = `Un article a été généré et publié${publicationNote}.`;
         } else if (result.status === 'skipped') {
           switch (result.reason) {
             case 'ALREADY_RUNNING':
@@ -4830,7 +4718,7 @@ export default class AppServer {
               message = "La génération automatique est désactivée.";
               break;
             case 'ALREADY_EXISTS':
-              message = 'Un article ou une proposition existe déjà pour cette date.';
+              message = 'Un article existe déjà pour cette date.';
               break;
             case 'NO_TRANSCRIPTS':
               message = 'Aucune transcription exploitable pour la période demandée.';
@@ -6191,47 +6079,47 @@ export default class AppServer {
       }
     });
 
-    this.app.get(['/blog/proposer', '/blog/proposal', '/blog/soumettre'], (_req, res) => {
+    this.app.get('/blog/publier', (_req, res) => {
       const metadata: SeoPageMetadata = {
-        title: `${this.config.siteName} · Proposer un article`,
+        title: `${this.config.siteName} · Publier un article`,
         description:
-          'Soumets une chronique, un portrait ou un guide pour alimenter le blog Libre Antenne. Notre équipe relit chaque proposition avant publication.',
-        path: '/blog/proposer',
-        canonicalUrl: this.toAbsoluteUrl('/blog/proposer'),
+          'Rédige et publie instantanément un article sur le blog Libre Antenne pour partager ton regard avec la communauté.',
+        path: '/blog/publier',
+        canonicalUrl: this.toAbsoluteUrl('/blog/publier'),
         keywords: this.combineKeywords(
           this.config.siteName,
-          'proposer article Libre Antenne',
+          'publier article Libre Antenne',
           'chronique radio libre',
-          'participer blog communauté',
+          'contribution blog communauté',
         ),
-        openGraphType: 'website',
+        openGraphType: 'article',
         breadcrumbs: [
           { name: 'Accueil', path: '/' },
           { name: 'Blog', path: '/blog' },
-          { name: 'Proposer un article', path: '/blog/proposer' },
+          { name: 'Publier un article', path: '/blog/publier' },
         ],
         structuredData: [
           {
             '@context': 'https://schema.org',
             '@type': 'HowTo',
-            name: 'Soumettre un article au blog Libre Antenne',
-            description:
-              'Étapes à suivre pour proposer une chronique validée par la rédaction de Libre Antenne.',
+            name: 'Publier un article sur le blog Libre Antenne',
+            description: 'Étapes pour mettre en ligne un article communautaire sur Libre Antenne.',
             step: [
-              { '@type': 'HowToStep', name: 'Définir son sujet', text: 'Prépare un titre, une accroche et quelques tags.' },
-              { '@type': 'HowToStep', name: 'Rédiger en Markdown', text: 'Écris ton article avec un ton authentique et sourcé.' },
-              {
-                '@type': 'HowToStep',
-                name: 'Envoyer la proposition',
-                text: 'Ajoute un moyen de contact pour la relecture éditoriale.',
-              },
+              { '@type': 'HowToStep', name: 'Préparer le contenu', text: 'Choisis un titre, une accroche et des tags pertinents.' },
+              { '@type': 'HowToStep', name: 'Rédiger en Markdown', text: 'Écris ton article en soignant la forme et les sources.' },
+              { '@type': 'HowToStep', name: 'Publier', text: 'Valide le formulaire pour mettre ton article en ligne immédiatement.' },
             ],
           },
         ],
       };
 
-      const appHtml = this.buildBlogProposalHtml();
-      this.respondWithAppShell(res, metadata, { appHtml });
+      const appHtml = this.buildBlogSubmissionHtml();
+      const preloadState: AppPreloadState = { route: { name: 'blog-submit', params: {} } };
+      this.respondWithAppShell(res, metadata, { appHtml, preloadState });
+    });
+
+    this.app.get(['/blog/proposer', '/blog/soumettre'], (_req, res) => {
+      res.redirect(301, '/blog/publier');
     });
 
     this.app.get('/blog/:slug', async (req, res) => {

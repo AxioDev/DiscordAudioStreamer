@@ -62,7 +62,7 @@ const WEEKLY_PROGRAMME = [
     day: 'Dimanche',
     title: 'Débrief modération & invités',
     time: '20h30',
-    description: 'Bilan de la semaine, teasing des interviews à venir et sélection des propositions de sujets.',
+    description: 'Bilan de la semaine, teasing des interviews à venir et sélection des contributions à mettre en avant.',
   },
 ];
 
@@ -94,9 +94,9 @@ const FAQ_ITEMS = [
       'Rejoins le Discord, vérifie le salon #brief pour connaître le sujet du moment puis connecte-toi au vocal « Libre Antenne ». Une équipe de modération t’accompagne avant ton passage à l’antenne.',
   },
   {
-    question: 'Puis-je proposer un thème ou un article ?',
+    question: 'Puis-je publier un article ou suggérer un thème ?',
     answer:
-      'Oui ! Utilise le formulaire « Proposer un article » dans la section blog ou poste directement ton idée dans #pitch. Les propositions sont discutées chaque dimanche.',
+      'Oui ! Mets ton article en ligne via le formulaire « Publier un article » dans la section blog ou partage ton idée directement dans #pitch. Les contributions sont relues chaque dimanche.',
   },
   {
     question: 'Y a-t-il un replay ?',

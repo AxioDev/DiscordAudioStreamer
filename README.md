@@ -58,12 +58,22 @@ ADMIN_PASSWORD=motdepasseSuperSecret
 
 Une fois authentifié, ce point d'entrée propose :
 
-- un tableau de bord React Admin pour gérer les articles du blog (création, édition, suppression), suivre les propositions en attente et administrer les membres masqués ;
+- un tableau de bord React Admin pour gérer les articles du blog (création, édition, suppression) et administrer les membres masqués ;
 - une API JSON pour récupérer un état synthétique du service (auditeurs en direct, orateurs suivis, configuration OpenAI, membres masqués, prochaine génération d'article) ;
 - des points d'accès pour masquer la fiche d'un membre (`POST /admin/members/{userId}/hide` avec un champ optionnel `idea`) ou la ré-afficher (`DELETE /admin/members/{userId}/hide`) ;
 - la possibilité de déclencher manuellement la génération de l'article quotidien (`POST /admin/articles/daily`).
 
 Les profils masqués ne sont plus renvoyés par les API publiques et leur page dédiée affiche un message de confidentialité.
+
+### Migration des anciens articles en validation
+
+Un script de migration permet de transférer les articles en attente présents dans `blog_post_proposals` vers la table `blog_posts`, puis supprime la table historique. Assurez-vous que les variables `DATABASE_URL` (et éventuellement `DATABASE_SSL`) sont configurées puis exécutez :
+
+```bash
+npm run migrate:blog
+```
+
+Le script insère les articles manquants, supprime les entrées migrées et retire définitivement la table `blog_post_proposals`.
 
 ## Statistiques et confidentialité
 
