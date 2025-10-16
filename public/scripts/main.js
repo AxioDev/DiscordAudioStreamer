@@ -1873,11 +1873,78 @@ if (mountNode) {
   }
 }
 if ('serviceWorker' in navigator) {
+  let isReloadingAfterUpdate = false;
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (isReloadingAfterUpdate) {
+      return;
+    }
+
+    isReloadingAfterUpdate = true;
+    window.location.reload();
+  });
+
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('/sw.js')
       .then((registration) => {
         console.info('Service worker enregistré', registration.scope);
+
+        const activateWaitingServiceWorker = (reg) => {
+          if (!reg || !navigator.serviceWorker.controller) {
+            return;
+          }
+
+          const waitingWorker = reg.waiting;
+          if (waitingWorker) {
+            waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+          }
+        };
+
+        const monitorInstallingWorker = (reg) => {
+          if (!reg) {
+            return;
+          }
+
+          const installingWorker = reg.installing;
+          if (!installingWorker) {
+            return;
+          }
+
+          installingWorker.addEventListener('statechange', () => {
+            if (installingWorker.state === 'installed') {
+              activateWaitingServiceWorker(reg);
+            }
+          });
+        };
+
+        if (registration.waiting) {
+          activateWaitingServiceWorker(registration);
+        }
+
+        monitorInstallingWorker(registration);
+
+        registration.addEventListener('updatefound', () => {
+          monitorInstallingWorker(registration);
+        });
+
+        const requestServiceWorkerUpdate = () => {
+          registration.update().catch((error) => {
+            console.warn('Impossible de vérifier la mise à jour du service worker', error);
+          });
+        };
+
+        requestServiceWorkerUpdate();
+
+        const updateInterval = window.setInterval(requestServiceWorkerUpdate, 60 * 60 * 1000);
+
+        window.addEventListener(
+          'beforeunload',
+          () => {
+            window.clearInterval(updateInterval);
+          },
+          { once: true }
+        );
       })
       .catch((error) => {
         console.warn('Service worker introuvable', error);
