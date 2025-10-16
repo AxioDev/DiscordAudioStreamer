@@ -2693,6 +2693,20 @@ export default class VoiceActivityRepository {
 
     const sortDirection = sortOrder === 'asc' ? 'ASC' : 'DESC';
 
+    const orderByClause = `${sortColumn} ${sortDirection}, sch_score_norm DESC, display_name ASC`;
+    const rankedOrderByClause = orderByClause
+      .split(',')
+      .map((clause) => clause.trim())
+      .filter((clause) => clause.length > 0)
+      .map((clause) => {
+        const [column, ...rest] = clause.split(/\s+/);
+        if (!column) {
+          return clause;
+        }
+        return [`ranked.${column}`, ...rest].join(' ');
+      })
+      .join(', ');
+
     const params: Array<string | number> = [];
     let parameterIndex = 1;
 
@@ -2730,8 +2744,6 @@ export default class VoiceActivityRepository {
       parameterIndex += 1;
       limitClause = `LIMIT ${limitParameter}`;
     }
-
-    const orderByClause = `${sortColumn} ${sortDirection}, sch_score_norm DESC, display_name ASC`;
 
     const query = `WITH
     filtered_voice_presence AS (
@@ -2850,7 +2862,7 @@ SELECT
     ranked.activity_score,
     ranked.sch_raw,
     ranked.sch_score_norm,
-    ranked.absolute_rank
+    ROW_NUMBER() OVER (ORDER BY ${rankedOrderByClause}) AS absolute_rank
 FROM (
     SELECT
         u.user_id,
@@ -2875,8 +2887,7 @@ FROM (
                 0.2 * (COALESCE(r.retention_seconds, 0) / 60.0) +
                 0.1 * COALESCE(ac.activity_score, 0)
             ) / LOG(1 + sc.session_count)
-        )::numeric, 2) AS sch_score_norm,
-        ROW_NUMBER() OVER (ORDER BY ${orderByClause}) AS absolute_rank
+        )::numeric, 2) AS sch_score_norm
     FROM users u
     JOIN sessions_count sc ON u.user_id = sc.user_id AND u.guild_id = sc.guild_id
     JOIN days_present dp   ON u.user_id = dp.user_id AND u.guild_id = dp.guild_id
@@ -2889,7 +2900,7 @@ FROM (
       AND u.user_id NOT IN ('1419381362116268112')
 ) ranked
 ${searchClause}
-ORDER BY ranked.absolute_rank
+ORDER BY absolute_rank
 ${limitClause}`;
 
     try {
