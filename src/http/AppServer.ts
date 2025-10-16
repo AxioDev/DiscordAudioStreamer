@@ -834,6 +834,45 @@ export default class AppServer {
     return [];
   }
 
+  private normalizeMemberSearchQuery(value: string | null | undefined): string {
+    if (!value) {
+      return '';
+    }
+
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      return '';
+    }
+
+    const mentionMatch = trimmed.match(/^<@!?([0-9]+)>$/);
+    if (mentionMatch && mentionMatch[1]) {
+      return mentionMatch[1];
+    }
+
+    let normalized = trimmed.replace(/^<@!?/, '').replace(/>$/, '');
+    normalized = normalized.replace(/^@+/, '');
+
+    if (normalized.startsWith('#')) {
+      normalized = normalized.slice(1);
+    }
+
+    const hashIndex = normalized.indexOf('#');
+    if (hashIndex > -1) {
+      const prefix = normalized.slice(0, hashIndex);
+      const suffix = normalized.slice(hashIndex + 1);
+      if (prefix && /^[0-9]+$/.test(suffix)) {
+        normalized = prefix;
+      }
+    }
+
+    const digitsOnly = normalized.replace(/\s+/g, '');
+    if (digitsOnly.length > 0 && /^[0-9]+$/.test(digitsOnly)) {
+      return digitsOnly;
+    }
+
+    return normalized.trim();
+  }
+
   private setClientNoCache(res: Response): void {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
@@ -2745,9 +2784,10 @@ export default class AppServer {
 
   private async buildMembersPagePrerender(search: string | null): Promise<string> {
     try {
+      const normalizedSearch = this.normalizeMemberSearchQuery(search);
       const result = await this.discordBridge.listGuildMembers({
         limit: 30,
-        search: search && search.trim().length > 0 ? search.trim() : null,
+        search: normalizedSearch.length > 0 ? normalizedSearch : null,
       });
       const hiddenIds = await this.adminService.getHiddenMemberIds();
       const visibleMembers = result.members.filter((member) => !hiddenIds.has(member.id));
@@ -5495,7 +5535,9 @@ export default class AppServer {
       const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 24;
 
       const after = typeof afterParam === 'string' ? afterParam.trim() : '';
-      const search = typeof searchParam === 'string' ? searchParam.trim() : '';
+      const rawSearchValue = typeof searchParam === 'string' ? searchParam : '';
+      const search = this.normalizeMemberSearchQuery(rawSearchValue);
+      const hasNormalizedSearch = search.length > 0;
       const sortValue = typeof sortParam === 'string' ? sortParam.trim().toLowerCase() : '';
       const sort: MemberEngagementSort = sortValue === 'messages' ? 'messages' : 'voice';
 
@@ -5557,6 +5599,33 @@ export default class AppServer {
 
       const hiddenMemberIds = await this.adminService.getHiddenMemberIds();
 
+      type ApiMemberRecentMessage = {
+        messageId: string;
+        channelId: string | null;
+        guildId: string | null;
+        content: string | null;
+        timestamp: string;
+        timestampMs: number;
+      };
+
+      type ApiMemberEntry = {
+        id: string;
+        displayName: string;
+        username: string | null;
+        nickname: string | null;
+        avatarUrl: string | null;
+        joinedAt: string | null;
+        lastSeenAt: string | null;
+        lastActivityAt: string | null;
+        roles: Array<{ id: string; name: string }>;
+        isBot: boolean;
+        voiceMinutes: number;
+        messageCount: number;
+        recentMessages: ApiMemberRecentMessage[];
+      };
+
+      let aggregatedPayload: { members: ApiMemberEntry[]; nextCursor: string | null; hasMore: boolean } | null = null;
+
       if (this.voiceActivityRepository) {
         try {
           const decodedCursor = decodeCursor(after, sort);
@@ -5565,7 +5634,7 @@ export default class AppServer {
             limit,
             cursor: decodedCursor,
             sortBy: sort,
-            search: search.length > 0 ? search : null,
+            search: hasNormalizedSearch ? search : null,
             hiddenUserIds: hiddenMemberIds,
           });
 
@@ -5585,11 +5654,11 @@ export default class AppServer {
             }
           }
 
-          const members = aggregated.members.map((member) => {
+          const members = aggregated.members.map<ApiMemberEntry>((member) => {
             const joinedAt = member.firstSeenAt instanceof Date ? member.firstSeenAt.toISOString() : null;
             const lastSeenAt = member.lastSeenAt instanceof Date ? member.lastSeenAt.toISOString() : null;
             const lastActivityAt = member.lastActivityAt instanceof Date ? member.lastActivityAt.toISOString() : null;
-            const recentMessages = (recentMessagesByUser[member.userId] ?? []).map((entry) => ({
+            const recentMessages = (recentMessagesByUser[member.userId] ?? []).map<ApiMemberRecentMessage>((entry) => ({
               messageId: entry.messageId,
               channelId: entry.channelId,
               guildId: entry.guildId,
@@ -5621,12 +5690,16 @@ export default class AppServer {
 
           const nextCursor = encodeCursor(aggregated.nextCursor, sort);
 
-          res.json({
+          aggregatedPayload = {
             members,
             nextCursor,
             hasMore: Boolean(nextCursor),
-          });
-          return;
+          };
+
+          if (!hasNormalizedSearch || members.length > 0) {
+            res.json(aggregatedPayload);
+            return;
+          }
         } catch (error) {
           console.warn('Falling back to live Discord member list', error);
         }
@@ -5635,8 +5708,8 @@ export default class AppServer {
       try {
         const result = await this.discordBridge.listGuildMembers({
           limit,
-          after: after.length > 0 ? after : null,
-          search: search.length > 0 ? search : null,
+          after: hasNormalizedSearch ? null : after.length > 0 ? after : null,
+          search: hasNormalizedSearch ? search : null,
         });
 
         const visibleMembers = result.members.filter((member) => !hiddenMemberIds.has(member.id));
@@ -5659,27 +5732,66 @@ export default class AppServer {
           }
         }
 
-        const membersWithMessages = visibleMembers.map((member) => ({
-          ...member,
-          voiceMinutes: 0,
-          messageCount: 0,
-          lastActivityAt: null,
-          recentMessages: (recentMessagesByUser[member.id] ?? []).map((entry) => ({
-            messageId: entry.messageId,
-            channelId: entry.channelId,
-            guildId: entry.guildId,
-            content: entry.content,
-            timestamp: entry.timestamp.toISOString(),
-            timestampMs: entry.timestamp.getTime(),
-          })),
-        }));
+        const membersWithMessages = visibleMembers.map<ApiMemberEntry>((member) => {
+          const rawDisplayName = typeof member.displayName === 'string' ? member.displayName : '';
+          const normalizedDisplayName = rawDisplayName.trim().length > 0
+            ? rawDisplayName.trim()
+            : typeof member.nickname === 'string' && member.nickname.trim().length > 0
+              ? member.nickname.trim()
+              : typeof member.username === 'string' && member.username.trim().length > 0
+                ? member.username.trim()
+                : member.id;
+          const normalizedUsername = typeof member.username === 'string' && member.username.trim().length > 0
+            ? member.username.trim()
+            : null;
+          const normalizedNickname = typeof member.nickname === 'string' && member.nickname.trim().length > 0
+            ? member.nickname.trim()
+            : null;
+          const normalizedAvatar = typeof member.avatarUrl === 'string' && member.avatarUrl.trim().length > 0
+            ? member.avatarUrl
+            : null;
+          const joinedAt = typeof member.joinedAt === 'string' && member.joinedAt.trim().length > 0
+            ? member.joinedAt
+            : null;
+          const lastSeenAt = (member as { lastSeenAt?: string | null }).lastSeenAt ?? null;
+          const roles = Array.isArray(member.roles) ? member.roles : [];
+
+          return {
+            id: member.id,
+            displayName: normalizedDisplayName,
+            username: normalizedUsername,
+            nickname: normalizedNickname,
+            avatarUrl: normalizedAvatar,
+            joinedAt,
+            lastSeenAt,
+            lastActivityAt: null,
+            roles,
+            isBot: Boolean(member.isBot),
+            voiceMinutes: 0,
+            messageCount: 0,
+            recentMessages: (recentMessagesByUser[member.id] ?? []).map<ApiMemberRecentMessage>((entry) => ({
+              messageId: entry.messageId,
+              channelId: entry.channelId,
+              guildId: entry.guildId,
+              content: entry.content,
+              timestamp: entry.timestamp.toISOString(),
+              timestampMs: entry.timestamp.getTime(),
+            })),
+          };
+        });
 
         res.json({
           members: membersWithMessages,
           nextCursor: result.nextCursor,
           hasMore: result.hasMore,
         });
+        return;
       } catch (error) {
+        if (aggregatedPayload) {
+          res.json(aggregatedPayload);
+          return;
+        }
+
         if ((error as Error)?.name === 'GUILD_UNAVAILABLE' || (error as Error)?.message === 'GUILD_UNAVAILABLE') {
           res.status(503).json({
             error: 'GUILD_UNAVAILABLE',
