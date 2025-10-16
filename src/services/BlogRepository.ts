@@ -34,47 +34,16 @@ export interface BlogPostRow {
   updated_at: Date | null;
 }
 
-export interface BlogPostProposalInput {
-  title: string;
+export interface CreateBlogPostInput {
   slug: string;
+  title: string;
   excerpt: string | null;
   contentMarkdown: string;
   coverImageUrl: string | null;
   tags: string[];
   seoDescription: string | null;
-  authorName: string | null;
-  authorContact: string | null;
-  reference: string;
-  submittedAt: Date;
-}
-
-export interface BlogPostProposalRow {
-  id: number;
-  slug: string;
-  title: string;
-  excerpt: string | null;
-  content_markdown: string;
-  cover_image_url: string | null;
-  tags: string[] | null;
-  seo_description: string | null;
-  author_name: string | null;
-  author_contact: string | null;
-  reference: string;
-  submitted_at: Date;
-}
-
-export interface BlogPostProposalListOptions {
-  search?: string | null;
-  limit?: number | null;
-  offset?: number | null;
-  sortOrder?: BlogPostSortOrder | null;
-}
-
-export interface BlogPostProposalPersistedResult {
-  id: number | null;
-  slug: string;
-  reference: string;
-  submittedAt: Date;
+  publishedAt: Date;
+  updatedAt: Date;
 }
 
 interface SeedPostInput {
@@ -181,30 +150,6 @@ export default class BlogRepository {
       'CREATE INDEX IF NOT EXISTS blog_posts_tags_idx ON blog_posts USING GIN (tags)',
     );
 
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS blog_post_proposals (
-        id SERIAL PRIMARY KEY,
-        slug TEXT NOT NULL,
-        title TEXT NOT NULL,
-        excerpt TEXT,
-        content_markdown TEXT NOT NULL,
-        cover_image_url TEXT,
-        tags TEXT[] DEFAULT ARRAY[]::TEXT[],
-        seo_description TEXT,
-        author_name TEXT,
-        author_contact TEXT,
-        reference TEXT NOT NULL UNIQUE,
-        submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `);
-
-    await pool.query(
-      'CREATE UNIQUE INDEX IF NOT EXISTS blog_post_proposals_slug_idx ON blog_post_proposals (slug)',
-    );
-
-    await pool.query(
-      'CREATE INDEX IF NOT EXISTS blog_post_proposals_submitted_at_idx ON blog_post_proposals (submitted_at DESC)',
-    );
   }
 
   async seedDemoContent(): Promise<void> {
@@ -466,131 +411,15 @@ export default class BlogRepository {
     return (result.rowCount ?? 0) > 0;
   }
 
-  async getProposalBySlug(slug: string): Promise<BlogPostProposalRow | null> {
+  async createPost(input: CreateBlogPostInput): Promise<void> {
     const pool = await this.getPool();
     if (!pool) {
-      return null;
-    }
-
-    const { rows } = await pool.query<BlogPostProposalRow>(
-      `
-        SELECT
-          id,
-          slug,
-          title,
-          excerpt,
-          content_markdown,
-          cover_image_url,
-          tags,
-          seo_description,
-          author_name,
-          author_contact,
-          reference,
-          submitted_at
-        FROM blog_post_proposals
-        WHERE slug = $1
-        LIMIT 1
-      `,
-      [slug],
-    );
-
-    return rows.length > 0 ? rows[0] : null;
-  }
-
-  async listProposals(options: BlogPostProposalListOptions = {}): Promise<BlogPostProposalRow[]> {
-    const pool = await this.getPool();
-    if (!pool) {
-      return [];
-    }
-
-    const conditions: string[] = [];
-    const params: unknown[] = [];
-
-    if (options.search) {
-      params.push(`%${options.search}%`);
-      const index = params.length;
-      conditions.push(
-        `(title ILIKE $${index} OR excerpt ILIKE $${index} OR content_markdown ILIKE $${index} OR author_name ILIKE $${index})`,
-      );
-    }
-
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    const sortOrder = options.sortOrder === 'asc' ? 'ASC' : 'DESC';
-
-    let limitClause = '';
-    if (options.limit && Number.isFinite(options.limit) && options.limit > 0) {
-      params.push(options.limit);
-      limitClause = `LIMIT $${params.length}`;
-    }
-
-    let offsetClause = '';
-    if (options.offset && Number.isFinite(options.offset) && options.offset > 0) {
-      params.push(options.offset);
-      offsetClause = `OFFSET $${params.length}`;
-    }
-
-    const query = `
-      SELECT
-        id,
-        slug,
-        title,
-        excerpt,
-        content_markdown,
-        cover_image_url,
-        tags,
-        seo_description,
-        author_name,
-        author_contact,
-        reference,
-        submitted_at
-      FROM blog_post_proposals
-      ${whereClause}
-      ORDER BY submitted_at ${sortOrder}
-      ${limitClause}
-      ${offsetClause}
-    `;
-
-    const { rows } = await pool.query<BlogPostProposalRow>(query, params);
-    return rows;
-  }
-
-  async countProposals(options: { search?: string | null } = {}): Promise<number> {
-    const pool = await this.getPool();
-    if (!pool) {
-      return 0;
-    }
-
-    const conditions: string[] = [];
-    const params: unknown[] = [];
-
-    if (options.search) {
-      params.push(`%${options.search}%`);
-      const index = params.length;
-      conditions.push(
-        `(title ILIKE $${index} OR excerpt ILIKE $${index} OR content_markdown ILIKE $${index} OR author_name ILIKE $${index})`,
-      );
-    }
-
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-    const { rows } = await pool.query<{ count: string }>(
-      `SELECT COUNT(*)::text as count FROM blog_post_proposals ${whereClause}`,
-      params,
-    );
-
-    const raw = rows.length > 0 ? Number.parseInt(rows[0].count, 10) : 0;
-    return Number.isFinite(raw) ? raw : 0;
-  }
-
-  async createProposal(input: BlogPostProposalInput): Promise<void> {
-    const pool = await this.getPool();
-    if (!pool) {
-      throw new Error('Aucune base de données configurée pour enregistrer la proposition.');
+      throw new Error("Aucune base de données configurée pour enregistrer l'article.");
     }
 
     await pool.query(
       `
-        INSERT INTO blog_post_proposals (
+        INSERT INTO blog_posts (
           slug,
           title,
           excerpt,
@@ -598,12 +427,9 @@ export default class BlogRepository {
           cover_image_url,
           tags,
           seo_description,
-          author_name,
-          author_contact,
-          reference,
-          submitted_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          published_at,
+          updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       `,
       [
         input.slug,
@@ -613,80 +439,10 @@ export default class BlogRepository {
         input.coverImageUrl,
         input.tags,
         input.seoDescription,
-        input.authorName,
-        input.authorContact,
-        input.reference,
-        input.submittedAt,
+        input.publishedAt,
+        input.updatedAt,
       ],
     );
-  }
-
-  async upsertProposal(input: BlogPostProposalInput): Promise<BlogPostProposalPersistedResult> {
-    const pool = await this.getPool();
-    if (!pool) {
-      return {
-        id: null,
-        slug: input.slug,
-        reference: input.reference,
-        submittedAt: input.submittedAt,
-      };
-    }
-
-    const { rows } = await pool.query<{
-      id: number | null;
-      slug: string;
-      reference: string;
-      submitted_at: Date;
-    }>(
-      `
-        INSERT INTO blog_post_proposals (
-          slug,
-          title,
-          excerpt,
-          content_markdown,
-          cover_image_url,
-          tags,
-          seo_description,
-          author_name,
-          author_contact,
-          reference,
-          submitted_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-        ON CONFLICT (slug) DO UPDATE SET
-          title = EXCLUDED.title,
-          excerpt = EXCLUDED.excerpt,
-          content_markdown = EXCLUDED.content_markdown,
-          cover_image_url = EXCLUDED.cover_image_url,
-          tags = EXCLUDED.tags,
-          seo_description = EXCLUDED.seo_description,
-          author_name = EXCLUDED.author_name,
-          author_contact = EXCLUDED.author_contact,
-          reference = EXCLUDED.reference,
-          submitted_at = EXCLUDED.submitted_at
-        RETURNING id, slug, reference, submitted_at
-      `,
-      [
-        input.slug,
-        input.title,
-        input.excerpt,
-        input.contentMarkdown,
-        input.coverImageUrl,
-        input.tags,
-        input.seoDescription,
-        input.authorName,
-        input.authorContact,
-        input.reference,
-        input.submittedAt,
-      ],
-    );
-
-    const row = rows[0];
-    return {
-      id: row?.id ?? null,
-      slug: row?.slug ?? input.slug,
-      reference: row?.reference ?? input.reference,
-      submittedAt: row?.submitted_at ?? input.submittedAt,
-    };
   }
 
   async upsertPost(input: {

@@ -39,8 +39,8 @@ const ROUTE_LOADERS = {
   about: () => import('./pages/about.js').then((module) => module?.AboutPage ?? null),
   ban: () => import('./pages/ban.js').then((module) => module?.BanPage ?? null),
   blog: () => import('./pages/blog.js').then((module) => module?.BlogPage ?? null),
-  'blog-proposal': () =>
-    import('./pages/blog-proposal.js').then((module) => module?.BlogProposalPage ?? null),
+  'blog-submit': () =>
+    import('./pages/blog-submit.js').then((module) => module?.BlogSubmissionPage ?? null),
   classements: () =>
     import('./pages/classements.js').then((module) => module?.ClassementsPage ?? null),
   cgu: () => import('./pages/cgu.js').then((module) => module?.CguPage ?? null),
@@ -680,7 +680,7 @@ const App = () => {
       }
       loadPageComponent(name);
       if (name === 'blog') {
-        loadPageComponent('blog-proposal');
+        loadPageComponent('blog-submit');
       }
     },
     [loadPageComponent],
@@ -1565,7 +1565,7 @@ const App = () => {
           <nav class="hidden items-center gap-6 lg:flex">
           ${NAV_LINKS.map((link, index) => {
             const isActive =
-              route.name === link.route || (link.route === 'blog' && route.name === 'blog-proposal');
+              route.name === link.route || (link.route === 'blog' && route.name === 'blog-submit');
             const href = link.href;
             const baseClasses = 'text-sm font-medium transition hover:text-white';
             const stateClass = isActive ? 'text-white' : 'text-slate-300';
@@ -1652,7 +1652,7 @@ const App = () => {
         <nav class="mt-8 flex flex-col gap-1" aria-label="Navigation mobile">
           ${NAV_LINKS.map((link, index) => {
             const isActive =
-              route.name === link.route || (link.route === 'blog' && route.name === 'blog-proposal');
+              route.name === link.route || (link.route === 'blog' && route.name === 'blog-submit');
             const href = link.href;
             const baseClasses = 'flex items-center gap-3 rounded-xl px-3 py-3 text-base font-medium transition';
             const stateClass = isActive
@@ -1695,11 +1695,11 @@ const App = () => {
                   bootstrap: BOOTSTRAP_PAGES.blog ?? null,
                   onNavigateToPost: (slug) =>
                     navigateToRoute('blog', { slug }, { scrollToTop: true }),
-                  onNavigateToProposal: () =>
-                    navigateToRoute('blog-proposal', {}, { scrollToTop: true }),
+                  onNavigateToSubmission: () =>
+                    navigateToRoute('blog-submit', {}, { scrollToTop: true }),
                 })
-              : route.name === 'blog-proposal'
-              ? renderAsyncPage('blog-proposal', {
+              : route.name === 'blog-submit'
+              ? renderAsyncPage('blog-submit', {
                   onNavigateToBlog: () => navigateToRoute('blog', {}, { scrollToTop: true }),
                 })
               : route.name === 'members'

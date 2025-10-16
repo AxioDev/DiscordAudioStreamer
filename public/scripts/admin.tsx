@@ -202,13 +202,6 @@ const fetchBlogPost = async (id: string) => {
   return json?.data as Record<string, unknown>;
 };
 
-const fetchBlogProposal = async (id: string) => {
-  const { json } = await httpClient<{ data: Record<string, unknown> }>(
-    `${API_BASE}/blog/proposals/${encodeURIComponent(id)}`,
-  );
-  return json?.data as Record<string, unknown>;
-};
-
 const fetchHiddenMember = async (id: string) => {
   const { json } = await httpClient<{ data: Record<string, unknown> }>(
     `${API_BASE}/members/hidden/${encodeURIComponent(id)}`,
@@ -223,16 +216,6 @@ const dataProvider: DataProvider = {
         const query = buildListQuery(params);
         const { json } = await httpClient<{ data: Record<string, unknown>[]; total: number }>(
           `${API_BASE}/blog/posts?${query}`,
-        );
-        return {
-          data: json?.data ?? [],
-          total: json?.total ?? 0,
-        };
-      }
-      case 'blog-proposals': {
-        const query = buildListQuery(params);
-        const { json } = await httpClient<{ data: Record<string, unknown>[]; total: number }>(
-          `${API_BASE}/blog/proposals?${query}`,
         );
         return {
           data: json?.data ?? [],
@@ -256,8 +239,6 @@ const dataProvider: DataProvider = {
     switch (resource) {
       case 'blog-posts':
         return { data: await fetchBlogPost(String(params.id)) };
-      case 'blog-proposals':
-        return { data: await fetchBlogProposal(String(params.id)) };
       case 'users':
         return { data: await fetchHiddenMember(String(params.id)) };
       default:
@@ -448,37 +429,6 @@ const BlogPostShow: React.FC = (props) => (
   </Show>
 );
 
-const BlogProposalList: React.FC = (props) => (
-  <List {...props} sort={{ field: 'submittedAt', order: 'DESC' }} filters={[<TextInput key="search" source="q" label="Recherche" alwaysOn />]}>
-    <Datagrid rowClick="show">
-      <TextField source="title" label="Titre" />
-      <TextField source="authorName" label="Auteur" />
-      <DateField source="submittedAt" label="Soumis le" showTime />
-    </Datagrid>
-  </List>
-);
-
-const BlogProposalShow: React.FC = (props) => (
-  <Show {...props}>
-    <SimpleShowLayout>
-      <TextField source="title" label="Titre" />
-      <TextField source="slug" label="Slug" />
-      <TextField source="authorName" label="Auteur" />
-      <TextField source="authorContact" label="Contact" />
-      <DateField source="submittedAt" label="Soumis le" showTime />
-      <TagsField source="tags" />
-      <FunctionField
-        label="Contenu proposé"
-        render={(record?: Record<string, unknown>) => (
-          <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.875rem' }}>
-            {record?.contentMarkdown as string}
-          </pre>
-        )}
-      />
-    </SimpleShowLayout>
-  </Show>
-);
-
 const HiddenMemberList: React.FC = (props) => (
   <List {...props} sort={{ field: 'hiddenAt', order: 'DESC' }}>
     <Datagrid>
@@ -530,7 +480,6 @@ const App: React.FC = () => (
       basename="/admin"
     >
       <Resource name="blog-posts" list={BlogPostList} edit={BlogPostEdit} create={BlogPostCreate} show={BlogPostShow} />
-      <Resource name="blog-proposals" list={BlogProposalList} show={BlogProposalShow} />
       <Resource name="users" list={HiddenMemberList} edit={HiddenMemberEdit} create={HiddenMemberCreate} />
     </Admin>
   </ThemeProvider>

@@ -4,7 +4,7 @@ import {
   HISTORY_RETENTION_MS,
 } from '../core/constants.js';
 
-const BLOG_PROPOSAL_ALIASES = new Set(['proposer', 'proposal', 'soumettre']);
+const BLOG_PUBLISH_ALIASES = new Set(['publier', 'publish', 'submit', 'soumettre']);
 const MEMBERS_ALIASES = new Set(['membres', 'members']);
 const SHOP_ALIASES = new Set(['boutique', 'shop']);
 const BAN_ALIASES = new Set(['bannir', 'ban']);
@@ -72,8 +72,8 @@ export const buildRoutePath = (name, params = {}) => {
       }
       return '/blog';
     }
-    case 'blog-proposal':
-      return '/blog/proposer';
+    case 'blog-submit':
+      return '/blog/publier';
     case 'ban':
       return '/bannir';
     case 'about':
@@ -168,8 +168,8 @@ export const parseRouteFromLocation = (location) => {
   }
   if (head === 'blog') {
     const second = segments.length > 1 ? segments[1] : null;
-    if (second && BLOG_PROPOSAL_ALIASES.has(second.toLowerCase())) {
-      return { name: 'blog-proposal', params: {} };
+    if (second && BLOG_PUBLISH_ALIASES.has(second.toLowerCase())) {
+      return { name: 'blog-submit', params: {} };
     }
     return {
       name: 'blog',

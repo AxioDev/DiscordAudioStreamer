@@ -41,8 +41,6 @@ export interface DailyArticleGenerationResult {
   title?: string;
   publishedAt?: string;
   tags?: string[];
-  proposalReference?: string;
-  proposalSubmittedAt?: string;
   reason?: DailyArticleGenerationReason;
   error?: string;
 }
@@ -260,10 +258,6 @@ export default class DailyArticleService {
     return `journal-${isoDate}`;
   }
 
-  private buildDailyArticleReference(slug: string): string {
-    return `auto-${slug}`;
-  }
-
   private getDateBoundsForTarget(targetDate: Date): { targetDate: Date; rangeStart: Date; rangeEnd: Date } {
     const normalizedTarget = new Date(
       Date.UTC(
@@ -372,10 +366,9 @@ export default class DailyArticleService {
         ]),
       );
 
-      const submittedAt = new Date();
-      const reference = this.buildDailyArticleReference(slug);
+      const publishedAt = new Date();
 
-      const persisted = await this.blogRepository.upsertProposal({
+      await this.blogRepository.upsertPost({
         slug,
         title: article.title.trim(),
         excerpt: this.normalizeExcerpt(article.excerpt),
@@ -383,10 +376,8 @@ export default class DailyArticleService {
         coverImageUrl: coverImageUrl ?? null,
         tags: normalizedTags,
         seoDescription: article.seoDescription ?? null,
-        authorName: 'Assistant IA Libre Antenne',
-        authorContact: null,
-        reference,
-        submittedAt,
+        publishedAt,
+        updatedAt: publishedAt,
       });
 
       if (this.blogService) {
@@ -394,15 +385,14 @@ export default class DailyArticleService {
         await this.blogService.initialize();
       }
 
-      console.log(`DailyArticleService: proposition générée et enregistrée pour ${slug}.`);
+      console.log(`DailyArticleService: article généré et publié pour ${slug}.`);
 
       return {
         status: 'generated',
         slug,
         title: article.title.trim(),
         tags: normalizedTags,
-        proposalReference: persisted.reference,
-        proposalSubmittedAt: persisted.submittedAt.toISOString(),
+        publishedAt: publishedAt.toISOString(),
       };
     }
 

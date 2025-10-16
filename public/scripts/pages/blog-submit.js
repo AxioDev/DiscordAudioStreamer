@@ -18,8 +18,6 @@ const initialFormState = {
   tags: '',
   seoDescription: '',
   contentMarkdown: '',
-  authorName: '',
-  authorContact: '',
 };
 
 const slugify = (value) => {
@@ -88,14 +86,6 @@ const validateForm = (form) => {
     }
   }
 
-  if (form.authorName.trim().length > 160) {
-    errors.authorName = 'Ce champ est trop long (160 caractères max).';
-  }
-
-  if (form.authorContact.trim().length > 160) {
-    errors.authorContact = 'Ce champ est trop long (160 caractères max).';
-  }
-
   return errors;
 };
 
@@ -107,10 +97,10 @@ const inputClasses = (hasError) =>
       : 'border-slate-700 focus:border-amber-400 focus:ring-amber-300',
   ].join(' ');
 
-export const BlogProposalPage = ({ onNavigateToBlog }) => {
+export const BlogSubmissionPage = ({ onNavigateToBlog }) => {
   const [form, setForm] = useState(initialFormState);
   const [formErrors, setFormErrors] = useState({});
-  const [status, setStatus] = useState({ submitting: false, success: false, message: '', reference: null });
+  const [status, setStatus] = useState({ submitting: false, success: false, message: '', slug: null });
   const [markdownRenderer, setMarkdownRenderer] = useState(null);
 
   useEffect(() => {
@@ -130,7 +120,7 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
   }, []);
 
   useEffect(() => {
-    document.title = 'Proposer un article · Libre Antenne';
+    document.title = 'Publier un article · Libre Antenne';
     return () => {
       document.title = 'Libre Antenne · Radio libre et streaming communautaire';
     };
@@ -194,11 +184,11 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
       const errors = validateForm(form);
       if (Object.keys(errors).length > 0) {
         setFormErrors(errors);
-        setStatus({ submitting: false, success: false, message: 'Corrige les informations indiquées en rouge.', reference: null });
+        setStatus({ submitting: false, success: false, message: 'Corrige les informations indiquées en rouge.', slug: null });
         return;
       }
 
-      setStatus({ submitting: true, success: false, message: '', reference: null });
+      setStatus({ submitting: true, success: false, message: '', slug: null });
 
       const payload = {
         title: form.title.trim(),
@@ -208,12 +198,10 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
         tags: tagList,
         seoDescription: form.seoDescription.trim() || null,
         contentMarkdown: form.contentMarkdown,
-        authorName: form.authorName.trim() || null,
-        authorContact: form.authorContact.trim() || null,
       };
 
       try {
-        const response = await fetch('/api/blog/proposals', {
+        const response = await fetch('/api/blog/submissions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -222,8 +210,8 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
         const data = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-          const message = data?.message || 'Impossible d’envoyer ta proposition pour le moment.';
-          setStatus({ submitting: false, success: false, message, reference: null });
+          const message = data?.message || 'Impossible de publier ton article pour le moment.';
+          setStatus({ submitting: false, success: false, message, slug: null });
           if (data?.details && typeof data.details === 'object') {
             setFormErrors((prev) => ({ ...prev, ...data.details }));
           }
@@ -235,18 +223,16 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
         setStatus({
           submitting: false,
           success: true,
-          message:
-            data?.message ||
-            'Merci ! Ton article a bien été transmis à la rédaction. Nous reviendrons vers toi rapidement.',
-          reference: data?.proposal?.reference || null,
+          message: data?.message || 'Ton article est en ligne ! Merci pour ta contribution.',
+          slug: data?.article?.slug || null,
         });
       } catch (error) {
-        console.error('Blog proposal submission failed', error);
+        console.error('Blog submission failed', error);
         setStatus({
           submitting: false,
           success: false,
           message: 'Une erreur inattendue est survenue. Merci de réessayer dans quelques minutes.',
-          reference: null,
+          slug: null,
         });
       }
     },
@@ -270,10 +256,10 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
     [onNavigateToBlog],
   );
 
-  const submitButtonLabel = status.submitting ? 'Envoi en cours…' : 'Envoyer ma proposition';
+  const submitButtonLabel = status.submitting ? 'Publication en cours…' : 'Publier mon article';
 
   return html`
-    <section class="blog-proposal-page space-y-10 px-4 pb-16">
+    <section class="blog-submission-page space-y-10 px-4 pb-16">
       <div class="mx-auto flex w-full max-w-5xl flex-col gap-6">
         <div class="flex items-center gap-3 text-sm">
           <a
@@ -290,12 +276,12 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
         <header class="space-y-4 rounded-3xl border border-slate-800/70 bg-slate-950/70 p-8 shadow-xl">
           <span class="inline-flex items-center gap-2 rounded-full border border-amber-400/40 bg-amber-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-amber-100">
             <${Sparkles} class="h-3.5 w-3.5" aria-hidden="true" />
-            Contribution communauté
+            Publication instantanée
           </span>
-          <h1 class="text-3xl font-semibold text-white sm:text-4xl">Proposer un article au blog</h1>
+          <h1 class="text-3xl font-semibold text-white sm:text-4xl">Publier un article sur le blog</h1>
           <p class="max-w-3xl text-base text-slate-300">
             Raconte les coulisses d’un projet, partage ton expérience sur la station ou mets en lumière un moment marquant.
-            Tu peux écrire en <strong>Markdown</strong>, ajouter une image d’illustration, des tags et une description SEO. Notre équipe relira ta proposition avant publication.
+            Ton article est mis en ligne immédiatement : écris en <strong>Markdown</strong>, ajoute une illustration, des tags et une description SEO pour qu’il soit prêt à être partagé.
           </p>
         </header>
         ${status.message
@@ -311,8 +297,15 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
                 ${status.success
                   ? html`<p class="font-semibold">${status.message}</p>`
                   : html`<p class="font-medium">${status.message}</p>`}
-                ${status.reference
-                  ? html`<p class="mt-1 text-xs uppercase tracking-wide text-emerald-200/90">Référence : ${status.reference}</p>`
+                ${status.slug
+                  ? html`<p class="mt-1 text-xs uppercase tracking-wide text-emerald-200/90">
+                      <a
+                        href=${`/blog/${status.slug}`}
+                        class="inline-flex items-center gap-2 font-semibold text-emerald-200 hover:text-emerald-100"
+                      >
+                        Voir l’article publié →
+                      </a>
+                    </p>`
                   : null}
               </div>
             `
@@ -324,9 +317,9 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
           <div class="grid gap-8 lg:grid-cols-[1.2fr_1fr]">
             <div class="space-y-6">
               <div class="space-y-2">
-                <label class="text-sm font-medium text-slate-200" for="proposal-title">Titre</label>
+                <label class="text-sm font-medium text-slate-200" for="article-title">Titre</label>
                 <input
-                  id="proposal-title"
+                  id="article-title"
                   type="text"
                   value=${form.title}
                   onInput=${handleInputChange('title')}
@@ -340,9 +333,9 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
               </div>
               <div class="grid gap-4 sm:grid-cols-2">
                 <div class="space-y-2">
-                  <label class="text-sm font-medium text-slate-200" for="proposal-slug">Lien personnalisé (optionnel)</label>
+                  <label class="text-sm font-medium text-slate-200" for="article-slug">Lien personnalisé (optionnel)</label>
                   <input
-                    id="proposal-slug"
+                    id="article-slug"
                     type="text"
                     value=${form.slug}
                     onInput=${handleInputChange('slug')}
@@ -354,9 +347,9 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
                   </p>
                 </div>
                 <div class="space-y-2">
-                  <label class="text-sm font-medium text-slate-200" for="proposal-tags">Tags</label>
+                  <label class="text-sm font-medium text-slate-200" for="article-tags">Tags</label>
                   <input
-                    id="proposal-tags"
+                    id="article-tags"
                     type="text"
                     value=${form.tags}
                     onInput=${handleInputChange('tags')}
@@ -376,9 +369,9 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
                   `
                 : null}
               <div class="space-y-2">
-                <label class="text-sm font-medium text-slate-200" for="proposal-excerpt">Accroche (optionnel)</label>
+                <label class="text-sm font-medium text-slate-200" for="article-excerpt">Accroche (optionnel)</label>
                 <textarea
-                  id="proposal-excerpt"
+                  id="article-excerpt"
                   rows="3"
                   value=${form.excerpt}
                   onInput=${handleInputChange('excerpt')}
@@ -390,9 +383,9 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
                   : html`<p class="text-xs text-slate-400">Utilisée comme prévisualisation sur le blog et les réseaux sociaux.</p>`}
               </div>
               <div class="space-y-2">
-                <label class="text-sm font-medium text-slate-200" for="proposal-cover">Image d’illustration (URL)</label>
+                <label class="text-sm font-medium text-slate-200" for="article-cover">Image d’illustration (URL)</label>
                 <input
-                  id="proposal-cover"
+                  id="article-cover"
                   type="url"
                   value=${form.coverImageUrl}
                   onInput=${handleInputChange('coverImageUrl')}
@@ -413,9 +406,9 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
                   : null}
               </div>
               <div class="space-y-2">
-                <label class="text-sm font-medium text-slate-200" for="proposal-seo">Description SEO (optionnel)</label>
+              <label class="text-sm font-medium text-slate-200" for="article-seo">Description SEO (optionnel)</label>
                 <textarea
-                  id="proposal-seo"
+                id="article-seo"
                   rows="2"
                   value=${form.seoDescription}
                   onInput=${handleInputChange('seoDescription')}
@@ -425,32 +418,6 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
                 ${formErrors.seoDescription
                   ? html`<p class="text-xs text-rose-300">${formErrors.seoDescription}</p>`
                   : html`<p class="text-xs text-slate-400">Entre 150 et 320 caractères pour un affichage optimal.</p>`}
-              </div>
-              <div class="grid gap-4 sm:grid-cols-2">
-                <div class="space-y-2">
-                  <label class="text-sm font-medium text-slate-200" for="proposal-author">Ton nom ou pseudo (optionnel)</label>
-                  <input
-                    id="proposal-author"
-                    type="text"
-                    value=${form.authorName}
-                    onInput=${handleInputChange('authorName')}
-                    placeholder="ex : Romain, Luna, @pseudo"
-                    class=${inputClasses(Boolean(formErrors.authorName))}
-                  />
-                  ${formErrors.authorName ? html`<p class="text-xs text-rose-300">${formErrors.authorName}</p>` : null}
-                </div>
-                <div class="space-y-2">
-                  <label class="text-sm font-medium text-slate-200" for="proposal-contact">Contact (optionnel)</label>
-                  <input
-                    id="proposal-contact"
-                    type="text"
-                    value=${form.authorContact}
-                    onInput=${handleInputChange('authorContact')}
-                    placeholder="Adresse e-mail ou pseudo Discord"
-                    class=${inputClasses(Boolean(formErrors.authorContact))}
-                  />
-                  ${formErrors.authorContact ? html`<p class="text-xs text-rose-300">${formErrors.authorContact}</p>` : null}
-                </div>
               </div>
             </div>
             <aside class="space-y-4 rounded-2xl border border-slate-800/70 bg-slate-900/60 p-6 shadow-inner">
@@ -463,15 +430,15 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
                 <li>N’oublie pas d’ajouter des liens : <code>[libre-antenne](https://libre-antenne.com)</code>.</li>
               </ul>
               <div class="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
-                Une fois validé, l’article peut être retravaillé par l’équipe éditoriale (titre, image, mise en forme…).
+                Même après publication, l’équipe éditoriale peut retoucher ton article (titre, image, mise en forme) pour le mettre en avant.
               </div>
             </aside>
           </div>
           <div class="grid gap-6 lg:grid-cols-2">
             <div class="space-y-2">
-              <label class="text-sm font-medium text-slate-200" for="proposal-content">Contenu Markdown</label>
+              <label class="text-sm font-medium text-slate-200" for="article-content">Contenu Markdown</label>
               <textarea
-                id="proposal-content"
+                id="article-content"
                 rows="18"
                 value=${form.contentMarkdown}
                 onInput=${handleInputChange('contentMarkdown')}
@@ -502,7 +469,7 @@ export const BlogProposalPage = ({ onNavigateToBlog }) => {
           <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div class="inline-flex items-center gap-2 text-xs text-slate-400">
               <${AlertCircle} class="h-4 w-4 text-amber-300" aria-hidden="true" />
-              En envoyant ta proposition, tu confirmes être l’auteur·ice du contenu partagé.
+              En publiant, tu confirmes être l’auteur·ice du contenu partagé et accepter sa diffusion immédiate.
             </div>
             <button
               type="submit"
