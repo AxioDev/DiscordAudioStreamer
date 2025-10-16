@@ -86,6 +86,8 @@ interface HypeLeaderboardServiceOptions {
 
 const DEFAULT_PRECOMPUTE_PERIODS: readonly (number | null)[] = [null, 7, 30, 90, 365];
 
+const MIN_PRECOMPUTED_RESULT_TTL_MS = 24 * 60 * 60 * 1000;
+
 const DEFAULT_SORT_COLUMNS: readonly HypeLeaderboardSortBy[] = [
   'schScoreNorm',
   'schRaw',
@@ -124,6 +126,8 @@ export default class HypeLeaderboardService {
 
   private readonly precomputedResults = new Map<string, CachedLeaderboardResult>();
 
+  private readonly precomputedResultTtlMs: number;
+
   private refreshTimer: NodeJS.Timeout | null = null;
 
   private refreshPromise: Promise<void> | null = null;
@@ -142,6 +146,7 @@ export default class HypeLeaderboardService {
     this.precomputePeriods = precomputePeriods.length > 0 ? [...precomputePeriods] : DEFAULT_PRECOMPUTE_PERIODS;
     this.sortableColumns = precomputeSorts.length > 0 ? [...precomputeSorts] : DEFAULT_SORT_COLUMNS;
     this.identityProvider = identityProvider;
+    this.precomputedResultTtlMs = Math.max(this.snapshotIntervalMs, MIN_PRECOMPUTED_RESULT_TTL_MS);
   }
 
   public getDefaultOptions(): NormalizedHypeLeaderboardQueryOptions {
@@ -231,6 +236,7 @@ export default class HypeLeaderboardService {
     now: Date = new Date(),
   ): Promise<HypeLeaderboardResult> {
     const normalized = this.normalizeOptions(options);
+    this.cleanupExpiredPrecomputedResults(now);
     const base = await this.ensureBaseLeaderboard(normalized.periodDays ?? null, now);
     if (!base) {
       const fallback = await this.rehydrateFromSnapshots(normalized);
@@ -283,6 +289,8 @@ export default class HypeLeaderboardService {
       await this.refreshPromise;
       return;
     }
+
+    this.cleanupExpiredPrecomputedResults(now);
 
     const promise = (async () => {
       for (const period of this.precomputePeriods) {
@@ -681,6 +689,22 @@ export default class HypeLeaderboardService {
     });
 
     return sorted;
+  }
+
+  private cleanupExpiredPrecomputedResults(now: Date = new Date()): void {
+    const referenceTime = now.getTime();
+    if (!Number.isFinite(referenceTime)) {
+      return;
+    }
+
+    const cutoff = referenceTime - this.precomputedResultTtlMs;
+
+    for (const [cacheKey, cached] of this.precomputedResults) {
+      const computedTime = cached.computedAt.getTime();
+      if (!Number.isFinite(computedTime) || computedTime < cutoff) {
+        this.precomputedResults.delete(cacheKey);
+      }
+    }
   }
 
   private compareBySort(a: EnrichedLeader, b: EnrichedLeader, sortBy: HypeLeaderboardSortBy): number {
