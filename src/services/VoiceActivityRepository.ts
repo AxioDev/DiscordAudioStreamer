@@ -2714,13 +2714,6 @@ export default class VoiceActivityRepository {
       return `WHERE ${alias}.joined_at >= ${sinceExpression}`;
     };
 
-    const presenceAndClause = (alias: string) => {
-      if (!sinceExpression) {
-        return '';
-      }
-      return ` AND ${alias}.joined_at >= ${sinceExpression}`;
-    };
-
     const activityWhereClause = sinceExpression ? `WHERE va.timestamp >= ${sinceExpression}` : '';
 
     let searchClause = '';
@@ -2741,17 +2734,27 @@ export default class VoiceActivityRepository {
     const orderByClause = `${sortColumn} ${sortDirection}, sch_score_norm DESC, display_name ASC`;
 
     const query = `WITH
-    sessions_count AS (
-        SELECT user_id, guild_id, COUNT(*) AS session_count
+    filtered_voice_presence AS (
+        SELECT *
         FROM voice_presence vp
         ${presenceWhereClause('vp')}
+    ),
+
+    filtered_voice_activity AS (
+        SELECT *
+        FROM voice_activity va
+        ${activityWhereClause}
+    ),
+
+    sessions_count AS (
+        SELECT user_id, guild_id, COUNT(*) AS session_count
+        FROM filtered_voice_presence
         GROUP BY user_id, guild_id
     ),
 
     days_present AS (
         SELECT user_id, guild_id, COUNT(DISTINCT DATE(joined_at)) AS days_count
-        FROM voice_presence vp
-        ${presenceWhereClause('vp')}
+        FROM filtered_voice_presence
         GROUP BY user_id, guild_id
     ),
 
@@ -2762,25 +2765,22 @@ export default class VoiceActivityRepository {
             AVG(
                 (
                     SELECT COUNT(DISTINCT vp3.user_id)
-                    FROM voice_presence vp3
+                    FROM filtered_voice_presence vp3
                     WHERE vp3.channel_id = vp.channel_id
                       AND vp3.guild_id = vp.guild_id
-                      AND vp3.joined_at <= vp.joined_at + interval '3 minutes'
-                      AND (vp3.left_at IS NULL OR vp3.left_at > vp.joined_at + interval '3 minutes')
-                      ${presenceAndClause('vp3')}
+                      AND vp3.joined_at <= vp.joined_at + interval '10 minutes'
+                      AND (vp3.left_at IS NULL OR vp3.left_at > vp.joined_at + interval '10 minutes')
                 ) -
                 (
                     SELECT COUNT(DISTINCT vp2.user_id)
-                    FROM voice_presence vp2
+                    FROM filtered_voice_presence vp2
                     WHERE vp2.channel_id = vp.channel_id
                       AND vp2.guild_id = vp.guild_id
                       AND vp2.joined_at <= vp.joined_at
                       AND (vp2.left_at IS NULL OR vp2.left_at > vp.joined_at)
-                      ${presenceAndClause('vp2')}
                 )
             ) AS arrival_effect
-        FROM voice_presence vp
-        ${presenceWhereClause('vp')}
+        FROM filtered_voice_presence vp
         GROUP BY vp.user_id, vp.guild_id
     ),
 
@@ -2791,25 +2791,23 @@ export default class VoiceActivityRepository {
             AVG(
                 (
                     SELECT COUNT(DISTINCT vp3.user_id)
-                    FROM voice_presence vp3
+                    FROM filtered_voice_presence vp3
                     WHERE vp3.channel_id = vp.channel_id
                       AND vp3.guild_id = vp.guild_id
-                      AND vp3.joined_at <= vp.left_at + interval '3 minutes'
-                      AND (vp3.left_at IS NULL OR vp3.left_at > vp.left_at + interval '3 minutes')
-                      ${presenceAndClause('vp3')}
+                      AND vp3.joined_at <= vp.left_at + interval '10 minutes'
+                      AND (vp3.left_at IS NULL OR vp3.left_at > vp.left_at + interval '10 minutes')
                 ) -
                 (
                     SELECT COUNT(DISTINCT vp2.user_id)
-                    FROM voice_presence vp2
+                    FROM filtered_voice_presence vp2
                     WHERE vp2.channel_id = vp.channel_id
                       AND vp2.guild_id = vp.guild_id
                       AND vp2.joined_at <= vp.left_at
                       AND (vp2.left_at IS NULL OR vp2.left_at > vp.left_at)
-                      ${presenceAndClause('vp2')}
                 )
             ) * -1 AS departure_effect
-        FROM voice_presence vp
-        WHERE vp.left_at IS NOT NULL${presenceAndClause('vp')}
+        FROM filtered_voice_presence vp
+        WHERE vp.left_at IS NOT NULL
         GROUP BY vp.user_id, vp.guild_id
     ),
 
@@ -2817,20 +2815,17 @@ export default class VoiceActivityRepository {
         SELECT
             i.user_id AS influencer,
             i.guild_id,
-            AVG(EXTRACT(EPOCH FROM (s.left_at - s.joined_at))) FILTER (WHERE o.overlap_time > interval '0') -
-            AVG(EXTRACT(EPOCH FROM (s.left_at - s.joined_at))) FILTER (WHERE o.overlap_time IS NULL) AS retention_uplift
-        FROM voice_presence s
-        JOIN voice_presence i
+            AVG(
+                LEAST(EXTRACT(EPOCH FROM COALESCE(o.overlap_time, interval '0')), 1800)
+            ) AS retention_seconds
+        FROM filtered_voice_presence s
+        JOIN filtered_voice_presence i
           ON s.channel_id = i.channel_id
          AND s.guild_id = i.guild_id
          AND s.user_id <> i.user_id
-         AND s.joined_at < i.left_at
-         AND i.joined_at < s.left_at
-         ${presenceAndClause('i')}
         LEFT JOIN LATERAL (
-            SELECT LEAST(s.left_at, i.left_at) - GREATEST(s.joined_at, i.joined_at) AS overlap_time
+            SELECT GREATEST(LEAST(s.left_at, i.left_at) - GREATEST(s.joined_at, i.joined_at), interval '0') AS overlap_time
         ) o ON true
-        ${presenceWhereClause('s')}
         GROUP BY i.user_id, i.guild_id
     ),
 
@@ -2839,8 +2834,7 @@ export default class VoiceActivityRepository {
             va.user_id,
             va.guild_id,
             LOG(1 + SUM(duration_ms)/1000.0) AS activity_score
-        FROM voice_activity va
-        ${activityWhereClause}
+        FROM filtered_voice_activity va
         GROUP BY va.user_id, va.guild_id
     )
 
@@ -2866,19 +2860,19 @@ FROM (
         dp.days_count,
         COALESCE(a.arrival_effect, 0) AS arrival_effect,
         COALESCE(d.departure_effect, 0) AS departure_effect,
-        ROUND((COALESCE(r.retention_uplift, 0) / 60.0)::numeric, 2) AS retention_minutes,
+        ROUND((COALESCE(r.retention_seconds, 0) / 60.0)::numeric, 2) AS retention_minutes,
         COALESCE(ac.activity_score, 0) AS activity_score,
         (
             0.4 * COALESCE(a.arrival_effect, 0) +
             0.3 * COALESCE(d.departure_effect, 0) +
-            0.2 * (COALESCE(r.retention_uplift, 0) / 60.0) +
+            0.2 * (COALESCE(r.retention_seconds, 0) / 60.0) +
             0.1 * COALESCE(ac.activity_score, 0)
         ) AS sch_raw,
         ROUND((
             (
                 0.4 * COALESCE(a.arrival_effect, 0) +
                 0.3 * COALESCE(d.departure_effect, 0) +
-                0.2 * (COALESCE(r.retention_uplift, 0) / 60.0) +
+                0.2 * (COALESCE(r.retention_seconds, 0) / 60.0) +
                 0.1 * COALESCE(ac.activity_score, 0)
             ) / LOG(1 + sc.session_count)
         )::numeric, 2) AS sch_score_norm,
