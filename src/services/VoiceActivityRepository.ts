@@ -1740,6 +1740,7 @@ export default class VoiceActivityRepository {
       searchableExpressions.push("COALESCE(u.metadata->>'displayName', '')");
       searchableExpressions.push("COALESCE(u.metadata->>'display_name', '')");
     }
+    searchableExpressions.push("COALESCE(u.user_id::text, '')");
 
     let searchClause = '';
     if (normalizedSearch && searchableExpressions.length > 0) {
