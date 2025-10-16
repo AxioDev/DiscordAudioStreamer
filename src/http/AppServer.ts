@@ -266,6 +266,8 @@ interface AppPreloadState {
 }
 
 export default class AppServer {
+  private static readonly hypeLeaderboardCacheTtlMs = 24 * 60 * 60 * 1000;
+
   private readonly config: Config;
 
   private readonly transcoder: FfmpegTranscoder;
@@ -292,7 +294,7 @@ export default class AppServer {
 
   private readonly voiceActivityRepository: VoiceActivityRepository | null;
 
-  private readonly hypeLeaderboardTtlMs = 60_000;
+  private readonly hypeLeaderboardTtlMs = AppServer.hypeLeaderboardCacheTtlMs;
 
   private readonly hypeLeaderboardCache = new Map<string, { result: HypeLeaderboardResult; expiresAt: number }>();
 
@@ -392,6 +394,8 @@ export default class AppServer {
     this.hypeLeaderboardService = voiceActivityRepository
       ? new HypeLeaderboardService({
           repository: voiceActivityRepository,
+          snapshotIntervalMs: AppServer.hypeLeaderboardCacheTtlMs,
+          precomputeSorts: AppServer.hypeLeaderboardSortableColumns,
           identityProvider: (userId) => this.discordBridge.fetchUserIdentity(userId),
         })
       : null;
