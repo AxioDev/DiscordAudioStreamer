@@ -104,6 +104,14 @@ export interface AdminConfig {
   password: string | null;
 }
 
+export interface StreamHealthConfig {
+  enabled: boolean;
+  checkIntervalMs: number;
+  maxSilenceMs: number;
+  restartCooldownMs: number;
+  streamRetryDelayMs: number;
+}
+
 export interface SecretArticleTriggerConfig {
   path: string | null;
   password: string | null;
@@ -125,6 +133,7 @@ export interface Config {
   streamEndpoint: string;
   headerBufferMaxBytes: number;
   keepAliveInterval: number;
+  streamHealth: StreamHealthConfig;
   audio: AudioConfig;
   mimeTypes: Record<string, string>;
   excludedUserIds: string[];
@@ -165,6 +174,13 @@ const config: Config = {
   streamEndpoint: '/stream',
   headerBufferMaxBytes: parseInteger(process.env.HEADER_BUFFER_MAX_BYTES, 64 * 1024),
   keepAliveInterval: 20000,
+  streamHealth: {
+    enabled: !parseBoolean(process.env.STREAM_HEALTH_DISABLED),
+    checkIntervalMs: Math.max(500, parseInteger(process.env.STREAM_HEALTH_CHECK_INTERVAL_MS, 5000)),
+    maxSilenceMs: Math.max(1000, parseInteger(process.env.STREAM_HEALTH_MAX_SILENCE_MS, 15000)),
+    restartCooldownMs: Math.max(1000, parseInteger(process.env.STREAM_HEALTH_RESTART_COOLDOWN_MS, 60000)),
+    streamRetryDelayMs: Math.max(250, parseInteger(process.env.STREAM_HEALTH_REATTACH_DELAY_MS, 3000)),
+  },
   audio: {
     sampleRate: 48000,
     channels: 2,
