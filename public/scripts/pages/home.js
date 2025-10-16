@@ -306,6 +306,24 @@ const HomePage = ({
       </div>
     </section>
 
+    <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl">
+      <div class="pointer-events-none absolute -right-20 bottom-0 h-56 w-56 rounded-full bg-indigo-400/30 blur-3xl"></div>
+      <div class="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+        <div class="space-y-2">
+          <h2 class="text-2xl font-semibold text-white">Flux audio en direct</h2>
+          <p class="text-sm text-slate-300">
+            Clique sur lecture si le flux ne démarre pas automatiquement. Volume conseillé : casque 💜
+          </p>
+        </div>
+      </div>
+    <${AudioPlayer}
+      streamInfo=${streamInfo}
+      audioKey=${audioKey}
+      status=${effectiveStatus}
+      bridgeStatus=${bridgeStatus}
+    />
+  </section>
+
     ${renderPulseSection()}
 
     <section class="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl">
@@ -377,24 +395,6 @@ const HomePage = ({
         )}
       </div>
     </section>
-
-    <section class="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl">
-      <div class="pointer-events-none absolute -right-20 bottom-0 h-56 w-56 rounded-full bg-indigo-400/30 blur-3xl"></div>
-      <div class="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-        <div class="space-y-2">
-          <h2 class="text-2xl font-semibold text-white">Flux audio en direct</h2>
-          <p class="text-sm text-slate-300">
-            Clique sur lecture si le flux ne démarre pas automatiquement. Volume conseillé : casque 💜
-          </p>
-        </div>
-      </div>
-    <${AudioPlayer}
-      streamInfo=${streamInfo}
-      audioKey=${audioKey}
-      status=${effectiveStatus}
-      bridgeStatus=${bridgeStatus}
-    />
-  </section>
 
   <${DailyActivityChart}
     history=${speakingHistory}
