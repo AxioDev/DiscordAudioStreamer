@@ -410,6 +410,18 @@ export default class FfmpegTranscoder extends EventEmitter {
     }
   }
 
+  public requestRestart(reason: string, delay?: number): void {
+    const effectiveDelay = Math.max(0, delay ?? this.stallRestartDelayMs);
+    const currentProcess = this.currentProcess;
+
+    if (currentProcess) {
+      this.forceRestart(currentProcess, reason, effectiveDelay);
+      return;
+    }
+
+    this.scheduleRestart(effectiveDelay, reason);
+  }
+
   public createClientStream(): PassThrough {
     const clientStream = new PassThrough();
     this.broadcastStream.pipe(clientStream);

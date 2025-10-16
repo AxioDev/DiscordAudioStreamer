@@ -19,6 +19,7 @@ import UserPersonaService from './services/UserPersonaService';
 import AdminService from './services/AdminService';
 import StatisticsService from './services/StatisticsService';
 import UserAudioRecorder from './services/UserAudioRecorder';
+import AudioStreamHealthService from './services/AudioStreamHealthService';
 
 const mixer = new AudioMixer({
   frameBytes: config.audio.frameBytes,
@@ -76,6 +77,8 @@ const statisticsService = new StatisticsService({
 });
 
 let userAudioRecorder: UserAudioRecorder | null = null;
+
+let audioStreamHealthService: AudioStreamHealthService | null = null;
 
 try {
   userAudioRecorder = new UserAudioRecorder({
@@ -198,6 +201,22 @@ const appServer = new AppServer({
 });
 appServer.start();
 
+if (config.streamHealth.enabled) {
+  audioStreamHealthService = new AudioStreamHealthService({
+    transcoder,
+    discordBridge,
+    guildId: config.guildId,
+    voiceChannelId: config.voiceChannelId,
+    checkIntervalMs: config.streamHealth.checkIntervalMs,
+    maxSilenceMs: config.streamHealth.maxSilenceMs,
+    restartCooldownMs: config.streamHealth.restartCooldownMs,
+    streamRetryDelayMs: config.streamHealth.streamRetryDelayMs,
+  });
+  audioStreamHealthService.start();
+} else {
+  console.log('Audio stream health monitoring disabled.');
+}
+
 function shutdown(): void {
   console.log('Shutting down...');
   try {
@@ -215,6 +234,12 @@ function shutdown(): void {
     userAudioRecorder?.stop();
   } catch (error) {
     console.warn('Error while stopping user audio recorder', error);
+  }
+
+  try {
+    audioStreamHealthService?.stop();
+  } catch (error) {
+    console.warn('Error while stopping audio stream health service', error);
   }
 
   try {
