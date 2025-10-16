@@ -28,7 +28,6 @@ import {
   RefreshCcw,
   Download,
   ShieldCheck,
-  ShoppingBag,
   Shirt,
   Search,
   Sparkles,
@@ -1806,9 +1805,7 @@ const MEMBERS_PAGE_SIZE = 24;
 const NAV_LINKS = [
   { label: 'Accueil', route: 'home', href: '/' },
   { label: 'Membres', route: 'members', href: '/membres' },
-  { label: 'Boutique', route: 'shop', href: '/boutique' },
   { label: 'Classements', route: 'classements', href: '/classements' },
-  { label: 'Modération', route: 'ban', href: '/bannir' },
 ];
 
 const getRouteFromHash = () => {
