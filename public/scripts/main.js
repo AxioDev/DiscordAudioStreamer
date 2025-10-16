@@ -12,10 +12,8 @@ import {
   Download,
   AudioLines,
   Users,
-  ShoppingBag,
   BadgeCheck,
   MessageSquare,
-  ShieldCheck,
   Activity,
 } from './core/deps.js';
 import {
@@ -56,11 +54,9 @@ const ROUTE_LOADERS = {
 const NAV_LINKS = [
   { label: 'Accueil', route: 'home', href: '/', icon: AudioLines },
   { label: 'Membres', route: 'members', href: '/membres', icon: Users },
-  { label: 'Boutique', route: 'shop', href: '/boutique', icon: ShoppingBag },
   { label: 'Classements', route: 'classements', href: '/classements', icon: BadgeCheck },
   { label: 'Statistiques', route: 'statistiques', href: '/statistiques', icon: Activity },
   { label: 'Blog', route: 'blog', href: '/blog', icon: MessageSquare },
-  { label: 'Modération', route: 'ban', href: '/bannir', icon: ShieldCheck },
 ];
 
 const PRERENDER_CLASS_TOKENS = [
