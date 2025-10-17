@@ -7232,7 +7232,7 @@ export default class AppServer {
     try {
       req.socket.setNoDelay(true);
     } catch (error) {
-      console.warn('Unable to disable Nagle algorithm for stream socket', error);
+      console.error('Unable to disable Nagle algorithm for stream socket', error);
     }
 
     const flushableRes = res as FlushCapableResponse;
@@ -7247,17 +7247,10 @@ export default class AppServer {
         if (typeof flushableRes.flush === 'function') {
           flushableRes.flush();
         }
-      } catch (error) {
-        console.warn('Failed to send initial stream header buffer', error);
+        } catch (error) {
+          console.error('Failed to send initial stream header buffer', error);
+        }
       }
-    }
-
-    console.log(
-      `New client for ${this.config.streamEndpoint}`,
-      clientIp,
-      'headerBuffer:',
-      headerBuffer.length,
-    );
 
     const clientStream = this.transcoder.createClientStream();
     clientStream.pipe(res);
@@ -7269,19 +7262,7 @@ export default class AppServer {
     this.streamListenersByIp.set(clientIp, nextConnectionCount);
 
     if (previousConnectionCount === 0) {
-      const incrementResult = this.listenerStatsService.increment();
-      if (incrementResult) {
-        console.log('Stream listener connected', {
-          ip: clientIp,
-          listeners: incrementResult.count,
-        });
-      }
-    } else {
-      console.log('Stream listener connected', {
-        ip: clientIp,
-        connectionsForIp: nextConnectionCount,
-        listeners: this.listenerStatsService.getCurrentCount(),
-      });
+      this.listenerStatsService.increment();
     }
 
     const cleanup = (): void => {
@@ -7296,18 +7277,9 @@ export default class AppServer {
 
       if (remainingConnections <= 0) {
         this.streamListenersByIp.delete(clientIp);
-        const update = this.listenerStatsService.decrement();
-        console.log('Stream listener disconnected', {
-          ip: clientIp,
-          listeners: update?.count ?? this.listenerStatsService.getCurrentCount(),
-        });
+        this.listenerStatsService.decrement();
       } else {
         this.streamListenersByIp.set(clientIp, remainingConnections);
-        console.log('Stream listener disconnected', {
-          ip: clientIp,
-          remainingConnectionsForIp: remainingConnections,
-          listeners: this.listenerStatsService.getCurrentCount(),
-        });
       }
     };
 
@@ -7328,9 +7300,7 @@ export default class AppServer {
       return this.httpServer;
     }
 
-    this.httpServer = this.app.listen(this.config.port, () => {
-      console.log(`HTTP server listening on http://0.0.0.0:${this.config.port}`);
-    });
+    this.httpServer = this.app.listen(this.config.port);
 
     this.initializeWebSocketServer();
 

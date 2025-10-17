@@ -181,7 +181,7 @@ export default class FfmpegTranscoder extends EventEmitter {
       '-threads',
       '0',
       '-loglevel',
-      'info',
+      'error',
     ];
 
     if (this.outputFormat === 'opus') {
@@ -210,7 +210,6 @@ export default class FfmpegTranscoder extends EventEmitter {
       );
     }
 
-    console.log('Starting ffmpeg with format', this.outputFormat);
     const ffmpeg = spawn(this.ffmpegPath, args, { stdio: ['pipe', 'pipe', 'pipe'] });
 
     this.currentProcess = ffmpeg;
@@ -231,7 +230,6 @@ export default class FfmpegTranscoder extends EventEmitter {
     ffmpeg.on('exit', (code, signal) => this.handleExit(ffmpeg, code, signal));
     ffmpeg.on('error', (error) => this.handleError(ffmpeg, error));
 
-    console.log('ffmpeg pid=', ffmpeg.pid);
   }
 
   private handleStdout(processRef: ChildProcessWithoutNullStreams, chunk: Buffer): void {
@@ -288,7 +286,7 @@ export default class FfmpegTranscoder extends EventEmitter {
       return;
     }
 
-    console.warn(`ffmpeg exited code=${code} signal=${signal}`);
+    console.error(`ffmpeg exited code=${code} signal=${signal}`);
     this.cleanupAfterProcess();
     this.scheduleRestart(this.exitRestartDelayMs, 'process exit');
   }
@@ -321,7 +319,7 @@ export default class FfmpegTranscoder extends EventEmitter {
       return;
     }
 
-    console.warn(`Scheduling ffmpeg restart in ${delay}ms due to ${reason}`);
+    console.error(`Scheduling ffmpeg restart in ${delay}ms due to ${reason}`);
     this.restartTimer = setTimeout(() => {
       this.restartTimer = null;
       this.spawnProcess();
@@ -340,7 +338,7 @@ export default class FfmpegTranscoder extends EventEmitter {
       return;
     }
 
-    console.warn(`Force restarting ffmpeg due to ${reason}`);
+    console.error(`Force restarting ffmpeg due to ${reason}`);
     this.cleanupAfterProcess();
 
     try {
@@ -348,7 +346,7 @@ export default class FfmpegTranscoder extends EventEmitter {
         processRef.kill('SIGKILL');
       }
     } catch (killError) {
-      console.warn('Failed to kill ffmpeg during forced restart', killError);
+      console.error('Failed to kill ffmpeg during forced restart', killError);
     }
 
     this.scheduleRestart(delay, reason);
@@ -367,7 +365,7 @@ export default class FfmpegTranscoder extends EventEmitter {
       try {
         processRef.stdin.end();
       } catch (error) {
-        console.warn('Failed to close ffmpeg stdin during cleanup', error);
+        console.error('Failed to close ffmpeg stdin during cleanup', error);
       }
     }
   }
@@ -392,7 +390,7 @@ export default class FfmpegTranscoder extends EventEmitter {
       return;
     }
 
-    console.warn(`ffmpeg produced no output for ${idleDuration}ms, restarting`);
+    console.error(`ffmpeg produced no output for ${idleDuration}ms, restarting`);
     this.forceRestart(currentProcess, 'output stall', this.stallRestartDelayMs);
   }
 
@@ -432,12 +430,12 @@ export default class FfmpegTranscoder extends EventEmitter {
     try {
       this.broadcastStream.unpipe(stream);
     } catch (error) {
-      console.warn('Failed to unpipe client stream', error);
+      console.error('Failed to unpipe client stream', error);
     }
     try {
       stream.end();
     } catch (error) {
-      console.warn('Failed to close client stream', error);
+      console.error('Failed to close client stream', error);
     }
   }
 
@@ -457,7 +455,7 @@ export default class FfmpegTranscoder extends EventEmitter {
       try {
         this.currentProcess.stdin.end();
       } catch (error) {
-        console.warn('Error while closing ffmpeg stdin', error);
+        console.error('Error while closing ffmpeg stdin', error);
       }
       this.currentProcess.kill('SIGTERM');
     }

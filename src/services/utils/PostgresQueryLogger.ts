@@ -69,34 +69,8 @@ function sanitizeValue(value: unknown, depth = 0): unknown {
   return value;
 }
 
-function logConnectionDetails(context: string, connectionString: string | undefined, ssl: boolean): void {
-  if (!connectionString) {
-    console.log(`[SupabaseDebug] ${context}: aucune URL de connexion fournie.`);
-    return;
-  }
-
-  try {
-    const parsed = new URL(connectionString);
-    const database = parsed.pathname.replace(/^\//, '') || '(default)';
-    console.log(`[SupabaseDebug] ${context}: connexion Supabase`, {
-      host: parsed.hostname,
-      port: parsed.port || '(default)',
-      database,
-      user: parsed.username || '(anonymous)',
-      ssl,
-      protocol: parsed.protocol.replace(/:$/, ''),
-    });
-  } catch (error) {
-    console.log(`[SupabaseDebug] ${context}: connexion Supabase (URL non analysable)`, {
-      hasConnectionString: true,
-      ssl,
-      error: (error as Error)?.message || error,
-    });
-  }
-}
-
 export function attachPostgresQueryLogger(pool: Pool, options: QueryLoggerOptions): void {
-  const { context, debug, connectionString, ssl } = options;
+  const { context, debug } = options;
 
   if (!debug) {
     return;
@@ -107,9 +81,6 @@ export function attachPostgresQueryLogger(pool: Pool, options: QueryLoggerOption
     return;
   }
   typedPool[QUERY_LOGGER_MARK] = true;
-
-  console.log(`[SupabaseDebug] ${context}: journalisation des requêtes activée.`);
-  logConnectionDetails(context, connectionString, ssl);
 
   const originalQuery = pool.query.bind(pool);
 
@@ -138,11 +109,6 @@ export function attachPostgresQueryLogger(pool: Pool, options: QueryLoggerOption
 
     const normalizedText = normalizeQueryText(queryText);
     const sanitizedValues = values?.map((value) => sanitizeValue(value));
-
-    console.log(`[SupabaseDebug] ${context}: requête`, {
-      query: normalizedText ?? queryText ?? '<inconnue>',
-      values: sanitizedValues ?? values,
-    });
 
     try {
       const result = originalQuery(...(args as Parameters<Pool['query']>)) as unknown;

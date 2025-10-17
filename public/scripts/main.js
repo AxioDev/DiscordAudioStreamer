@@ -1888,7 +1888,6 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker
       .register('/sw.js')
       .then((registration) => {
-        console.info('Service worker enregistré', registration.scope);
 
         const activateWaitingServiceWorker = (reg) => {
           if (!reg || !navigator.serviceWorker.controller) {

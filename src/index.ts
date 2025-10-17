@@ -40,20 +40,6 @@ const transcoder = new FfmpegTranscoder({
 });
 transcoder.start(mixer);
 
-const statsLogInterval: NodeJS.Timeout = setInterval(() => {
-  const statsSnapshot = {
-    ...mixer.getStats(),
-    sources: mixer.getSourceCount(),
-    ffmpegPid: transcoder.getCurrentProcessPid(),
-  };
-
-  console.log('MIX STATS:', statsSnapshot);
-}, 5000);
-
-if (typeof statsLogInterval.unref === 'function') {
-  statsLogInterval.unref();
-}
-
 const sseService = new SseService({
   streamInfoProvider: () => ({
     format: config.outputFormat,
@@ -105,7 +91,7 @@ const kaldiTranscriptionService =
     : null;
 
 if (config.kaldi.enabled && !kaldiTranscriptionService) {
-  console.warn('Kaldi transcription service is enabled but no database is configured; disabling transcription.');
+  console.error('Kaldi transcription service is enabled but no database is configured; disabling transcription.');
 }
 
 const speakerTracker = new SpeakerTracker({
@@ -212,84 +198,76 @@ if (config.streamHealth.enabled) {
     streamRetryDelayMs: config.streamHealth.streamRetryDelayMs,
   });
   audioStreamHealthService.start();
-} else {
-  console.log('Audio stream health monitoring disabled.');
 }
 
 function shutdown(): void {
-  console.log('Shutting down...');
-  try {
-    clearInterval(statsLogInterval);
-  } catch (error) {
-    console.warn('Error while clearing stats interval', error);
-  }
   try {
     mixer.stop();
   } catch (error) {
-    console.warn('Error while stopping mixer', error);
+    console.error('Error while stopping mixer', error);
   }
 
   try {
     userAudioRecorder?.stop();
   } catch (error) {
-    console.warn('Error while stopping user audio recorder', error);
+    console.error('Error while stopping user audio recorder', error);
   }
 
   try {
     audioStreamHealthService?.stop();
   } catch (error) {
-    console.warn('Error while stopping audio stream health service', error);
+    console.error('Error while stopping audio stream health service', error);
   }
 
   try {
     transcoder.stop();
   } catch (error) {
-    console.warn('Error while stopping transcoder', error);
+    console.error('Error while stopping transcoder', error);
   }
 
   try {
     sseService.closeAll();
   } catch (error) {
-    console.warn('Error while closing SSE connections', error);
+    console.error('Error while closing SSE connections', error);
   }
 
   try {
     listenerStatsService.stop();
   } catch (error) {
-    console.warn('Error while stopping listener stats service', error);
+    console.error('Error while stopping listener stats service', error);
   }
 
   try {
     userPersonaService.stop();
   } catch (error) {
-    console.warn('Error while stopping user persona service', error);
+    console.error('Error while stopping user persona service', error);
   }
 
   try {
     speakerTracker.clear();
   } catch (error) {
-    console.warn('Error while clearing speaker tracker', error);
+    console.error('Error while clearing speaker tracker', error);
   }
 
   voiceActivityRepository
     .close()
-    .catch((error) => console.warn('Error while closing voice activity repository', error));
+    .catch((error) => console.error('Error while closing voice activity repository', error));
 
   try {
     appServer.stop();
   } catch (error) {
-    console.warn('Error while stopping HTTP server', error);
+    console.error('Error while stopping HTTP server', error);
   }
 
   try {
     dailyArticleService.stop();
   } catch (error) {
-    console.warn('Error while stopping daily article service', error);
+    console.error('Error while stopping daily article service', error);
   }
 
   discordBridge
     .destroy()
-    .catch((error) => console.warn('Error while destroying Discord bridge', error))
+    .catch((error) => console.error('Error while destroying Discord bridge', error))
     .finally(() => process.exit(0));
 }
 

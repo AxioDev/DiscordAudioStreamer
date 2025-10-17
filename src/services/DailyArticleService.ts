@@ -385,8 +385,6 @@ export default class DailyArticleService {
         await this.blogService.initialize();
       }
 
-      console.log(`DailyArticleService: article généré et publié pour ${slug}.`);
-
       return {
         status: 'generated',
         slug,

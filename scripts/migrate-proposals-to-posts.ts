@@ -41,7 +41,6 @@ async function main(): Promise<void> {
 
     const tableExists = tableExistsResult.rows[0]?.exists ?? false;
     if (!tableExists) {
-      console.log('La table blog_post_proposals est absente : aucune migration nécessaire.');
       await client.query('COMMIT');
       return;
     }
@@ -124,13 +123,8 @@ async function main(): Promise<void> {
     await client.query('COMMIT');
 
     if (rows.length === 0) {
-      console.log('Aucun article en attente n’a été trouvé, la table blog_post_proposals a été supprimée.');
       return;
     }
-
-    console.log(
-      `Migration terminée : ${migrated} article(s) transféré(s), ${proposalIds.length} entrée(s) supprimée(s) et la table blog_post_proposals a été archivée.`,
-    );
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Échec de la migration des articles en attente vers les articles publiés.', error);

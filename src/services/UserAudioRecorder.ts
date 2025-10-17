@@ -135,7 +135,7 @@ class RecordingSession implements UserAudioRecordingSession {
           try {
             this.onFinalize({ totalDataBytes });
           } catch (callbackError) {
-            console.warn('Recording finalize callback failed', {
+            console.error('Recording finalize callback failed', {
               filePath: this.filePath,
               error: callbackError,
             });
@@ -147,13 +147,13 @@ class RecordingSession implements UserAudioRecordingSession {
           const handle = await fs.open(this.filePath, 'r');
           await handle.close();
         } catch (closeError) {
-          console.warn('Failed to close recording file after finalize error', closeError);
+          console.error('Failed to close recording file after finalize error', closeError);
         }
         if (typeof this.onFinalizeError === 'function') {
           try {
             this.onFinalizeError(error);
           } catch (callbackError) {
-            console.warn('Recording finalize error handler failed', {
+            console.error('Recording finalize error handler failed', {
               filePath: this.filePath,
               error: callbackError,
             });
@@ -213,7 +213,7 @@ export default class UserAudioRecorder {
 
     if (this.retentionPeriodMs > 0) {
       void this.cleanupExpiredRecordings().catch((error) => {
-        console.warn('Initial recording cleanup failed', { error });
+        console.error('Initial recording cleanup failed', { error });
       });
 
       this.startCleanupTask();
@@ -321,7 +321,7 @@ export default class UserAudioRecorder {
         entries = dirEntries.filter((entry) => entry.isFile());
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-          console.warn('Failed to read recordings directory', { directory: directoryPath, error });
+          console.error('Failed to read recordings directory', { directory: directoryPath, error });
         }
         continue;
       }
@@ -347,7 +347,7 @@ export default class UserAudioRecorder {
           stats = await fs.stat(filePath);
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-            console.warn('Failed to read audio recording stats', { filePath, error });
+            console.error('Failed to read audio recording stats', { filePath, error });
           }
           continue;
         }
@@ -402,7 +402,7 @@ export default class UserAudioRecorder {
       stats = await fs.stat(filePath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        console.warn('Failed to read audio recording for download', { filePath, error });
+        console.error('Failed to read audio recording for download', { filePath, error });
       }
       return null;
     }
@@ -440,7 +440,7 @@ export default class UserAudioRecorder {
 
     this.cleanupTimer = setInterval(() => {
       void this.cleanupExpiredRecordings().catch((error) => {
-        console.warn('Scheduled recording cleanup failed', { error });
+        console.error('Scheduled recording cleanup failed', { error });
       });
     }, this.cleanupIntervalMs);
 
@@ -467,7 +467,7 @@ export default class UserAudioRecorder {
         }
       }
     } catch (error) {
-      console.warn('Failed to scan recordings directory for cleanup', { error });
+      console.error('Failed to scan recordings directory for cleanup', { error });
     }
   }
 
@@ -476,7 +476,7 @@ export default class UserAudioRecorder {
     try {
       entries = await fs.readdir(directory, { withFileTypes: true });
     } catch (error) {
-      console.warn('Failed to read recording directory during cleanup', { directory, error });
+      console.error('Failed to read recording directory during cleanup', { directory, error });
       return;
     }
 
@@ -496,7 +496,7 @@ export default class UserAudioRecorder {
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        console.warn('Failed to remove empty recording directory', { directory, error });
+        console.error('Failed to remove empty recording directory', { directory, error });
       }
     }
   }
@@ -511,7 +511,7 @@ export default class UserAudioRecorder {
       stats = await fs.stat(filePath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        console.warn('Failed to read recording file stats during cleanup', { filePath, error });
+        console.error('Failed to read recording file stats during cleanup', { filePath, error });
       }
       this.removePendingRecordingByFilePath(filePath);
       return;
@@ -526,11 +526,10 @@ export default class UserAudioRecorder {
 
     try {
       await fs.unlink(filePath);
-      console.info('Deleted expired audio recording', { filePath });
       this.removePendingRecordingByFilePath(filePath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        console.warn('Failed to delete expired recording file', { filePath, error });
+        console.error('Failed to delete expired recording file', { filePath, error });
       }
     }
   }
@@ -542,7 +541,7 @@ export default class UserAudioRecorder {
       entries = dirEntries.filter((entry) => entry.isDirectory());
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        console.warn('Failed to list user recording directories', { userId, error });
+        console.error('Failed to list user recording directories', { userId, error });
       }
       return [];
     }
@@ -608,7 +607,7 @@ export default class UserAudioRecorder {
     try {
       decoded = Buffer.from(normalized + padding, 'base64').toString('utf8');
     } catch (error) {
-      console.warn('Failed to decode audio recording identifier', { recordingId, error });
+      console.error('Failed to decode audio recording identifier', { recordingId, error });
       return null;
     }
 
@@ -700,7 +699,7 @@ export default class UserAudioRecorder {
       return pending;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        console.warn('Failed to reuse pending audio recording', {
+        console.error('Failed to reuse pending audio recording', {
           userId,
           filePath: pending.filePath,
           error,
@@ -734,7 +733,7 @@ export default class UserAudioRecorder {
     if (this.pendingRecordings.get(userId)?.filePath === filePath) {
       this.pendingRecordings.delete(userId);
     }
-    console.warn('Pending recording finalize error', { userId, filePath, error });
+    console.error('Pending recording finalize error', { userId, filePath, error });
   }
 
   private removePendingRecordingByFilePath(filePath: string): void {
