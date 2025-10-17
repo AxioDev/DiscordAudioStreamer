@@ -151,6 +151,10 @@ export default class DiscordAudioBridge {
 
   private readonly audioRecorder: UserAudioRecorder | null;
 
+  private anonymousPipelineReady = false;
+
+  private anonymousPipelineSetupInProgress = false;
+
   constructor({
     config,
     mixer,
@@ -920,50 +924,67 @@ export default class DiscordAudioBridge {
   }
 
   private setupAnonymousPipeline(connection: VoiceConnection): void {
-    this.teardownAnonymousPipeline();
-
-    const input = new PassThrough({ highWaterMark: this.config.audio.frameBytes * 16 || 4096 });
-    const encoder = new prism.opus.Encoder({
-      rate: this.config.audio.sampleRate,
-      channels: this.config.audio.channels,
-      frameSize: this.config.audio.frameSamples || 960,
-    });
-
-    input.pipe(encoder);
-
-    const resource = createAudioResource(encoder, { inputType: StreamType.Opus });
-    try {
-      this.anonymousPlayer.stop(true);
-    } catch (error) {
-      console.error('Failed to stop previous anonymous player', error);
+    if (this.anonymousPipelineSetupInProgress) {
+      return;
     }
 
-    this.anonymousPlayer.play(resource);
-    try {
-      connection.subscribe(this.anonymousPlayer);
-    } catch (error) {
-      console.error('Unable to subscribe anonymous player to voice connection', error);
+    if (this.anonymousPipelineReady) {
+      return;
     }
 
-    this.anonymousPlayer.removeAllListeners('error');
-    this.anonymousPlayer.on('error', (error) => {
-      console.error('Anonymous audio player error', error);
-    });
+    this.anonymousPipelineSetupInProgress = true;
 
-    this.anonymousInput = input;
-    this.anonymousEncoder = encoder;
+    try {
+      this.teardownAnonymousPipeline();
 
-    this.anonymousDrainListener = () => {
+      const input = new PassThrough({ highWaterMark: this.config.audio.frameBytes * 16 || 4096 });
+      const encoder = new prism.opus.Encoder({
+        rate: this.config.audio.sampleRate,
+        channels: this.config.audio.channels,
+        frameSize: this.config.audio.frameSamples || 960,
+      });
+
+      input.pipe(encoder);
+
+      const resource = createAudioResource(encoder, { inputType: StreamType.Opus });
       try {
-        this.flushAnonymousQueue();
+        this.anonymousPlayer.stop(true);
       } catch (error) {
-        console.error('Failed to flush anonymous queue on drain event', error);
+        console.error('Failed to stop previous anonymous player', error);
       }
-    };
 
-    input.on('drain', this.anonymousDrainListener);
+      this.anonymousPlayer.play(resource);
+      let subscribed = false;
+      try {
+        connection.subscribe(this.anonymousPlayer);
+        subscribed = true;
+      } catch (error) {
+        console.error('Unable to subscribe anonymous player to voice connection', error);
+      }
 
-    this.flushAnonymousQueue();
+      this.anonymousPlayer.removeAllListeners('error');
+      this.anonymousPlayer.on('error', (error) => {
+        console.error('Anonymous audio player error', error);
+      });
+
+      this.anonymousInput = input;
+      this.anonymousEncoder = encoder;
+
+      this.anonymousDrainListener = () => {
+        try {
+          this.flushAnonymousQueue();
+        } catch (error) {
+          console.error('Failed to flush anonymous queue on drain event', error);
+        }
+      };
+
+      input.on('drain', this.anonymousDrainListener);
+
+      this.flushAnonymousQueue();
+      this.anonymousPipelineReady = subscribed;
+    } finally {
+      this.anonymousPipelineSetupInProgress = false;
+    }
   }
 
   private teardownAnonymousPipeline(): void {
@@ -999,6 +1020,7 @@ export default class DiscordAudioBridge {
     this.anonymousQueue = [];
     this.anonymousRemainder = Buffer.alloc(0);
     this.anonymousDrainListener = null;
+    this.anonymousPipelineReady = false;
   }
 
   public pushAnonymousAudio(chunk: Buffer): boolean {
