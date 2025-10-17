@@ -173,7 +173,6 @@ export const BlogPage = ({ params = {}, bootstrap = null, onNavigateToPost, onNa
   const [postError, setPostError] = useState(null);
   const [searchTerm, setSearchTerm] = useState(() => bootstrapSearch);
   const [selectedTags, setSelectedTags] = useState(() => bootstrapSelectedTags.slice());
-  const [manualPassword, setManualPassword] = useState('');
   const [isTriggeringManualArticle, setIsTriggeringManualArticle] = useState(false);
   const [manualTriggerError, setManualTriggerError] = useState(null);
   const [manualTriggerSuccess, setManualTriggerSuccess] = useState(null);
@@ -371,20 +370,11 @@ export const BlogPage = ({ params = {}, bootstrap = null, onNavigateToPost, onNa
     }
   }, [onNavigateToSubmission]);
 
-  const handleManualPasswordChange = useCallback((event) => {
-    setManualPassword(event.target.value);
-  }, []);
-
   const handleManualGeneration = useCallback(
     async (event) => {
-      event.preventDefault();
-      const normalizedPassword = manualPassword.trim();
-      if (!normalizedPassword) {
-        setManualTriggerError('Mot de passe requis.');
-        setManualTriggerSuccess(null);
-        return;
+      if (event && typeof event.preventDefault === 'function') {
+        event.preventDefault();
       }
-
       setIsTriggeringManualArticle(true);
       setManualTriggerError(null);
       setManualTriggerSuccess(null);
@@ -392,8 +382,6 @@ export const BlogPage = ({ params = {}, bootstrap = null, onNavigateToPost, onNa
       try {
         const response = await fetch('/api/blog/manual-generate', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password: normalizedPassword }),
         });
 
         let payload = null;
@@ -416,7 +404,6 @@ export const BlogPage = ({ params = {}, bootstrap = null, onNavigateToPost, onNa
             ? payload.message
             : "La génération de l'article a été déclenchée.";
         setManualTriggerSuccess(successMessage);
-        setManualPassword('');
       } catch (error) {
         console.error('Failed to trigger manual blog article', error);
         setManualTriggerError(error?.message ?? "Impossible de lancer la génération de l'article.");
@@ -424,7 +411,7 @@ export const BlogPage = ({ params = {}, bootstrap = null, onNavigateToPost, onNa
         setIsTriggeringManualArticle(false);
       }
     },
-    [manualPassword],
+    [],
   );
 
   return html`
@@ -489,29 +476,15 @@ export const BlogPage = ({ params = {}, bootstrap = null, onNavigateToPost, onNa
             ? 'Chargement des articles...'
             : `${posts.length} article${posts.length > 1 ? 's' : ''} visibles`}
         </div>
-        <form
-          class="ml-auto flex items-center gap-2 text-[11px] text-slate-500"
-          onSubmit=${handleManualGeneration}
-          autocomplete="off"
+        <button
+          type="button"
+          class="ml-auto rounded-md border border-transparent px-2 py-1 text-[10px] font-medium text-slate-500 transition hover:text-amber-200 focus:border-slate-600 focus:outline-none disabled:opacity-60"
+          onClick=${handleManualGeneration}
+          disabled=${isTriggeringManualArticle}
+          title="Déclencher un nouvel article"
         >
-          <label class="sr-only" for="blog-manual-password">Mot de passe</label>
-          <input
-            id="blog-manual-password"
-            type="password"
-            value=${manualPassword}
-            onInput=${handleManualPasswordChange}
-            placeholder="••••"
-            class="w-20 rounded-lg border border-transparent bg-transparent px-2 py-1 text-[11px] text-slate-400 focus:border-slate-600 focus:outline-none focus:ring-0"
-          />
-          <button
-            type="submit"
-            class="rounded-md border border-transparent px-2 py-1 text-[10px] font-medium text-slate-500 transition hover:text-amber-200 focus:border-slate-600 focus:outline-none"
-            disabled=${isTriggeringManualArticle}
-            title="Déclencher un nouvel article"
-          >
-            …
-          </button>
-        </form>
+          …
+        </button>
         ${(manualTriggerError || manualTriggerSuccess)
           ? html`
               <div class="ml-auto max-w-xs text-right text-[11px]">

@@ -84,7 +84,6 @@ type FlushCapableResponse = Response & {
   flush?: () => void;
 };
 
-const MANUAL_BLOG_TRIGGER_PASSWORD = '1234';
 
 interface ProfileSummary {
   rangeDurationMs: number;
@@ -4698,20 +4697,7 @@ export default class AppServer {
       }
     });
 
-    this.app.post('/api/blog/manual-generate', async (req, res) => {
-      const passwordRaw = (req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>).password : null) as
-        | string
-        | null;
-      const password = typeof passwordRaw === 'string' ? passwordRaw.trim() : '';
-
-      if (password !== MANUAL_BLOG_TRIGGER_PASSWORD) {
-        res.status(401).json({
-          error: 'MANUAL_ARTICLE_UNAUTHORIZED',
-          message: 'Mot de passe requis ou invalide.',
-        });
-        return;
-      }
-
+    this.app.post('/api/blog/manual-generate', async (_req, res) => {
       if (!this.dailyArticleService) {
         res.status(503).json({
           error: 'DAILY_ARTICLE_DISABLED',
