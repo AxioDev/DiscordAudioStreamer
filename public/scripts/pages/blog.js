@@ -1,4 +1,4 @@
-import { html, useCallback, useEffect, useMemo, useRef, useState, Sparkles } from '../core/deps.js';
+import { html, useCallback, useEffect, useRef, useState, Sparkles } from '../core/deps.js';
 
 const formatDate = (isoString) => {
   if (!isoString) {
@@ -158,14 +158,12 @@ export const BlogPage = ({ params = {}, bootstrap = null, onNavigateToPost, onNa
         .map((post) => sanitizePostSummary(post))
         .filter((post) => post !== null)
     : null;
-  const bootstrapAvailableTags = normalizeTags(bootstrapData.availableTags);
   const bootstrapActivePostDetail = sanitizePostDetail(bootstrapData.activePost);
   const bootstrapActiveSlug = bootstrapActivePostDetail?.slug ?? null;
   const hasBootstrapActivePost = Boolean(slug && bootstrapActiveSlug && bootstrapActiveSlug === slug);
   const hasBootstrapPosts = Array.isArray(bootstrapPosts);
 
   const [posts, setPosts] = useState(() => (bootstrapPosts ? bootstrapPosts.map((post) => ({ ...post })) : []));
-  const [availableTags, setAvailableTags] = useState(() => bootstrapAvailableTags.slice());
   const [isLoadingList, setIsLoadingList] = useState(() => !hasBootstrapPosts);
   const [listError, setListError] = useState(null);
   const [activePost, setActivePost] = useState(() => (
@@ -225,7 +223,6 @@ export const BlogPage = ({ params = {}, bootstrap = null, onNavigateToPost, onNa
           ? payload.posts.map((post) => sanitizePostSummary(post)).filter((post) => post !== null)
           : [];
         setPosts(fetchedPosts);
-        setAvailableTags(Array.isArray(payload?.tags) ? normalizeTags(payload.tags) : []);
       } catch (error) {
         if (cancelled) {
           return;
@@ -233,7 +230,6 @@ export const BlogPage = ({ params = {}, bootstrap = null, onNavigateToPost, onNa
         console.error('Failed to load blog posts', error);
         setListError("Impossible de charger les articles pour le moment.");
         setPosts([]);
-        setAvailableTags([]);
       } finally {
         if (!cancelled) {
           setIsLoadingList(false);
@@ -330,12 +326,6 @@ export const BlogPage = ({ params = {}, bootstrap = null, onNavigateToPost, onNa
     }
   }, [slug, activePost]);
 
-  const tagOptions = useMemo(() => {
-    const combined = new Set([...(Array.isArray(availableTags) ? availableTags : [])]);
-    selectedTags.forEach((tag) => combined.add(tag));
-    return Array.from(combined).sort((a, b) => a.localeCompare(b));
-  }, [availableTags, selectedTags]);
-
   const hasActiveFilters = selectedTags.length > 0 || (debouncedSearch && debouncedSearch.trim().length > 0);
 
   const handleOpenPost = useCallback(
@@ -361,15 +351,6 @@ export const BlogPage = ({ params = {}, bootstrap = null, onNavigateToPost, onNa
 
   const handleSearchChange = useCallback((event) => {
     setSearchTerm(event.target.value);
-  }, []);
-
-  const handleTagToggle = useCallback((tag) => {
-    setSelectedTags((prev) => {
-      if (prev.includes(tag)) {
-        return prev.filter((entry) => entry !== tag);
-      }
-      return [...prev, tag];
-    });
   }, []);
 
   const handleResetFilters = useCallback(() => {
@@ -503,31 +484,6 @@ export const BlogPage = ({ params = {}, bootstrap = null, onNavigateToPost, onNa
             Publier un article
           </button>
         </div>
-        ${tagOptions.length > 0
-          ? html`
-              <div class="flex flex-wrap gap-2">
-                ${tagOptions.map((tag) => {
-                  const isActive = selectedTags.includes(tag);
-                  return html`
-                    <button
-                      key=${`tag-${tag}`}
-                      type="button"
-                      class=${[
-                        'rounded-full border px-3 py-1 text-xs font-medium transition',
-                        isActive
-                          ? 'border-amber-400/70 bg-amber-500/20 text-amber-100'
-                          : 'border-slate-700 bg-slate-900/70 text-slate-200 hover:border-amber-400/40 hover:text-amber-100',
-                      ].join(' ')}
-                      aria-pressed=${isActive}
-                      onClick=${() => handleTagToggle(tag)}
-                    >
-                      ${tag}
-                    </button>
-                  `;
-                })}
-              </div>
-            `
-          : null}
         <div class="text-sm text-slate-400">
           ${isLoadingList
             ? 'Chargement des articles...'
