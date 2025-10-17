@@ -2430,20 +2430,13 @@ export default class AppServer {
     const parts: string[] = [];
     const activeTags = data.tags.filter((tag) => typeof tag === 'string' && tag.trim().length > 0);
     const tagDescription = activeTags.length > 0
-      ? `Chroniques consacrées à ${activeTags.map((tag) => `#${tag}`).join(', ')}`
+      ? 'Sélection de chroniques correspondant à ta recherche.'
       : 'Histoires de nuit, coulisses et conseils pour rejoindre Libre Antenne.';
 
     parts.push('<main class="blog-prerender mx-auto max-w-5xl space-y-12 px-4 py-16">');
     parts.push('<section class="rounded-3xl border border-slate-800/60 bg-slate-950/70 p-8">');
     parts.push('<h1 class="text-3xl font-bold text-white">Chroniques Libre Antenne</h1>');
     parts.push(`<p class="mt-4 text-sm text-slate-300">${this.escapeHtml(tagDescription)}</p>`);
-    if (activeTags.length > 0) {
-      parts.push('<div class="mt-4 flex flex-wrap gap-2">');
-      for (const tag of activeTags) {
-        parts.push(`<span class="rounded-full bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200">#${this.escapeHtml(tag)}</span>`);
-      }
-      parts.push('</div>');
-    }
     parts.push('</section>');
 
     if (data.posts.length === 0) {
@@ -2474,19 +2467,6 @@ export default class AppServer {
         parts.push(`<a class="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-amber-300 hover:text-amber-200" href="/blog/${encodeURIComponent(post.slug)}">Lire l’article →</a>`);
         parts.push('</article>');
       }
-      parts.push('</section>');
-    }
-
-    if (data.availableTags.length > 0) {
-      parts.push('<section class="rounded-3xl border border-slate-800/40 bg-slate-950/50 p-6">');
-      parts.push('<h2 class="text-lg font-semibold text-white">Explorer par thème</h2>');
-      parts.push('<div class="mt-4 flex flex-wrap gap-2">');
-      for (const tag of data.availableTags) {
-        parts.push(
-          `<a class="rounded-full border border-amber-400/40 px-3 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-400/10" href="/blog?tag=${encodeURIComponent(tag)}">#${this.escapeHtml(tag)}</a>`,
-        );
-      }
-      parts.push('</div>');
       parts.push('</section>');
     }
 
