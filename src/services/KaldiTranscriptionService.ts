@@ -87,7 +87,7 @@ export default class KaldiTranscriptionService {
     const existing = this.sessions.get(userId);
     if (existing) {
       this.finalizeSession(userId).catch((error) => {
-        console.warn('Failed to finalize existing Kaldi session before starting a new one', error);
+        console.error('Failed to finalize existing Kaldi session before starting a new one', error);
       });
     }
 
@@ -363,24 +363,6 @@ export default class KaldiTranscriptionService {
 
     if (normalizedTranscript) {
       session.transcripts.push(normalizedTranscript);
-      console.info('Kaldi transcription received', {
-        userId: session.userId,
-        guildId: session.guildId,
-        channelId: session.channelId,
-        transcript: normalizedTranscript,
-      });
-    }
-
-    if (typeof compatiblePayload.partial === 'string') {
-      const partial = compatiblePayload.partial.trim();
-      if (partial.length > 0) {
-        console.debug('Kaldi partial transcription', {
-          userId: session.userId,
-          guildId: session.guildId,
-          channelId: session.channelId,
-          partial,
-        });
-      }
     }
   }
 

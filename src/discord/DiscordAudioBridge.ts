@@ -184,19 +184,15 @@ export default class DiscordAudioBridge {
   private registerEventHandlers(): void {
     this.client.once(Events.ClientReady, async () => {
       if (!this.client.user) {
-        console.warn('Discord client ready without user context');
+        console.error('Discord client ready without user context');
         return;
       }
-      console.log('Discord bot logged as', this.client.user.tag);
       if (this.config.guildId && this.config.voiceChannelId) {
         try {
           await this.joinVoice(this.config.guildId, this.config.voiceChannelId);
-          console.log('Auto-join voice channel successful');
         } catch (error) {
           console.error('Auto-join voice channel failed', error);
         }
-      } else {
-        console.log('No guild or voice channel configured. Use !joinVoice to connect manually.');
       }
     });
 
@@ -218,7 +214,7 @@ export default class DiscordAudioBridge {
     this.voiceActivityRepository
       .syncUsers(records)
       .catch((error) => {
-        console.warn('Failed to synchronize users metadata', error);
+        console.error('Failed to synchronize users metadata', error);
       });
   }
 
@@ -242,7 +238,7 @@ export default class DiscordAudioBridge {
           timestamp: createdAt,
         })
         .catch((error) => {
-          console.warn('Failed to persist message activity event', error);
+          console.error('Failed to persist message activity event', error);
         });
     }
 
@@ -358,7 +354,7 @@ export default class DiscordAudioBridge {
             }
           }
         } catch (error) {
-          console.warn('Unable to fetch guild member details for user', userId, (error as Error)?.message ?? error);
+          console.error('Unable to fetch guild member details for user', userId, (error as Error)?.message ?? error);
         }
       }
 
@@ -404,7 +400,7 @@ export default class DiscordAudioBridge {
 
       return identity;
     } catch (error) {
-      console.warn('Failed to fetch Discord user identity', userId, (error as Error)?.message ?? error);
+      console.error('Failed to fetch Discord user identity', userId, (error as Error)?.message ?? error);
       return null;
     }
   }
@@ -507,7 +503,7 @@ export default class DiscordAudioBridge {
         hasMore: Boolean(nextCursor),
       };
     } catch (error) {
-      console.warn('Failed to list guild members', (error as Error)?.message ?? error);
+      console.error('Failed to list guild members', (error as Error)?.message ?? error);
       throw error;
     }
   }
@@ -555,7 +551,7 @@ export default class DiscordAudioBridge {
       if (errorName === 'GUILD_NOT_CONFIGURED' || errorName === 'GUILD_UNAVAILABLE') {
         throw error;
       }
-      console.warn('Failed to fetch guild summary', (error as Error)?.message ?? error);
+      console.error('Failed to fetch guild summary', (error as Error)?.message ?? error);
       throw error;
     }
   }
@@ -586,13 +582,12 @@ export default class DiscordAudioBridge {
     this.currentGuildId = guildId;
     this.currentVoiceChannelId = channelId;
     this.expectingDisconnect = false;
-    console.log('Voice connection ready');
 
     try {
       this.speakerTracker.clear();
       await this.syncInitialChannelMembers(voiceChannel);
     } catch (error) {
-      console.warn('Failed to synchronise initial channel members', error);
+      console.error('Failed to synchronise initial channel members', error);
     }
 
     this.setupReceiver(connection);
@@ -610,7 +605,6 @@ export default class DiscordAudioBridge {
         return;
       }
 
-      console.log('start speaking', userId);
       this.mixer.addSource(userId);
       this.speakerTracker.handleSpeakingStart(userId).catch((error) => {
         console.error('Failed to handle speaking start', error);
@@ -628,7 +622,6 @@ export default class DiscordAudioBridge {
         return;
       }
 
-      console.log('speaking end', userId);
       this.speakerTracker.handleSpeakingEnd(userId);
       this.mixer.removeSource(userId);
       void this.transcriptionService?.finalizeSession(userId).catch((error) => {
@@ -640,10 +633,9 @@ export default class DiscordAudioBridge {
     });
 
     connection.on('stateChange', (oldState, newState) => {
-      console.log('Voice state', oldState.status, '->', newState.status);
       if (newState.status === VoiceConnectionStatus.Disconnected) {
         this.handleConnectionDisconnected(connection).catch((error) => {
-          console.warn('Failed handling voice disconnect', error);
+          console.error('Failed handling voice disconnect', error);
         });
       }
       if (newState.status === VoiceConnectionStatus.Destroyed) {
@@ -745,12 +737,12 @@ export default class DiscordAudioBridge {
         try {
           opusStream.destroy();
         } catch (error) {
-          console.warn('Failed to destroy opus stream', error);
+          console.error('Failed to destroy opus stream', error);
         }
         try {
           decoder.destroy();
         } catch (error) {
-          console.warn('Failed to destroy decoder', error);
+          console.error('Failed to destroy decoder', error);
         }
         this.mixer.removeSource(userId);
         this.speakerTracker.handleSpeakingEnd(userId);
@@ -772,15 +764,14 @@ export default class DiscordAudioBridge {
           });
         }
         subscription.recordingSession = null;
-        console.log('Cleaned resources for user', userId);
       };
 
       onOpusError = (error: Error) => {
-        console.warn('Opus stream error', error);
+        console.error('Opus stream error', error);
         cleanup();
       };
       onDecoderError = (error: Error) => {
-        console.warn('Decoder error', error);
+        console.error('Decoder error', error);
         cleanup();
       };
 
@@ -828,13 +819,13 @@ export default class DiscordAudioBridge {
     try {
       this.leaveVoice();
     } catch (error) {
-      console.warn('Error while leaving voice channel during shutdown', error);
+      console.error('Error while leaving voice channel during shutdown', error);
     }
 
     try {
       await this.client.destroy();
     } catch (error) {
-      console.warn('Error while destroying Discord client', error);
+      console.error('Error while destroying Discord client', error);
     }
   }
 
@@ -848,13 +839,12 @@ export default class DiscordAudioBridge {
         entersState(connection, VoiceConnectionStatus.Signalling, 5000),
         entersState(connection, VoiceConnectionStatus.Connecting, 5000),
       ]);
-      console.log('Transient voice disconnect recovered automatically');
     } catch (error) {
-      console.warn('Voice connection lost, preparing to reconnect', error);
+      console.error('Voice connection lost, preparing to reconnect', error);
       try {
         connection.destroy();
       } catch (destroyError) {
-        console.warn('Failed to destroy disconnected voice connection', destroyError);
+        console.error('Failed to destroy disconnected voice connection', destroyError);
       }
     }
   }
@@ -869,9 +859,7 @@ export default class DiscordAudioBridge {
 
     this.isReconnecting = true;
     try {
-      console.log('Attempting to reconnect to voice channel...');
       await this.joinVoice(this.currentGuildId, this.currentVoiceChannelId);
-      console.log('Voice reconnection successful');
     } catch (error) {
       console.error('Failed to reconnect to voice channel', error);
     } finally {
@@ -947,19 +935,19 @@ export default class DiscordAudioBridge {
     try {
       this.anonymousPlayer.stop(true);
     } catch (error) {
-      console.warn('Failed to stop previous anonymous player', error);
+      console.error('Failed to stop previous anonymous player', error);
     }
 
     this.anonymousPlayer.play(resource);
     try {
       connection.subscribe(this.anonymousPlayer);
     } catch (error) {
-      console.warn('Unable to subscribe anonymous player to voice connection', error);
+      console.error('Unable to subscribe anonymous player to voice connection', error);
     }
 
     this.anonymousPlayer.removeAllListeners('error');
     this.anonymousPlayer.on('error', (error) => {
-      console.warn('Anonymous audio player error', error);
+      console.error('Anonymous audio player error', error);
     });
 
     this.anonymousInput = input;
@@ -969,7 +957,7 @@ export default class DiscordAudioBridge {
       try {
         this.flushAnonymousQueue();
       } catch (error) {
-        console.warn('Failed to flush anonymous queue on drain event', error);
+        console.error('Failed to flush anonymous queue on drain event', error);
       }
     };
 
@@ -988,7 +976,7 @@ export default class DiscordAudioBridge {
         this.anonymousInput.end();
         this.anonymousInput.destroy();
       } catch (error) {
-        console.warn('Failed to teardown anonymous input stream', error);
+        console.error('Failed to teardown anonymous input stream', error);
       }
     }
     if (this.anonymousEncoder) {
@@ -996,14 +984,14 @@ export default class DiscordAudioBridge {
         this.anonymousEncoder.removeAllListeners();
         this.anonymousEncoder.destroy();
       } catch (error) {
-        console.warn('Failed to teardown anonymous encoder', error);
+        console.error('Failed to teardown anonymous encoder', error);
       }
     }
 
     try {
       this.anonymousPlayer.stop(true);
     } catch (error) {
-      console.warn('Failed to stop anonymous player', error);
+      console.error('Failed to stop anonymous player', error);
     }
 
     this.anonymousInput = null;
@@ -1049,7 +1037,7 @@ export default class DiscordAudioBridge {
       try {
         this.flushAnonymousQueue();
       } catch (error) {
-        console.warn('Failed to flush anonymous queue after push', error);
+        console.error('Failed to flush anonymous queue after push', error);
       }
     }
 

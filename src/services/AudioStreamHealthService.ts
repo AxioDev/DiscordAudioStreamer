@@ -96,17 +96,17 @@ export default class AudioStreamHealthService {
   };
 
   private readonly onStreamError = (error: Error): void => {
-    console.warn('[AudioStreamHealth] Monitoring stream error', error);
+    console.error('[AudioStreamHealth] Monitoring stream error', error);
     this.handleStreamInterruption();
   };
 
   private readonly onStreamEnd = (): void => {
-    console.warn('[AudioStreamHealth] Monitoring stream ended');
+    console.error('[AudioStreamHealth] Monitoring stream ended unexpectedly');
     this.handleStreamInterruption();
   };
 
   private readonly onStreamClose = (): void => {
-    console.warn('[AudioStreamHealth] Monitoring stream closed');
+    console.error('[AudioStreamHealth] Monitoring stream closed unexpectedly');
     this.handleStreamInterruption();
   };
 
@@ -125,7 +125,6 @@ export default class AudioStreamHealthService {
       stream.resume();
       this.clientStream = stream;
       this.lastPacketTimestamp = Date.now();
-      console.log('[AudioStreamHealth] Attached monitoring stream');
     } catch (error) {
       console.error('[AudioStreamHealth] Failed to attach monitoring stream', error);
       this.scheduleStreamReattach();
@@ -146,7 +145,7 @@ export default class AudioStreamHealthService {
     try {
       this.transcoder.releaseClientStream(stream);
     } catch (error) {
-      console.warn('[AudioStreamHealth] Failed to release monitoring stream', error);
+      console.error('[AudioStreamHealth] Failed to release monitoring stream', error);
     }
     this.lastPacketTimestamp = Date.now();
   }
@@ -227,7 +226,7 @@ export default class AudioStreamHealthService {
 
     this.restarting = true;
     this.lastRestartTimestamp = Date.now();
-    console.warn(
+    console.error(
       `[AudioStreamHealth] No audio packets for ${silenceDuration}ms. Restarting audio pipeline.`,
     );
 
@@ -254,7 +253,7 @@ export default class AudioStreamHealthService {
     try {
       this.discordBridge.leaveVoice();
     } catch (error) {
-      console.warn('[AudioStreamHealth] Failed to leave voice channel cleanly', error);
+      console.error('[AudioStreamHealth] Failed to leave voice channel cleanly', error);
     }
 
     try {
