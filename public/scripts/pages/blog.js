@@ -90,22 +90,6 @@ const BlogCard = ({ post, onOpen, isActive }) => {
             `
           : html`<div class="aspect-[16/9] w-full bg-slate-800/60"></div>`}
         <div class="flex flex-1 flex-col gap-4 p-5">
-          ${post.tags.length > 0
-            ? html`
-                <div class="flex flex-wrap gap-2">
-                  ${post.tags.map(
-                    (tag) => html`
-                      <span
-                        key=${`${post.slug}-tag-${tag}`}
-                        class="rounded-full bg-slate-800/80 px-3 py-1 text-xs font-medium text-slate-200"
-                      >
-                        ${tag}
-                      </span>
-                    `,
-                  )}
-                </div>
-              `
-            : null}
           <div class="space-y-2">
             <h3 class="text-lg font-semibold text-white transition duration-150 group-hover:text-amber-200">
               ${post.title}
@@ -618,22 +602,6 @@ export const BlogPage = ({ params = {}, bootstrap = null, onNavigateToPost, onNa
                         : null}
                       <div class="space-y-6 p-8">
                         <div class="space-y-4">
-                          ${activePost.tags.length > 0
-                            ? html`
-                                <div class="flex flex-wrap gap-2">
-                                  ${activePost.tags.map(
-                                    (tag) => html`
-                                      <span
-                                        key=${`active-tag-${tag}`}
-                                        class="rounded-full border border-amber-400/40 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-100"
-                                      >
-                                        ${tag}
-                                      </span>
-                                    `,
-                                  )}
-                                </div>
-                              `
-                            : null}
                           <h2 class="text-3xl font-semibold text-white sm:text-4xl">${activePost.title}</h2>
                           ${formatDate(activePost.date ?? activePost.updatedAt)
                             ? html`<div class="text-sm text-slate-400">
