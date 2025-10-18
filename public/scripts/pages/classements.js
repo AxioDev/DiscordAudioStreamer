@@ -300,11 +300,13 @@ const ClassementsPage = ({ params = {}, onSyncRoute, bootstrap = null }) => {
         bootstrapData.query.period === period &&
         bootstrapData.query.search.trim() === debouncedSearch.trim();
 
-      if (!hasLoadedRef.current && matchesBootstrap && refreshTick === 0) {
+      if (matchesBootstrap && refreshTick === 0) {
         hasLoadedRef.current = true;
         setIsLoading(false);
         setIsRefreshing(false);
         setError(null);
+        controller.abort();
+        controllerRef.current = null;
         return;
       }
 

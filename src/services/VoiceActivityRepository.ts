@@ -2718,7 +2718,7 @@ export default class VoiceActivityRepository {
     }
 
     const sinceExpression = sinceDaysParamIndex
-      ? `CURRENT_TIMESTAMP - make_interval(days => $${sinceDaysParamIndex}::int)`
+      ? `NOW() - ($${sinceDaysParamIndex}::int * INTERVAL '1 day')`
       : null;
 
     const presenceWhereClause = (alias: string) => {
