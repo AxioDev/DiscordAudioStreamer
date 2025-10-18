@@ -267,6 +267,24 @@ interface AppPreloadState {
 export default class AppServer {
   private static readonly hypeLeaderboardCacheTtlMs = 24 * 60 * 60 * 1000;
 
+  private static readonly hypeLeaderboardPrewarmSorts: readonly HypeLeaderboardSortBy[] = [
+    'schScoreNorm',
+    'arrivalEffect',
+    'departureEffect',
+    'activityScore',
+    'displayName',
+  ];
+
+  private static readonly hypeLeaderboardPrewarmPeriods: readonly (number | null)[] = [
+    null,
+    7,
+    30,
+    90,
+    365,
+  ];
+
+  private static readonly hypeLeaderboardPrewarmOrders: readonly HypeLeaderboardSortOrder[] = ['desc', 'asc'];
+
   private readonly config: Config;
 
   private readonly transcoder: FfmpegTranscoder;
@@ -300,6 +318,8 @@ export default class AppServer {
   private readonly hypeLeaderboardPromise = new Map<string, Promise<HypeLeaderboardResult>>();
 
   private readonly hypeLeaderboardService: HypeLeaderboardService | null;
+
+  private hypeLeaderboardPrewarmPromise: Promise<void> | null = null;
 
   private readonly listenerStatsService: ListenerStatsService;
 
@@ -432,9 +452,12 @@ export default class AppServer {
     });
 
     if (this.hypeLeaderboardService) {
-      void this.hypeLeaderboardService.start().catch((error) => {
-        console.error('Failed to initialize hype leaderboard precomputation', error);
-      });
+      void this.hypeLeaderboardService
+        .start()
+        .then(() => this.prewarmHypeLeaderboardCache())
+        .catch((error) => {
+          console.error('Failed to initialize hype leaderboard precomputation', error);
+        });
     }
 
     const defaultSocialImageUrl = new URL('/icons/icon-512.png', this.config.publicBaseUrl).toString();
@@ -6852,6 +6875,53 @@ export default class AppServer {
 
     this.hypeLeaderboardPromise.set(cacheKey, promise);
     return promise;
+  }
+
+  private async prewarmHypeLeaderboardCache(): Promise<void> {
+    if (!this.hypeLeaderboardService) {
+      return;
+    }
+
+    if (this.hypeLeaderboardPrewarmPromise) {
+      try {
+        await this.hypeLeaderboardPrewarmPromise;
+      } catch (error) {
+        console.warn('Previous hype leaderboard prewarm attempt failed', error);
+      }
+      return;
+    }
+
+    const service = this.hypeLeaderboardService;
+    const run = async () => {
+      for (const periodDays of AppServer.hypeLeaderboardPrewarmPeriods) {
+        for (const sortBy of AppServer.hypeLeaderboardPrewarmSorts) {
+          for (const sortOrder of AppServer.hypeLeaderboardPrewarmOrders) {
+            try {
+              const normalized = service.normalizeOptions({
+                limit: 100,
+                search: null,
+                sortBy,
+                sortOrder,
+                periodDays,
+              });
+              await this.getCachedHypeLeaders(normalized);
+            } catch (error) {
+              console.warn(
+                'Failed to prewarm hype leaderboard cache',
+                { sortBy, sortOrder, period: periodDays ?? 'all' },
+                error,
+              );
+            }
+          }
+        }
+      }
+    };
+
+    this.hypeLeaderboardPrewarmPromise = run().finally(() => {
+      this.hypeLeaderboardPrewarmPromise = null;
+    });
+
+    await this.hypeLeaderboardPrewarmPromise;
   }
 
   private extractQueryParam(value: unknown): string | null {
