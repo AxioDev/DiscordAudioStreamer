@@ -15,6 +15,7 @@ import {
   BadgeCheck,
   MessageSquare,
   Activity,
+  Sparkles,
 } from './core/deps.js';
 import {
   DEFAULT_WINDOW_MINUTES,
@@ -44,6 +45,7 @@ const ROUTE_LOADERS = {
   classements: () =>
     import('./pages/classements.js').then((module) => module?.ClassementsPage ?? null),
   cgu: () => import('./pages/cgu.js').then((module) => module?.CguPage ?? null),
+  chat: () => import('./pages/chat.js').then((module) => module?.ChatPage ?? null),
   members: () => import('./pages/members.js').then((module) => module?.MembersPage ?? null),
   profile: () => import('./pages/profile.js').then((module) => module?.ProfilePage ?? null),
   shop: () => import('./pages/shop.js').then((module) => module?.ShopPage ?? null),
@@ -57,6 +59,7 @@ const NAV_LINKS = [
   { label: 'Classements', route: 'classements', href: '/classements', icon: BadgeCheck },
   { label: 'Statistiques', route: 'statistiques', href: '/statistiques', icon: Activity },
   { label: 'Blog', route: 'blog', href: '/blog', icon: MessageSquare },
+  { label: 'Assistant IA', route: 'chat', href: '/assistant', icon: Sparkles },
 ];
 
 const PRERENDER_CLASS_TOKENS = [
@@ -1732,6 +1735,8 @@ const App = () => {
                       scrollToTop: options.scrollToTop ?? false,
                     }),
                 })
+              : route.name === 'chat'
+              ? renderAsyncPage('chat')
               : renderAsyncPage('home', {
                   status,
                   streamInfo,
