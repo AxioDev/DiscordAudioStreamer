@@ -27,8 +27,8 @@ export default class AntiCrackleFilter {
   constructor({
     bytesPerSample,
     sampleCount,
-    smoothingSamples = 48,
-    activationThreshold = 0.35,
+    smoothingSamples = 96,
+    activationThreshold = 0.2,
   }: AntiCrackleFilterOptions) {
     this.bytesPerSample = bytesPerSample;
     this.smoothingSamples = Math.max(0, Math.min(sampleCount, smoothingSamples));
@@ -49,17 +49,45 @@ export default class AntiCrackleFilter {
     const processed = Buffer.allocUnsafe(frame.length);
 
     let last = this.previousSample;
-    const firstSample = frame.readInt16LE(0) / 32768.0;
-    const shouldSmooth =
-      this.smoothingSamples > 0 && Math.abs(firstSample - last) >= this.activationThreshold;
+    let rampRemaining = 0;
+    let rampStart = last;
+    let rampTarget = last;
+
+    if (sampleCount > 0 && this.smoothingSamples > 0) {
+      const firstSample = frame.readInt16LE(0) / 32768.0;
+      if (Math.abs(firstSample - last) >= this.activationThreshold) {
+        rampRemaining = this.smoothingSamples;
+        rampStart = last;
+        rampTarget = firstSample;
+      }
+    }
 
     for (let i = 0; i < sampleCount; i += 1) {
       const sample = frame.readInt16LE(i * this.bytesPerSample) / 32768.0;
+
+      if (
+        this.smoothingSamples > 0 &&
+        rampRemaining === 0 &&
+        Math.abs(sample - last) >= this.activationThreshold
+      ) {
+        rampRemaining = this.smoothingSamples;
+        rampStart = last;
+        rampTarget = sample;
+      }
+
       let value = sample;
 
-      if (shouldSmooth && i < this.smoothingSamples) {
-        const ramp = (i + 1) / this.smoothingSamples;
-        value = last + (sample - last) * Math.min(ramp, 1);
+      if (this.smoothingSamples > 0 && rampRemaining > 0) {
+        rampTarget = sample;
+        const rampIndex = this.smoothingSamples - rampRemaining;
+        const progress = (rampIndex + 1) / this.smoothingSamples;
+        const easedProgress = 0.5 - 0.5 * Math.cos(Math.PI * Math.min(progress, 1));
+        value = rampStart + (rampTarget - rampStart) * easedProgress;
+        rampRemaining -= 1;
+
+        if (rampRemaining === 0) {
+          rampStart = value;
+        }
       }
 
       if (value > 1) {
