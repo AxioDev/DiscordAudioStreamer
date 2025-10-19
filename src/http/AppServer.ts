@@ -6133,7 +6133,7 @@ export default class AppServer {
           'assistant IA Libre Antenne',
           'recherche vocale Discord',
           'radio libre',
-          'RAG PostgreSQL',
+          'assistant conversationnel',
         ),
         openGraphType: 'website',
         breadcrumbs: [

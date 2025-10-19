@@ -17,7 +17,7 @@ const buildWelcomeMessage = () => ({
   id: createMessageId('assistant'),
   role: 'assistant',
   content:
-    "Salut ! Je suis l’assistant IA de Libre Antenne. Pose une question sur l’activité Discord, les moments marquants ou le contexte d’un membre : je fouille la base de données communautaire pour te répondre.",
+    "Salut ! Je suis l’assistant IA de Libre Antenne. Pose une question sur l’activité Discord, les moments marquants ou le contexte d’un membre : je fouille nos archives pour te répondre.",
   timestamp: Date.now(),
   tone: 'intro',
 });
@@ -199,7 +199,7 @@ export const ChatPage = () => {
           </div>
           <div class="rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100 shadow-inner shadow-emerald-500/20">
             <p class="font-medium">Sources vérifiées</p>
-            <p class="text-emerald-50/80">Chaque réponse est générée à partir des données indexées dans PostgreSQL.</p>
+            <p class="text-emerald-50/80">Chaque réponse est générée à partir des archives vérifiées de la communauté.</p>
           </div>
         </div>
       </header>
