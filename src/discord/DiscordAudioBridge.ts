@@ -121,6 +121,8 @@ export default class DiscordAudioBridge {
 
   private currentVoiceChannelId: Snowflake | null = null;
 
+  private readonly knownBotUserIds = new Set<Snowflake>();
+
   private shouldAutoReconnect = true;
 
   private isReconnecting = false;
@@ -461,6 +463,11 @@ export default class DiscordAudioBridge {
         const roles = Array.from(member.roles.cache.values())
           .filter((role) => role.id !== guildId)
           .map((role) => ({ id: role.id, name: role.name }));
+        const isBot = Boolean(member.user?.bot);
+
+        if (isBot) {
+          this.knownBotUserIds.add(member.id);
+        }
 
         return {
           id: member.id,
@@ -470,7 +477,7 @@ export default class DiscordAudioBridge {
           avatarUrl,
           joinedAt,
           roles,
-          isBot: Boolean(member.user?.bot),
+          isBot,
         };
       });
 
@@ -878,12 +885,22 @@ export default class DiscordAudioBridge {
     }
 
     const botUserId = this.client.user?.id;
-    if (botUserId && userId === botUserId) {
+    const isSelfBot = Boolean(botUserId && userId === botUserId);
+
+    if (isSelfBot) {
       this.speakerTracker.updateBridgeStatus({
         serverDeafened: Boolean(newState?.deaf),
         selfDeafened: Boolean(newState?.selfDeaf),
         updatedAt: Date.now(),
       });
+    }
+
+    const isBotUser = Boolean(newState?.member?.user?.bot ?? oldState?.member?.user?.bot);
+    if (isBotUser && !isSelfBot) {
+      this.knownBotUserIds.add(userId);
+      await this.speakerTracker.handleVoiceStateUpdate(userId, null);
+      this.cleanupSubscriptionForUser(userId);
+      return;
     }
 
     if (this.isUserExcluded(userId)) {
@@ -1139,6 +1156,10 @@ export default class DiscordAudioBridge {
       if (!member || !member.voice) {
         continue;
       }
+      if (member.user?.bot) {
+        this.knownBotUserIds.add(member.id);
+        continue;
+      }
       if (this.isUserExcluded(member.id)) {
         continue;
       }
@@ -1170,7 +1191,30 @@ export default class DiscordAudioBridge {
   }
 
   private isUserExcluded(userId: Snowflake): boolean {
-    return this.config.excludedUserIds.includes(userId);
+    if (this.config.excludedUserIds.includes(userId)) {
+      return true;
+    }
+
+    if (this.knownBotUserIds.has(userId)) {
+      return true;
+    }
+
+    const cachedUser = this.client.users.cache.get(userId);
+    if (cachedUser?.bot) {
+      this.knownBotUserIds.add(userId);
+      return true;
+    }
+
+    if (this.currentGuildId) {
+      const guild = this.client.guilds.cache.get(this.currentGuildId);
+      const member = guild?.members.cache.get(userId);
+      if (member?.user?.bot) {
+        this.knownBotUserIds.add(userId);
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private cleanupSubscriptionForUser(userId: Snowflake): void {
