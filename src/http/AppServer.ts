@@ -59,6 +59,7 @@ import StatisticsService, {
   type StatisticsQueryOptions,
 } from '../services/StatisticsService';
 import type UserAudioRecorder from '../services/UserAudioRecorder';
+import { registerChatRoute } from './routes/chat';
 
 export interface AppServerOptions {
   config: Config;
@@ -4477,6 +4478,8 @@ export default class AppServer {
         activeSpeakers: this.speakerTracker.getSpeakerCount(),
       });
     });
+
+    registerChatRoute(this.app);
 
     this.app.get('/api/shop/products', (_req, res) => {
       res.json({
