@@ -9,6 +9,7 @@ const MEMBERS_ALIASES = new Set(['membres', 'members']);
 const SHOP_ALIASES = new Set(['boutique', 'shop']);
 const BAN_ALIASES = new Set(['bannir', 'ban']);
 const PROFILE_ALIASES = new Set(['profil', 'profile']);
+const CHAT_ALIASES = new Set(['chat', 'assistant', 'assistant-ia']);
 const CGU_ALIASES = new Set([
   'cgu',
   'conditions-generales',
@@ -80,6 +81,8 @@ export const buildRoutePath = (name, params = {}) => {
       return '/about';
     case 'cgu':
       return '/cgu';
+    case 'chat':
+      return '/assistant';
     case 'statistiques': {
       const paramsSource = params && typeof params === 'object' ? params : {};
       const searchParams = new URLSearchParams();
@@ -177,6 +180,9 @@ export const parseRouteFromLocation = (location) => {
         slug: decodePathSegment(second),
       },
     };
+  }
+  if (CHAT_ALIASES.has(head)) {
+    return { name: 'chat', params: {} };
   }
   if (BAN_ALIASES.has(head)) {
     return { name: 'ban', params: {} };
