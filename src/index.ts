@@ -21,6 +21,16 @@ import StatisticsService from './services/StatisticsService';
 import UserAudioRecorder from './services/UserAudioRecorder';
 import AudioStreamHealthService from './services/AudioStreamHealthService';
 
+const consoleNoop = (..._args: unknown[]): void => {
+  // Intentionally left blank to silence non-error console output.
+};
+
+console.log = consoleNoop;
+console.info = consoleNoop;
+console.debug = consoleNoop;
+console.trace = consoleNoop;
+console.warn = consoleNoop;
+
 const mixer = new AudioMixer({
   frameBytes: config.audio.frameBytes,
   mixFrameMs: config.mixFrameMs,
