@@ -199,7 +199,7 @@ export const ChatPage = () => {
           </div>
           <div class="rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100 shadow-inner shadow-emerald-500/20">
             <p class="font-medium">Sources vérifiées</p>
-            <p class="text-emerald-50/80">Chaque réponse est générée à partir des données indexées dans PostgreSQL.</p>
+            <p class="text-emerald-50/80">Chaque réponse s’appuie sur les informations vérifiées de la communauté.</p>
           </div>
         </div>
       </header>
