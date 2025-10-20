@@ -19,3 +19,27 @@ always with how the request is authenticated, not the values stored in `.env`. C
 
 Walking through these checks usually resolves the `Invalid authentication credentials` error even when `.env` contains
 keys that look correct at first glance.
+
+## `new row violates row-level security policy for table "room_members"`
+
+Realtime connections rely on the `realtime.room_members` table. On fresh Supabase
+projects, that table ships with Row Level Security turned on but **no policies**,
+which causes the Postgres error `42501` the first time a client tries to join a
+room (for example during the "PrivateConversation bootstrap" step).
+
+Fix the issue by creating explicit policies for the roles that need access. You
+can run the following SQL from the Supabase SQL editor:
+
+```sql
+alter table realtime.room_members enable row level security;
+
+create policy "Allow authenticated realtime access"
+  on realtime.room_members for all
+  using (auth.role() in ('authenticated', 'service_role'))
+  with check (auth.role() in ('authenticated', 'service_role'));
+```
+
+If you already created other policies, make sure they include the
+`service_role`, otherwise server-side jobs will keep failing while bootstrapping
+realtime rooms. After saving the policy, retry the operation—the insert should
+now succeed and the error will disappear.
