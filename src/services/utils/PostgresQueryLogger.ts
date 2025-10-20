@@ -9,6 +9,53 @@ interface QueryLoggerOptions {
 
 const QUERY_LOGGER_MARK = Symbol('postgresQueryLoggerAttached');
 
+interface PostgresErrorLike {
+  code?: unknown;
+  message?: unknown;
+  detail?: unknown;
+}
+
+function extractPostgresError(error: unknown): PostgresErrorLike | null {
+  if (!error || typeof error !== 'object') {
+    return null;
+  }
+
+  const candidate = error as PostgresErrorLike;
+  if (
+    (candidate.code && typeof candidate.code !== 'string') ||
+    (candidate.message && typeof candidate.message !== 'string') ||
+    (candidate.detail && typeof candidate.detail !== 'string')
+  ) {
+    return {
+      code: typeof candidate.code === 'string' ? candidate.code : undefined,
+      message: typeof candidate.message === 'string' ? candidate.message : undefined,
+      detail: typeof candidate.detail === 'string' ? candidate.detail : undefined,
+    };
+  }
+
+  return candidate;
+}
+
+function getAdditionalErrorContext(error: unknown): string | null {
+  const details = extractPostgresError(error);
+  if (!details) {
+    return null;
+  }
+
+  const { code, message, detail } = details;
+  const combinedMessage = `${message ?? ''} ${detail ?? ''}`.trim().toLowerCase();
+
+  if (code === '42501' && combinedMessage.includes('room_members')) {
+    return (
+      'The realtime.room_members table still enforces row level security. ' +
+      'Grant the authenticated and service_role roles explicit access, for example by running the policies documented in ' +
+      'docs/supabase-auth-troubleshooting.md.'
+    );
+  }
+
+  return null;
+}
+
 function normalizeQueryText(text: string | undefined): string | undefined {
   if (!text) {
     return undefined;
@@ -110,25 +157,32 @@ export function attachPostgresQueryLogger(pool: Pool, options: QueryLoggerOption
     const normalizedText = normalizeQueryText(queryText);
     const sanitizedValues = values?.map((value) => sanitizeValue(value));
 
+    const logError = (error: unknown, phase: 'async' | 'sync'): void => {
+      const basePayload = {
+        query: normalizedText ?? queryText ?? '<inconnue>',
+        values: sanitizedValues ?? values,
+        error: (error as Error)?.message || error,
+      } as Record<string, unknown>;
+      const hint = getAdditionalErrorContext(error);
+      if (hint) {
+        basePayload.hint = hint;
+      }
+
+      const prefix = phase === 'async' ? 'échec de la requête' : 'erreur synchrone';
+      console.error(`[SupabaseDebug] ${context}: ${prefix}`, basePayload);
+    };
+
     try {
       const result = originalQuery(...(args as Parameters<Pool['query']>)) as unknown;
       if (result instanceof Promise) {
         return result.catch((error) => {
-          console.error(`[SupabaseDebug] ${context}: échec de la requête`, {
-            query: normalizedText ?? queryText ?? '<inconnue>',
-            values: sanitizedValues ?? values,
-            error: (error as Error)?.message || error,
-          });
+          logError(error, 'async');
           throw error;
         });
       }
       return result as ReturnType<Pool['query']>;
     } catch (error) {
-      console.error(`[SupabaseDebug] ${context}: erreur synchrone`, {
-        query: normalizedText ?? queryText ?? '<inconnue>',
-        values: sanitizedValues ?? values,
-        error: (error as Error)?.message || error,
-      });
+      logError(error, 'sync');
       throw error;
     }
   }) as typeof pool.query;
