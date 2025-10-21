@@ -88,6 +88,198 @@ const buildInitials = (source) => {
     .slice(0, 2);
 };
 
+const URL_PATTERN = /https?:\/\/[^\s<>'"`]+/gi;
+const IMAGE_EXTENSION_PATTERN = /\.(?:apng|avif|gif|jpe?g|png|webp)$/i;
+const VIDEO_EXTENSION_PATTERN = /\.(?:mp4|m4v|mov|webm|ogv|ogg|mkv)$/i;
+const YOUTUBE_VIDEO_ID_PATTERN = /^[\w-]{6,}$/;
+
+const linkifyContent = (content) => {
+  const text = typeof content === 'string' ? content : '';
+  const nodes = [];
+  const urls = [];
+  let lastIndex = 0;
+  let linkIndex = 0;
+
+  text.replace(URL_PATTERN, (match, offset) => {
+    if (offset > lastIndex) {
+      nodes.push(text.slice(lastIndex, offset));
+    }
+
+    urls.push(match);
+    nodes.push(
+      html`<a
+        key=${`message-link-${linkIndex++}`}
+        href=${match}
+        target="_blank"
+        rel="noreferrer noopener"
+        class="break-words text-amber-200 underline decoration-amber-200/60 decoration-2 underline-offset-2 transition hover:text-amber-100"
+      >
+        ${match}
+      </a>`,
+    );
+
+    lastIndex = offset + match.length;
+    return match;
+  });
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  if (nodes.length === 0) {
+    nodes.push(text);
+  }
+
+  return { nodes, urls };
+};
+
+const isImageUrl = (url) => {
+  if (typeof url !== 'string') {
+    return false;
+  }
+  const normalized = url.split('?')[0]?.split('#')[0] ?? '';
+  return IMAGE_EXTENSION_PATTERN.test(normalized);
+};
+
+const isVideoUrl = (url) => {
+  if (typeof url !== 'string') {
+    return false;
+  }
+  const normalized = url.split('?')[0]?.split('#')[0] ?? '';
+  return VIDEO_EXTENSION_PATTERN.test(normalized);
+};
+
+const getYouTubeVideoId = (urlString) => {
+  if (typeof urlString !== 'string' || urlString.length === 0) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(urlString);
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+
+    const ensureValid = (candidate) => {
+      if (candidate && YOUTUBE_VIDEO_ID_PATTERN.test(candidate)) {
+        return candidate;
+      }
+      return null;
+    };
+
+    if (host === 'youtu.be') {
+      const candidate = parsed.pathname.split('/').filter((segment) => segment.length > 0)[0] ?? '';
+      return ensureValid(candidate);
+    }
+
+    if (host === 'youtube.com' || host.endsWith('.youtube.com') || host === 'youtube-nocookie.com') {
+      const direct = parsed.searchParams.get('v');
+      if (direct) {
+        return ensureValid(direct);
+      }
+
+      const segments = parsed.pathname.split('/').filter((segment) => segment.length > 0);
+      if (segments.length > 1) {
+        if (segments[0] === 'embed') {
+          return ensureValid(segments[1]);
+        }
+        if (segments[0] === 'shorts') {
+          return ensureValid(segments[1]);
+        }
+        if (segments[0] === 'live') {
+          return ensureValid(segments[1]);
+        }
+      }
+    }
+  } catch (error) {
+    return null;
+  }
+
+  return null;
+};
+
+const buildMediaPreviews = (urls) => {
+  if (!Array.isArray(urls) || urls.length === 0) {
+    return [];
+  }
+
+  const previews = [];
+  const seen = new Set();
+  let mediaIndex = 0;
+
+  urls.forEach((rawUrl) => {
+    if (typeof rawUrl !== 'string') {
+      return;
+    }
+    const trimmed = rawUrl.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      return;
+    }
+    seen.add(trimmed);
+
+    const youtubeId = getYouTubeVideoId(trimmed);
+    if (youtubeId) {
+      previews.push(
+        html`<div
+          key=${`media-youtube-${mediaIndex++}`}
+          class="overflow-hidden rounded-2xl border border-white/10 bg-black/80"
+        >
+          <iframe
+            class="aspect-video h-full w-full"
+            src=${`https://www.youtube-nocookie.com/embed/${youtubeId}`}
+            title="Lecteur vidéo YouTube"
+            loading="lazy"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen
+          ></iframe>
+        </div>`,
+      );
+      return;
+    }
+
+    if (isImageUrl(trimmed)) {
+      previews.push(
+        html`<a
+          key=${`media-image-${mediaIndex++}`}
+          href=${trimmed}
+          target="_blank"
+          rel="noreferrer noopener"
+          class="group block"
+        >
+          <figure class="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/70">
+            <img
+              src=${trimmed}
+              alt="Image partagée dans le message"
+              loading="lazy"
+              decoding="async"
+              class="max-h-80 w-full object-contain transition duration-200 ease-out group-hover:opacity-90"
+            />
+          </figure>
+        </a>`,
+      );
+      return;
+    }
+
+    if (isVideoUrl(trimmed)) {
+      previews.push(
+        html`<div
+          key=${`media-video-${mediaIndex++}`}
+          class="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/80"
+        >
+          <video
+            controls
+            preload="metadata"
+            class="max-h-96 w-full bg-black"
+          >
+            <source src=${trimmed} />
+            Votre navigateur ne prend pas en charge la lecture de cette vidéo.
+          </video>
+        </div>`,
+      );
+    }
+  });
+
+  return previews;
+};
+
 const AuthorAvatar = ({ author }) => {
   const name = author?.displayName || author?.username || 'Membre Libre Antenne';
   if (author?.avatarUrl) {
@@ -415,7 +607,7 @@ export const SalonsPage = () => {
   );
 
   return html`
-    <section class="salons-page grid gap-6 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)] xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
+    <section class="salons-page grid gap-6 lg:grid-cols-2 lg:grid-cols-[minmax(0,272px)_minmax(0,1fr)] xl:grid-cols-[minmax(0,304px)_minmax(0,1fr)]">
       <aside class="flex flex-col gap-4 rounded-3xl border border-white/10 bg-slate-900/60 p-6 shadow-lg shadow-black/30">
         <div class="flex items-center justify-between gap-3">
           <h2 class="text-lg font-semibold text-white">Salons textuels</h2>
@@ -537,6 +729,14 @@ export const SalonsPage = () => {
               ${messages.map((message) => {
                 const timestampLabel = formatTimestampLabel(message.createdAt);
                 const authorName = message.author?.displayName || message.author?.username || 'Membre Libre Antenne';
+                const { nodes: contentNodes, urls: contentUrls } = linkifyContent(message.content);
+                const mediaPreviews = buildMediaPreviews(contentUrls);
+                const hasRenderableText = contentNodes.some((node) => {
+                  if (typeof node === 'string') {
+                    return node.trim().length > 0;
+                  }
+                  return true;
+                });
                 return html`<article
                   key=${message.id}
                   class="flex gap-4 rounded-2xl border border-white/5 bg-white/5 p-4 text-sm text-slate-100 shadow-inner shadow-black/20"
@@ -552,7 +752,16 @@ export const SalonsPage = () => {
                         ? html`<p class="text-xs text-slate-400">${timestampLabel}</p>`
                         : null}
                     </div>
-                    <p class="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-200">${message.content || '—'}</p>
+                    <div class="flex flex-col gap-3 text-sm leading-relaxed text-slate-200">
+                      ${hasRenderableText
+                        ? html`<p class="whitespace-pre-wrap break-words">${contentNodes}</p>`
+                        : mediaPreviews.length === 0
+                          ? html`<p class="text-slate-400">—</p>`
+                          : null}
+                      ${mediaPreviews.length > 0
+                        ? html`<div class="flex flex-col gap-3">${mediaPreviews}</div>`
+                        : null}
+                    </div>
                   </div>
                 </article>`;
               })}
