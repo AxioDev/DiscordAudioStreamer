@@ -15,13 +15,47 @@ interface PostgresError extends Error {
 const embeddingDimensions = 1536;
 let ensureTablePromise: Promise<void> | null = null;
 
+class PgvectorExtensionRequiredError extends Error {
+  public readonly reason = 'PGVECTOR_EXTENSION_REQUIRED';
+  public readonly originalError: unknown;
+
+  constructor(options?: { cause?: unknown }) {
+    super('The pgvector extension must be installed to store embeddings (missing type "vector").');
+    this.name = 'PgvectorExtensionRequiredError';
+    this.originalError = options?.cause;
+  }
+}
+
+async function hasPgvectorExtension(): Promise<boolean> {
+  const result = await query<{ exists: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') AS exists;`,
+  );
+
+  return result.rows[0]?.exists === true;
+}
+
 async function ensureDiscordVectorsTable(): Promise<void> {
   if (!ensureTablePromise) {
     ensureTablePromise = (async () => {
+      let createExtensionError: unknown;
       try {
         await query('CREATE EXTENSION IF NOT EXISTS vector;');
       } catch (error) {
-        console.warn('Failed to ensure pgvector extension; proceeding without creating extension.', error);
+        createExtensionError = error;
+        console.warn('Failed to ensure pgvector extension; proceeding to verify availability.', error);
+      }
+
+      let extensionAvailable = false;
+      let extensionCheckError: unknown;
+      try {
+        extensionAvailable = await hasPgvectorExtension();
+      } catch (error) {
+        extensionCheckError = error;
+        console.warn('Failed to verify pgvector extension availability.', error);
+      }
+
+      if (!extensionAvailable) {
+        throw new PgvectorExtensionRequiredError({ cause: extensionCheckError ?? createExtensionError });
       }
 
       try {
@@ -118,6 +152,16 @@ export function registerChatRoute(app: Application): void {
 
       res.status(200).json({ answer });
     } catch (error) {
+      if (error instanceof PgvectorExtensionRequiredError) {
+        console.error('Pgvector extension is required for /api/chat request', error.originalError ?? error);
+        res.status(503).json({
+          error: error.reason,
+          message:
+            "L'extension PostgreSQL pgvector doit être installée et accessible pour activer la fonctionnalité de chat.",
+        });
+        return;
+      }
+
       console.error('Failed to process /api/chat request', error);
       res.status(500).json({
         error: 'CHAT_COMPLETION_FAILED',
