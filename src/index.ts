@@ -190,6 +190,7 @@ const appServer = new AppServer({
   blogService,
   blogSubmissionService,
   dailyArticleService,
+  userPersonaService,
   adminService,
   statisticsService,
   userAudioRecorder,
