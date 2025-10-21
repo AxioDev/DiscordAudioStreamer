@@ -745,17 +745,7 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
                       }"
                       aria-hidden="true"
                     ></span>
-                    <div class="relative flex items-center gap-3 px-3 py-2">
-                      <div
-                        class="relative flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-slate-950/70 text-slate-200 ring-1 ring-white/10 transition duration-200 ease-out group-hover:scale-105 ${
-                          isActive
-                            ? 'ring-amber-300/70 text-amber-100 shadow-[0_0_14px_rgba(251,191,36,0.35)]'
-                            : 'group-hover:ring-amber-200/70'
-                        }"
-                        aria-hidden="true"
-                      >
-                        <${Hash} class="h-4 w-4" aria-hidden="true" />
-                      </div>
+                    <div class="relative flex items-center gap-3 px-1 py-1">
                       <div class="min-w-0 flex-1 space-y-1">
                         <div class="flex items-center gap-2">
                           <p class="truncate text-[13px] font-semibold leading-5 text-white">
