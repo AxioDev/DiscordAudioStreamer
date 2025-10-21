@@ -1748,7 +1748,7 @@ export default class VoiceActivityRepository {
       params.push(pattern);
       const searchIndex = params.length;
       const conditions = searchableExpressions.map(
-        (expression) => `${expression} ILIKE $${searchIndex} ESCAPE '\\\\'`,
+        (expression) => `${expression} ILIKE $${searchIndex} ESCAPE E'\\'`,
       );
       searchClause = `AND (${conditions.join(' OR ')})`;
     }
@@ -2732,7 +2732,7 @@ export default class VoiceActivityRepository {
 
     let searchClause = '';
     if (normalizedSearch) {
-      searchClause = `WHERE ranked.display_name ILIKE $${parameterIndex} ESCAPE '\\'`;
+      searchClause = `WHERE ranked.display_name ILIKE $${parameterIndex} ESCAPE E'\\'`;
       params.push(`%${this.escapeLikePattern(normalizedSearch)}%`);
       parameterIndex += 1;
     }
@@ -3827,7 +3827,9 @@ ${limitClause}`;
     }
 
     const likeValue = `%${trimmed.replace(/[%_]/g, (match) => `\\${match}`)}%`;
-    const conditions = searchableColumns.map((column, index) => `${column} ILIKE $${index + 1} ESCAPE '\\'`);
+    const conditions = searchableColumns.map(
+      (column, index) => `${column} ILIKE $${index + 1} ESCAPE E'\\'`,
+    );
     const params: unknown[] = Array.from({ length: conditions.length }, () => likeValue);
     const boundedLimit = (() => {
       const candidate = Number(limit);
