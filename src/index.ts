@@ -20,6 +20,7 @@ import AdminService from './services/AdminService';
 import StatisticsService from './services/StatisticsService';
 import UserAudioRecorder from './services/UserAudioRecorder';
 import AudioStreamHealthService from './services/AudioStreamHealthService';
+import DiscordVectorIngestionService from './services/DiscordVectorIngestionService';
 
 const consoleNoop = (..._args: unknown[]): void => {
   // Intentionally left blank to silence non-error console output.
@@ -134,6 +135,13 @@ const blogSubmissionService = new BlogSubmissionService({
 void blogSubmissionService.initialize().catch((error) => {
   console.error('BlogSubmissionService initialization failed', error);
 });
+
+const discordVectorIngestionService = new DiscordVectorIngestionService({
+  blogService,
+  projectRoot: path.resolve(__dirname, '..'),
+});
+
+discordVectorIngestionService.startScheduledSynchronization();
 
 const dailyArticleService = new DailyArticleService({
   config,
