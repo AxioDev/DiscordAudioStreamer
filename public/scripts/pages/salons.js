@@ -693,8 +693,8 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
 
   return html`
     <section class="salons-page grid gap-6 lg:grid-cols-[minmax(0,176px)_minmax(0,1fr)] xl:grid-cols-[minmax(0,192px)_minmax(0,1fr)]">
-      <aside class="flex flex-col gap-3 rounded-3xl border border-white/10 bg-slate-900/60 p-4 shadow-lg shadow-black/30">
-        <div class="flex items-center justify-between gap-3">
+      <aside class="flex flex-col gap-1 rounded-3xl border border-white/10 bg-slate-900/60 p-1 shadow-lg shadow-black/30">
+        <div class="flex items-center justify-between gap-1">
           <h2 class="text-lg font-semibold text-white">Salons textuels</h2>
           <button
             type="button"
@@ -710,7 +710,7 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
           ? html`<p class="rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100 shadow-inner shadow-rose-900/30">${channelsError}</p>`
           : null}
         ${channelsLoading && channels.length === 0
-          ? html`<div class="space-y-3">
+          ? html`<div class="space-y-2">
               ${[0, 1, 2, 3].map(
                 (index) => html`<div
                   key=${`skeleton-${index}`}
@@ -751,15 +751,8 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
                           <p class="truncate text-[13px] font-semibold leading-5 text-white">
                             ${getChannelDisplayName(channel)}
                           </p>
-                          ${isActive
-                            ? html`<span
-                                class="inline-flex items-center rounded-full bg-amber-400/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-100 ring-1 ring-inset ring-amber-300/60"
-                              >
-                                En direct
-                              </span>`
-                            : null}
                         </div>
-                        <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] leading-4">
+                        <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] leading-4">
                           <span
                             class="min-w-0 flex-1 truncate text-left ${
                               channel.topic
@@ -770,7 +763,7 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
                             ${channel.topic ? channel.topic : 'Aucun sujet défini'}
                           </span>
                           <span
-                            class="inline-flex items-center gap-1 rounded-full bg-slate-950/60 px-2 py-0.5 text-[10px] font-medium text-slate-200 ring-1 ring-white/10"
+                            class="inline-flex items-center gap-1 rounded-full bg-slate-950/60 px-1 py-0.5 text-[8px] font-medium text-slate-200 ring-1 ring-white/10"
                           >
                             <${Clock3} class="h-3 w-3" aria-hidden="true" />
                             ${lastMessageLabel ?? 'Aucun historique'}
