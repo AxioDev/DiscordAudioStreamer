@@ -6,6 +6,10 @@ module.exports = {
     './src/**/*.{ts,tsx}',
     './content/**/*.{md,mdx}',
   ],
+  safelist: [
+    'lg:grid-cols-[minmax(0,176px)_minmax(0,1fr)]',
+    'xl:grid-cols-[minmax(0,192px)_minmax(0,1fr)]',
+  ],
   theme: {
     extend: {},
   },
