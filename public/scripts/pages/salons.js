@@ -11,6 +11,7 @@ import {
 import { formatDateTimeLabel } from '../utils/index.js';
 
 const MESSAGE_PAGE_SIZE = 50;
+const DEFAULT_CHANNEL_ID = '1000397055442817096';
 
 const normalizeChannel = (entry) => {
   if (!entry || typeof entry !== 'object') {
@@ -153,14 +154,25 @@ export const SalonsPage = () => {
         const normalized = Array.isArray(payload?.channels)
           ? payload.channels
               .map(normalizeChannel)
-              .filter((entry) => entry !== null)
+              .filter((entry) => entry && entry.lastMessageId && entry.lastMessageAt)
               .sort((a, b) => {
-                if (a.position != null && b.position != null && a.position !== b.position) {
-                  return a.position - b.position;
+                const dateA = Date.parse(a.lastMessageAt ?? '');
+                const dateB = Date.parse(b.lastMessageAt ?? '');
+                if (Number.isFinite(dateA) && Number.isFinite(dateB) && dateA !== dateB) {
+                  return dateB - dateA;
+                }
+                if (Number.isFinite(dateA)) {
+                  return -1;
+                }
+                if (Number.isFinite(dateB)) {
+                  return 1;
                 }
                 const nameA = (a.name ?? '').toLocaleLowerCase('fr-FR');
                 const nameB = (b.name ?? '').toLocaleLowerCase('fr-FR');
-                return nameA.localeCompare(nameB);
+                if (nameA !== nameB) {
+                  return nameA.localeCompare(nameB);
+                }
+                return a.id.localeCompare(b.id);
               })
           : [];
 
@@ -172,6 +184,10 @@ export const SalonsPage = () => {
         setSelectedChannelId((current) => {
           if (current && normalized.some((channel) => channel.id === current)) {
             return current;
+          }
+          const preferred = normalized.find((channel) => channel.id === DEFAULT_CHANNEL_ID);
+          if (preferred) {
+            return preferred.id;
           }
           return normalized.length > 0 ? normalized[0].id : null;
         });
@@ -263,6 +279,7 @@ export const SalonsPage = () => {
         setMessages([]);
         setHasMore(false);
         setPaginationCursor(null);
+        setInitialScrollPending(false);
       } finally {
         if (isActive) {
           setMessagesLoading(false);
@@ -293,6 +310,9 @@ export const SalonsPage = () => {
     }
 
     if (initialScrollPending) {
+      if (messages.length === 0) {
+        return;
+      }
       container.scrollTop = container.scrollHeight;
       setInitialScrollPending(false);
     }
