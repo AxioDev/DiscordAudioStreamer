@@ -9,6 +9,7 @@ import {
   Hash,
   Search,
   X,
+  Clock3,
 } from '../core/deps.js';
 import { buildRoutePath, formatDateTimeLabel } from '../utils/index.js';
 
@@ -684,34 +685,69 @@ export const SalonsPage = () => {
           ? html`<p class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">Aucun salon textuel n’est disponible pour le moment.</p>`
           : null}
         ${channels.length > 0
-          ? html`<ul class="space-y-1">
+          ? html`<ul class="flex flex-col gap-1">
               ${channels.map((channel) => {
                 const isActive = channel.id === selectedChannelId;
                 const lastMessageLabel = formatTimestampLabel(channel.lastMessageAt);
                 return html`<li key=${channel.id}>
                   <button
                     type="button"
-                    class="w-full rounded-2xl border px-3 py-2 text-left transition focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950 ${
+                    class="group relative w-full overflow-hidden rounded-2xl border text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
                       isActive
-                        ? 'border-amber-400/60 bg-amber-500/10 text-white shadow-lg shadow-amber-900/30'
-                        : 'border-white/10 bg-white/5 text-slate-200 hover:border-amber-300/40 hover:bg-amber-500/10 hover:text-white'
+                        ? 'border-amber-400/70 bg-amber-500/10 text-white shadow-lg shadow-amber-900/30'
+                        : 'border-white/10 bg-white/5 text-slate-200 hover:border-amber-300/50 hover:bg-white/10 hover:text-white'
                     }"
                     onClick=${() => handleSelectChannel(channel.id)}
+                    aria-pressed=${isActive ? 'true' : 'false'}
+                    aria-current=${isActive ? 'page' : undefined}
                   >
-                    <div class="flex items-start gap-2">
-                      <span class="mt-0.5 inline-flex h-6 w-6 flex-none items-center justify-center rounded-xl border border-white/10 bg-white/10 text-slate-200 ${
-                        isActive ? 'border-amber-300/60 text-amber-200' : ''
-                      }">
+                    <span
+                      class="pointer-events-none absolute inset-0 bg-gradient-to-br from-amber-400/0 via-amber-400/0 to-amber-500/0 transition duration-300 ease-out ${
+                        isActive ? 'via-amber-400/15 to-amber-500/20' : 'group-hover:via-amber-400/10 group-hover:to-amber-500/10'
+                      }"
+                      aria-hidden="true"
+                    ></span>
+                    <div class="relative flex items-center gap-3 px-3 py-2">
+                      <div
+                        class="relative flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-slate-950/70 text-slate-200 ring-1 ring-white/10 transition duration-200 ease-out group-hover:scale-105 ${
+                          isActive
+                            ? 'ring-amber-300/70 text-amber-100 shadow-[0_0_14px_rgba(251,191,36,0.35)]'
+                            : 'group-hover:ring-amber-200/70'
+                        }"
+                        aria-hidden="true"
+                      >
                         <${Hash} class="h-4 w-4" aria-hidden="true" />
-                      </span>
-                      <div class="flex min-w-0 flex-col gap-0.5">
-                        <p class="truncate text-[13px] font-semibold leading-5">${getChannelDisplayName(channel)}</p>
-                        ${channel.topic
-                          ? html`<p class="line-clamp-2 text-[11px] leading-4 text-slate-300/80">${channel.topic}</p>`
-                          : null}
-                        ${lastMessageLabel
-                          ? html`<p class="text-[11px] text-slate-400">Dernier message · ${lastMessageLabel}</p>`
-                          : html`<p class="text-[11px] text-slate-500">Aucun message récent</p>`}
+                      </div>
+                      <div class="min-w-0 flex-1 space-y-1">
+                        <div class="flex items-center gap-2">
+                          <p class="truncate text-[13px] font-semibold leading-5 text-white">
+                            ${getChannelDisplayName(channel)}
+                          </p>
+                          ${isActive
+                            ? html`<span
+                                class="inline-flex items-center rounded-full bg-amber-400/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-100 ring-1 ring-inset ring-amber-300/60"
+                              >
+                                En direct
+                              </span>`
+                            : null}
+                        </div>
+                        <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] leading-4">
+                          <span
+                            class="min-w-0 flex-1 truncate text-left ${
+                              channel.topic
+                                ? 'text-slate-300/90 group-hover:text-slate-200/90'
+                                : 'text-slate-500'
+                            }"
+                          >
+                            ${channel.topic ? channel.topic : 'Aucun sujet défini'}
+                          </span>
+                          <span
+                            class="inline-flex items-center gap-1 rounded-full bg-slate-950/60 px-2 py-0.5 text-[10px] font-medium text-slate-200 ring-1 ring-white/10"
+                          >
+                            <${Clock3} class="h-3 w-3" aria-hidden="true" />
+                            ${lastMessageLabel ?? 'Aucun historique'}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </button>
