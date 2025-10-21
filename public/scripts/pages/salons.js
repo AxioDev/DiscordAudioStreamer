@@ -8,7 +8,7 @@ import {
   RefreshCcw,
   Hash,
 } from '../core/deps.js';
-import { formatDateTimeLabel } from '../utils/index.js';
+import { buildRoutePath, formatDateTimeLabel } from '../utils/index.js';
 
 const MESSAGE_PAGE_SIZE = 50;
 const DEFAULT_CHANNEL_ID = '1000397055442817096';
@@ -607,7 +607,7 @@ export const SalonsPage = () => {
   );
 
   return html`
-    <section class="salons-page grid gap-6 lg:grid-cols-2 lg:grid-cols-[minmax(0,272px)_minmax(0,1fr)] xl:grid-cols-[minmax(0,304px)_minmax(0,1fr)]">
+    <section class="salons-page grid gap-6 lg:grid-cols-[minmax(0,224px)_minmax(0,1fr)] xl:grid-cols-[minmax(0,256px)_minmax(0,1fr)]">
       <aside class="flex flex-col gap-4 rounded-3xl border border-white/10 bg-slate-900/60 p-6 shadow-lg shadow-black/30">
         <div class="flex items-center justify-between gap-3">
           <h2 class="text-lg font-semibold text-white">Salons textuels</h2>
@@ -638,21 +638,21 @@ export const SalonsPage = () => {
           ? html`<p class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">Aucun salon textuel n’est disponible pour le moment.</p>`
           : null}
         ${channels.length > 0
-          ? html`<ul class="space-y-2">
+          ? html`<ul class="space-y-1.5">
               ${channels.map((channel) => {
                 const isActive = channel.id === selectedChannelId;
                 const lastMessageLabel = formatTimestampLabel(channel.lastMessageAt);
                 return html`<li key=${channel.id}>
                   <button
                     type="button"
-                    class="w-full rounded-2xl border px-4 py-3 text-left transition focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950 ${
+                    class="w-full rounded-2xl border px-3.5 py-2.5 text-left transition focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950 ${
                       isActive
                         ? 'border-amber-400/60 bg-amber-500/10 text-white shadow-lg shadow-amber-900/30'
                         : 'border-white/10 bg-white/5 text-slate-200 hover:border-amber-300/40 hover:bg-amber-500/10 hover:text-white'
                     }"
                     onClick=${() => handleSelectChannel(channel.id)}
                   >
-                    <div class="flex items-start gap-3">
+                    <div class="flex items-start gap-2.5">
                       <span class="mt-1 inline-flex h-7 w-7 flex-none items-center justify-center rounded-xl border border-white/10 bg-white/10 text-slate-200 ${
                         isActive ? 'border-amber-300/60 text-amber-200' : ''
                       }">
@@ -729,6 +729,7 @@ export const SalonsPage = () => {
               ${messages.map((message) => {
                 const timestampLabel = formatTimestampLabel(message.createdAt);
                 const authorName = message.author?.displayName || message.author?.username || 'Membre Libre Antenne';
+                const profileHref = message.author?.id ? buildRoutePath('profile', { userId: message.author.id }) : null;
                 const { nodes: contentNodes, urls: contentUrls } = linkifyContent(message.content);
                 const mediaPreviews = buildMediaPreviews(contentUrls);
                 const hasRenderableText = contentNodes.some((node) => {
@@ -744,9 +745,24 @@ export const SalonsPage = () => {
                   <${AuthorAvatar} author=${message.author} />
                   <div class="min-w-0 flex-1 space-y-2">
                     <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-                      <p class="text-sm font-semibold text-white">${authorName}</p>
+                      ${profileHref
+                        ? html`<a
+                            class="inline-flex items-center text-sm font-semibold text-white transition hover:text-amber-200 focus-visible:outline-none focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-amber-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                            href=${profileHref}
+                            aria-label=${`Voir le profil de ${authorName}`}
+                          >
+                            ${authorName}
+                          </a>`
+                        : html`<p class="text-sm font-semibold text-white">${authorName}</p>`}
                       ${message.author?.username && message.author.username !== authorName
-                        ? html`<p class="text-xs text-slate-400">@${message.author.username}</p>`
+                        ? profileHref
+                          ? html`<a
+                              class="inline-flex items-center text-xs text-slate-400 transition hover:text-amber-200 focus-visible:outline-none focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-amber-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                              href=${profileHref}
+                            >
+                              @${message.author.username}
+                            </a>`
+                          : html`<p class="text-xs text-slate-400">@${message.author.username}</p>`
                         : null}
                       ${timestampLabel
                         ? html`<p class="text-xs text-slate-400">${timestampLabel}</p>`
