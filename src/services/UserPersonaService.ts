@@ -16,6 +16,40 @@ interface UserPersonaServiceOptions {
   voiceActivityRepository: VoiceActivityRepository | null;
 }
 
+type PersonaComputationResult =
+  | {
+      status: 'generated';
+      payload: UserPersonaProfileInsertRecord;
+      persona: PersonaProfileData;
+      samples: AggregatedSamples;
+    }
+  | {
+      status: 'skipped';
+      reason: 'INSUFFICIENT_DATA';
+      samples: AggregatedSamples;
+    }
+  | {
+      status: 'failed';
+      reason: 'SERVICE_UNAVAILABLE' | 'EMPTY_RESPONSE' | 'INVALID_JSON' | 'INVALID_CONTENT' | 'OPENAI_ERROR';
+      error?: unknown;
+      samples?: AggregatedSamples;
+    };
+
+export type PersonaGenerationReason =
+  | 'INVALID_USER_ID'
+  | 'SERVICE_UNAVAILABLE'
+  | 'INSUFFICIENT_DATA'
+  | 'EMPTY_RESPONSE'
+  | 'INVALID_RESPONSE'
+  | 'OPENAI_ERROR'
+  | 'UNKNOWN';
+
+export interface PersonaGenerationResult {
+  status: 'generated' | 'skipped' | 'failed';
+  reason?: PersonaGenerationReason;
+  message?: string;
+}
+
 interface FormattedSamples {
   formatted: string;
   count: number;
@@ -331,6 +365,105 @@ export default class UserPersonaService {
     }
   }
 
+  public async generatePersonaForUser(userId: string): Promise<PersonaGenerationResult> {
+    const trimmedId = typeof userId === 'string' ? userId.trim() : '';
+    if (!trimmedId) {
+      return {
+        status: 'failed',
+        reason: 'INVALID_USER_ID',
+        message: "L'identifiant utilisateur fourni est invalide.",
+      };
+    }
+
+    if (!this.voiceActivityRepository || !this.openai) {
+      return {
+        status: 'failed',
+        reason: 'SERVICE_UNAVAILABLE',
+        message: 'La génération de fiches est actuellement désactivée.',
+      };
+    }
+
+    const now = new Date();
+    const lookbackSince = new Date(
+      now.getTime() - this.config.openAI.personaLookbackDays * 24 * 60 * 60 * 1000,
+    );
+
+    let existingGuildId: string | null = null;
+    try {
+      const existing = await this.voiceActivityRepository.getUserPersonaProfile({ userId: trimmedId });
+      if (existing && typeof existing.guildId === 'string' && existing.guildId.trim().length > 0) {
+        existingGuildId = existing.guildId.trim();
+      }
+    } catch (error) {
+      console.error('UserPersonaService: failed to read existing persona profile', {
+        userId: trimmedId,
+        error,
+      });
+    }
+
+    const computation = await this.computePersonaProfile(trimmedId, existingGuildId, lookbackSince, now);
+
+    if (computation.status === 'generated') {
+      await this.voiceActivityRepository.upsertUserPersonaProfile(computation.payload);
+      return {
+        status: 'generated',
+        message: 'La fiche a été régénérée avec succès.',
+      };
+    }
+
+    if (computation.status === 'skipped') {
+      const sampleSummary =
+        computation.samples.totalChars > 0
+          ? `(${computation.samples.totalChars.toLocaleString('fr-FR')} caractères exploitables trouvés).`
+          : '';
+      return {
+        status: 'skipped',
+        reason: 'INSUFFICIENT_DATA',
+        message:
+          'Pas assez de contenu récent pour générer la fiche de ce membre. ' +
+          'Reviens après de nouvelles prises de parole ou messages. ' +
+          sampleSummary,
+      };
+    }
+
+    let message = "La génération de la fiche a échoué.";
+    let reason: PersonaGenerationReason = 'UNKNOWN';
+
+    switch (computation.reason) {
+      case 'SERVICE_UNAVAILABLE':
+        reason = 'SERVICE_UNAVAILABLE';
+        message = 'La génération de fiches est actuellement désactivée.';
+        break;
+      case 'EMPTY_RESPONSE':
+        reason = 'EMPTY_RESPONSE';
+        message = "Le modèle n'a renvoyé aucune donnée exploitable.";
+        break;
+      case 'INVALID_JSON':
+      case 'INVALID_CONTENT':
+        reason = 'INVALID_RESPONSE';
+        message = 'La réponse du modèle est invalide. Consulte les logs serveur pour plus de détails.';
+        break;
+      case 'OPENAI_ERROR': {
+        reason = 'OPENAI_ERROR';
+        const detail = computation.error instanceof Error && computation.error.message
+          ? ` (${computation.error.message})`
+          : '';
+        message = `La génération IA a échoué${detail}.`;
+        break;
+      }
+      default:
+        reason = 'UNKNOWN';
+        message = "La génération de la fiche a échoué. Consulte les logs pour plus d'informations.";
+        break;
+    }
+
+    return {
+      status: 'failed',
+      reason,
+      message,
+    };
+  }
+
   private scheduleInitialRun(): void {
     if (this.timer) {
       clearTimeout(this.timer);
@@ -460,9 +593,35 @@ export default class UserPersonaService {
       return;
     }
 
-    const samples = await this.collectSamples(candidate.userId, since, now);
-    if (samples.totalChars < MIN_TOTAL_CHAR_THRESHOLD) {
+    const computation = await this.computePersonaProfile(candidate.userId, candidate.guildId ?? null, since, now);
+
+    if (computation.status === 'generated') {
+      await this.voiceActivityRepository.upsertUserPersonaProfile(computation.payload);
       return;
+    }
+
+    if (computation.status === 'failed') {
+      console.error('UserPersonaService: failed to process candidate', {
+        userId: candidate.userId,
+        reason: computation.reason,
+        error: computation.error,
+      });
+    }
+  }
+
+  private async computePersonaProfile(
+    userId: string,
+    guildId: string | null,
+    since: Date,
+    now: Date,
+  ): Promise<PersonaComputationResult> {
+    if (!this.openai || !this.voiceActivityRepository) {
+      return { status: 'failed', reason: 'SERVICE_UNAVAILABLE' };
+    }
+
+    const samples = await this.collectSamples(userId, since, now);
+    if (samples.totalChars < MIN_TOTAL_CHAR_THRESHOLD) {
+      return { status: 'skipped', reason: 'INSUFFICIENT_DATA', samples };
     }
 
     const transcriptSection = this.formatSamples(
@@ -473,7 +632,7 @@ export default class UserPersonaService {
     const messageSection = this.formatMessageSamples(samples.messages, MAX_MESSAGE_CHAR_BUDGET);
 
     const prompt = this.buildPrompt({
-      userId: candidate.userId,
+      userId,
       lookbackSince: since,
       now,
       transcriptSection,
@@ -486,33 +645,39 @@ export default class UserPersonaService {
       },
     });
 
-    const response = await this.openai.responses.create({
-      model: this.config.openAI.personaModel,
-      input: [
-        {
-          role: 'system',
-          content:
-            "Tu es un analyste conversationnel chargé de dresser des fiches d'identité sociales complètes et factuelles en français. " +
-            'Tu t’en tiens strictement aux informations observées dans les extraits fournis. Si une information est incertaine, ' +
-            'tu indiques un niveau de confiance faible. Tu ne fais aucune supposition non étayée.',
+    let response;
+    try {
+      response = await this.openai.responses.create({
+        model: this.config.openAI.personaModel,
+        input: [
+          {
+            role: 'system',
+            content:
+              "Tu es un analyste conversationnel chargé de dresser des fiches d'identité sociales complètes et factuelles en français. " +
+              'Tu t’en tiens strictement aux informations observées dans les extraits fournis. Si une information est incertaine,' +
+              'tu indiques un niveau de confiance faible. Tu ne fais aucune supposition non étayée.',
+          },
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'user_persona_profile',
+            schema: PERSONA_RESPONSE_SCHEMA,
+          },
         },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'user_persona_profile',
-          schema: PERSONA_RESPONSE_SCHEMA,
-        },
-      },
-    });
+      });
+    } catch (error) {
+      console.error('UserPersonaService: OpenAI request failed', { userId, error });
+      return { status: 'failed', reason: 'OPENAI_ERROR', error, samples };
+    }
 
     const rawOutput = response.output_text?.trim();
     if (!rawOutput) {
-      return;
+      return { status: 'failed', reason: 'EMPTY_RESPONSE', samples };
     }
 
     let parsed: unknown;
@@ -520,17 +685,23 @@ export default class UserPersonaService {
       parsed = JSON.parse(rawOutput);
     } catch (error) {
       console.error('UserPersonaService: invalid JSON payload', error);
-      return;
+      return { status: 'failed', reason: 'INVALID_JSON', error, samples };
     }
 
     const persona = normalizePersonaProfile(parsed);
     if (!persona) {
-      return;
+      return { status: 'failed', reason: 'INVALID_CONTENT', samples };
     }
 
+    const derivedGuildId =
+      guildId ??
+      samples.transcripts.find((entry) => typeof entry.guildId === 'string' && entry.guildId)?.guildId ??
+      samples.messages.find((entry) => typeof entry.guildId === 'string' && entry.guildId)?.guildId ??
+      null;
+
     const payload: UserPersonaProfileInsertRecord = {
-      userId: candidate.userId,
-      guildId: candidate.guildId,
+      userId,
+      guildId: derivedGuildId,
       persona,
       summary: persona.summary,
       model: this.config.openAI.personaModel,
@@ -542,7 +713,12 @@ export default class UserPersonaService {
       inputCharacterCount: samples.totalChars,
     };
 
-    await this.voiceActivityRepository.upsertUserPersonaProfile(payload);
+    return {
+      status: 'generated',
+      payload,
+      persona,
+      samples,
+    };
   }
 
   private async collectSamples(userId: string, since: Date, now: Date): Promise<AggregatedSamples> {

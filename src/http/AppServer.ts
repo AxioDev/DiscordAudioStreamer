@@ -53,6 +53,7 @@ import SeoRenderer, {
 } from './SeoRenderer';
 import AdminService, { type HiddenMemberRecord } from '../services/AdminService';
 import DailyArticleService, { type DailyArticleServiceStatus } from '../services/DailyArticleService';
+import type UserPersonaService from '../services/UserPersonaService';
 import SitemapLastModStore from './SitemapLastModStore';
 import StatisticsService, {
   type CommunityStatisticsSnapshot,
@@ -75,6 +76,7 @@ export interface AppServerOptions {
   blogService?: BlogService | null;
   blogSubmissionService?: BlogSubmissionService | null;
   dailyArticleService?: DailyArticleService | null;
+  userPersonaService?: UserPersonaService | null;
   adminService: AdminService;
   statisticsService: StatisticsService;
   userAudioRecorder?: UserAudioRecorder | null;
@@ -338,6 +340,8 @@ export default class AppServer {
 
   private readonly dailyArticleService: DailyArticleService | null;
 
+  private readonly userPersonaService: UserPersonaService | null;
+
   private readonly adminService: AdminService;
 
   private readonly adminCredentials: { username: string; password: string } | null;
@@ -366,6 +370,7 @@ export default class AppServer {
     blogService = null,
     blogSubmissionService = null,
     dailyArticleService = null,
+    userPersonaService = null,
     adminService,
     statisticsService,
     userAudioRecorder = null,
@@ -379,6 +384,7 @@ export default class AppServer {
     this.shopService = shopService;
     this.voiceActivityRepository = voiceActivityRepository;
     this.dailyArticleService = dailyArticleService ?? null;
+    this.userPersonaService = userPersonaService ?? null;
     this.adminService = adminService;
     this.statisticsService = statisticsService;
     this.userAudioRecorder = userAudioRecorder ?? null;
@@ -5096,6 +5102,85 @@ export default class AppServer {
         res.status(500).json({
           error: 'PROFILE_ANALYTICS_FAILED',
           message: "Impossible de récupérer le profil demandé.",
+        });
+      }
+    });
+
+    this.app.post('/api/users/:userId/persona/generate', async (req, res) => {
+      const rawUserId = typeof req.params.userId === 'string' ? req.params.userId.trim() : '';
+      if (!rawUserId) {
+        res
+          .status(400)
+          .json({ error: 'USER_ID_REQUIRED', message: "L'identifiant utilisateur est requis." });
+        return;
+      }
+
+      if (await this.adminService.isMemberHidden(rawUserId)) {
+        res.status(404).json({ error: 'PROFILE_HIDDEN', message: 'Ce profil est masqué sur demande.' });
+        return;
+      }
+
+      if (!this.userPersonaService) {
+        res.status(503).json({
+          error: 'PERSONA_GENERATION_DISABLED',
+          status: 'failed',
+          message: 'La génération de fiches est actuellement désactivée.',
+        });
+        return;
+      }
+
+      try {
+        const result = await this.userPersonaService.generatePersonaForUser(rawUserId);
+
+        if (result.status === 'generated') {
+          res.json({
+            status: 'generated',
+            message: result.message ?? 'La fiche a été régénérée avec succès.',
+          });
+          return;
+        }
+
+        if (result.status === 'skipped') {
+          res.status(409).json({
+            error: 'PERSONA_GENERATION_INSUFFICIENT_DATA',
+            status: 'skipped',
+            message:
+              result.message
+              ?? 'Pas assez de contenu récent pour générer la fiche de ce membre.',
+          });
+          return;
+        }
+
+        const reason = result.reason ?? 'UNKNOWN';
+        const message = result.message ?? "La génération de la fiche a échoué.";
+        const statusCode = reason === 'INVALID_USER_ID'
+          ? 400
+          : reason === 'SERVICE_UNAVAILABLE'
+          ? 503
+          : 500;
+
+        res.status(statusCode).json({
+          error:
+            reason === 'INVALID_USER_ID'
+              ? 'USER_ID_INVALID'
+              : reason === 'SERVICE_UNAVAILABLE'
+              ? 'PERSONA_GENERATION_DISABLED'
+              : reason === 'OPENAI_ERROR'
+              ? 'PERSONA_GENERATION_OPENAI_ERROR'
+              : reason === 'INVALID_RESPONSE'
+              ? 'PERSONA_GENERATION_INVALID_RESPONSE'
+              : reason === 'EMPTY_RESPONSE'
+              ? 'PERSONA_GENERATION_EMPTY_RESPONSE'
+              : 'PERSONA_GENERATION_FAILED',
+          status: 'failed',
+          message,
+        });
+      } catch (error) {
+        console.error('Failed to trigger persona regeneration', { userId: rawUserId, error });
+        res.status(500).json({
+          error: 'PERSONA_GENERATION_FAILED',
+          status: 'failed',
+          message: "Impossible de lancer la génération de la fiche.",
         });
       }
     });
