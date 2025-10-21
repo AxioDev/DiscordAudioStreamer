@@ -125,7 +125,7 @@ const PERSONA_RESPONSE_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['quote', 'sourceType'],
+        required: ['quote', 'context', 'sourceType', 'timestamp'],
         properties: {
           quote: { type: 'string' },
           context: { type: 'string' },
