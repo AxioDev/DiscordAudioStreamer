@@ -1039,7 +1039,7 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
 
   return html`
     <section class="salons-page grid gap-6 lg:grid-cols-[minmax(0,176px)_minmax(0,1fr)] xl:grid-cols-[minmax(0,192px)_minmax(0,1fr)]">
-      <aside class="flex flex-col gap-1 rounded-3xl border border-white/10 bg-slate-900/60 p-2 shadow-lg shadow-black/30">
+      <aside class="flex flex-col gap-1 rounded-3xl border border-white/10 bg-slate-900/60 p-3 shadow-lg shadow-black/30">
         <div class="flex items-center justify-between gap-1 pb-2">
           <h2 class="text-md font-semibold text-white">Salons</h2>
           <button
