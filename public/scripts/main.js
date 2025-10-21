@@ -13,6 +13,7 @@ import {
   AudioLines,
   Users,
   BadgeCheck,
+  Hash,
   MessageSquare,
   Activity,
   Sparkles,
@@ -46,6 +47,7 @@ const ROUTE_LOADERS = {
     import('./pages/classements.js').then((module) => module?.ClassementsPage ?? null),
   cgu: () => import('./pages/cgu.js').then((module) => module?.CguPage ?? null),
   chat: () => import('./pages/chat.js').then((module) => module?.ChatPage ?? null),
+  salons: () => import('./pages/salons.js').then((module) => module?.SalonsPage ?? null),
   members: () => import('./pages/members.js').then((module) => module?.MembersPage ?? null),
   profile: () => import('./pages/profile.js').then((module) => module?.ProfilePage ?? null),
   shop: () => import('./pages/shop.js').then((module) => module?.ShopPage ?? null),
@@ -57,6 +59,7 @@ const NAV_LINKS = [
   { label: 'Accueil', route: 'home', href: '/', icon: AudioLines },
   { label: 'Membres', route: 'members', href: '/membres', icon: Users },
   { label: 'Classements', route: 'classements', href: '/classements', icon: BadgeCheck },
+  { label: 'Salons', route: 'salons', href: '/salons', icon: Hash },
   { label: 'Statistiques', route: 'statistiques', href: '/statistiques', icon: Activity },
   { label: 'Blog', route: 'blog', href: '/blog', icon: MessageSquare },
   { label: 'Assistant IA', route: 'chat', href: '/assistant', icon: Sparkles },
@@ -1737,6 +1740,8 @@ const App = () => {
                 })
               : route.name === 'chat'
               ? renderAsyncPage('chat')
+              : route.name === 'salons'
+              ? renderAsyncPage('salons')
               : renderAsyncPage('home', {
                   status,
                   streamInfo,
