@@ -5,6 +5,7 @@ import minifyHTML from 'express-minify-html-terser';
 import fs from 'fs';
 import path from 'path';
 import type { Server } from 'http';
+import { randomUUID } from 'crypto';
 import { icons as lucideIcons, type IconNode } from 'lucide';
 import type FfmpegTranscoder from '../audio/FfmpegTranscoder';
 import type SpeakerTracker from '../services/SpeakerTracker';
@@ -61,6 +62,21 @@ import StatisticsService, {
 } from '../services/StatisticsService';
 import type UserAudioRecorder from '../services/UserAudioRecorder';
 import { registerChatRoute } from './routes/chat';
+
+const MESSAGE_CAPTCHA_TTL_MS = 10 * 60 * 1000;
+const MESSAGE_COOLDOWN_MS = 60 * 60 * 1000;
+const MESSAGE_MAX_LENGTH = 500;
+
+interface StoredCaptchaChallenge {
+  answer: number;
+  expiresAt: number;
+}
+
+interface MessageCaptchaChallenge {
+  id: string;
+  question: string;
+  expiresAt: string;
+}
 
 export interface AppServerOptions {
   config: Config;
@@ -337,6 +353,10 @@ export default class AppServer {
   private readonly streamListenersByIp = new Map<string, number>();
 
   private readonly unsubscribeListenerStats: (() => void) | null;
+
+  private readonly messageCaptchaStore = new Map<string, StoredCaptchaChallenge>();
+
+  private readonly messageSubmissionLog = new Map<string, number>();
 
   private readonly blogService: BlogService;
 
@@ -992,6 +1012,80 @@ export default class AppServer {
       parts.push(`${seconds} s`);
     }
     return parts.join(' ');
+  }
+
+  private getRandomInt(min: number, max: number): number {
+    const minValue = Math.ceil(min);
+    const maxValue = Math.floor(max);
+    if (maxValue <= minValue) {
+      return minValue;
+    }
+    return Math.floor(Math.random() * (maxValue - minValue + 1)) + minValue;
+  }
+
+  private cleanupExpiredMessageCaptchas(now = Date.now()): void {
+    for (const [id, challenge] of this.messageCaptchaStore.entries()) {
+      if (!challenge || challenge.expiresAt <= now) {
+        this.messageCaptchaStore.delete(id);
+      }
+    }
+  }
+
+  private cleanupExpiredMessageSubmissions(now = Date.now()): void {
+    for (const [key, timestamp] of this.messageSubmissionLog.entries()) {
+      if (timestamp + MESSAGE_COOLDOWN_MS <= now) {
+        this.messageSubmissionLog.delete(key);
+      }
+    }
+  }
+
+  private createMessageCaptchaChallenge(): MessageCaptchaChallenge {
+    this.cleanupExpiredMessageCaptchas();
+
+    const first = this.getRandomInt(2, 9);
+    const second = this.getRandomInt(2, 9);
+    const answer = first + second;
+    const expiresAt = Date.now() + MESSAGE_CAPTCHA_TTL_MS;
+
+    let id: string;
+    try {
+      id = randomUUID();
+    } catch (error) {
+      id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    }
+
+    this.messageCaptchaStore.set(id, { answer, expiresAt });
+
+    return {
+      id,
+      question: `Combien font ${first} + ${second} ?`,
+      expiresAt: new Date(expiresAt).toISOString(),
+    } satisfies MessageCaptchaChallenge;
+  }
+
+  private verifyMessageCaptcha(challengeId: string, answer: unknown): boolean {
+    if (!challengeId) {
+      return false;
+    }
+
+    this.cleanupExpiredMessageCaptchas();
+
+    const stored = this.messageCaptchaStore.get(challengeId);
+    if (!stored) {
+      return false;
+    }
+
+    this.messageCaptchaStore.delete(challengeId);
+
+    const numericAnswer = typeof answer === 'number'
+      ? answer
+      : Number.parseInt(String(answer ?? '').trim(), 10);
+
+    if (!Number.isFinite(numericAnswer)) {
+      return false;
+    }
+
+    return numericAnswer === stored.answer;
   }
 
   private combineKeywords(...sources: Array<string | string[] | null | undefined>): string[] {
@@ -4686,6 +4780,126 @@ export default class AppServer {
         res.status(500).json({
           error: 'TEXT_CHANNEL_MESSAGES_FAILED',
           message: 'Impossible de récupérer les messages de ce salon.',
+        });
+      }
+    });
+
+    this.app.post('/api/text-channels/:channelId/captcha', (req, res) => {
+      const rawChannelId = typeof req.params.channelId === 'string' ? req.params.channelId.trim() : '';
+      if (!rawChannelId) {
+        res.status(400).json({
+          error: 'CHANNEL_ID_REQUIRED',
+          message: 'Le salon textuel est requis.',
+        });
+        return;
+      }
+
+      const challenge = this.createMessageCaptchaChallenge();
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ challenge });
+    });
+
+    this.app.post('/api/text-channels/:channelId/messages', async (req, res) => {
+      const rawChannelId = typeof req.params.channelId === 'string' ? req.params.channelId.trim() : '';
+      if (!rawChannelId) {
+        res.status(400).json({
+          error: 'CHANNEL_ID_REQUIRED',
+          message: 'Le salon textuel est requis.',
+        });
+        return;
+      }
+
+      const messageRaw = typeof req.body?.message === 'string' ? req.body.message : '';
+      const message = messageRaw.trim();
+      if (!message) {
+        res.status(400).json({
+          error: 'MESSAGE_REQUIRED',
+          message: 'Le message ne peut pas être vide.',
+        });
+        return;
+      }
+
+      if (message.length > MESSAGE_MAX_LENGTH) {
+        res.status(400).json({
+          error: 'MESSAGE_TOO_LONG',
+          message: `Le message ne peut pas dépasser ${MESSAGE_MAX_LENGTH} caractères.`,
+        });
+        return;
+      }
+
+      const captchaId = typeof req.body?.captchaId === 'string' ? req.body.captchaId.trim() : '';
+      const captchaAnswer = req.body?.captchaAnswer ?? null;
+
+      if (!captchaId || captchaAnswer === null || captchaAnswer === undefined) {
+        res.status(400).json({
+          error: 'CAPTCHA_REQUIRED',
+          message: 'Le captcha est requis pour envoyer un message.',
+        });
+        return;
+      }
+
+      const now = Date.now();
+      this.cleanupExpiredMessageSubmissions(now);
+
+      const clientKey = this.getClientIp(req);
+      const lastSubmissionAt = this.messageSubmissionLog.get(clientKey) ?? 0;
+      const nextAllowedAtMs = lastSubmissionAt + MESSAGE_COOLDOWN_MS;
+
+      if (nextAllowedAtMs > now) {
+        const retryAtIso = new Date(nextAllowedAtMs).toISOString();
+        const waitLabel = this.formatDuration(nextAllowedAtMs - now);
+        res.status(429).json({
+          error: 'MESSAGE_RATE_LIMITED',
+          message: `Tu as déjà envoyé un message récemment. Réessaie dans ${waitLabel}.`,
+          retryAt: retryAtIso,
+        });
+        return;
+      }
+
+      const captchaValid = this.verifyMessageCaptcha(captchaId, captchaAnswer);
+      if (!captchaValid) {
+        res.status(400).json({
+          error: 'CAPTCHA_INVALID',
+          message: 'La réponse au captcha est incorrecte. Génère un nouveau défi et réessaie.',
+        });
+        return;
+      }
+
+      try {
+        const sentMessage = await this.discordBridge.sendTextChannelMessage(rawChannelId, message);
+        const recordedAt = Date.now();
+        this.messageSubmissionLog.set(clientKey, recordedAt);
+        const nextAllowedAt = new Date(recordedAt + MESSAGE_COOLDOWN_MS).toISOString();
+        res.setHeader('Cache-Control', 'no-store');
+        res.status(201).json({ data: sentMessage, nextAllowedAt });
+      } catch (error) {
+        const name = (error as Error)?.name;
+        if (name === 'GUILD_NOT_CONFIGURED') {
+          res.status(503).json({
+            error: 'GUILD_NOT_CONFIGURED',
+            message: 'La configuration du serveur Discord est incomplète.',
+          });
+          return;
+        }
+        if (name === 'CHANNEL_NOT_FOUND') {
+          res.status(404).json({
+            error: 'CHANNEL_NOT_FOUND',
+            message: 'Impossible de trouver ce salon textuel.',
+          });
+          return;
+        }
+        if (name === 'CHANNEL_NOT_ACCESSIBLE') {
+          res.status(403).json({
+            error: 'CHANNEL_NOT_ACCESSIBLE',
+            message: 'Ce salon textuel est inaccessible pour le moment.',
+          });
+          return;
+        }
+
+        console.error('Failed to send text channel message', error);
+        res.status(500).json({
+          error: 'TEXT_CHANNEL_MESSAGE_SEND_FAILED',
+          message: "Impossible d'envoyer le message pour le moment.",
         });
       }
     });
