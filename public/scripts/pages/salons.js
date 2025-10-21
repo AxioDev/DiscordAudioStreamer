@@ -1063,8 +1063,8 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
   );
 
   return html`
-    <section class="salons-page grid gap-3 lg:grid-cols-[minmax(0,176px)_minmax(0,1fr)] xl:grid-cols-[minmax(0,192px)_minmax(0,1fr)]">
-      <aside class="flex flex-col gap-1 rounded-3xl border border-white/10 bg-slate-900/60 p-3 shadow-lg shadow-black/30">
+    <section class="salons-page flex flex-col gap-3 lg:flex-row">
+      <aside class="flex flex-col gap-1 rounded-3xl border border-white/10 bg-slate-900/60 p-3 shadow-lg shadow-black/30 lg:w-[176px] xl:w-[192px] lg:flex-shrink-0">
         <div class="flex items-center justify-between gap-1 pb-2">
           <h2 class="text-md font-semibold text-white">Salons</h2>
           <button
@@ -1147,7 +1147,7 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
             </ul>`
           : null}
       </aside>
-      <div class="flex flex-col gap-4">
+      <div class="flex flex-1 flex-col gap-4">
         <header class="flex flex-col gap-3 rounded-3xl border border-white/10 bg-slate-900/70 px-6 py-5 shadow-lg shadow-black/30 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 class="text-2xl font-semibold text-white">Historique des messages</h1>
