@@ -1041,7 +1041,7 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
     <section class="salons-page grid gap-6 lg:grid-cols-[minmax(0,176px)_minmax(0,1fr)] xl:grid-cols-[minmax(0,192px)_minmax(0,1fr)]">
       <aside class="flex flex-col gap-1 rounded-3xl border border-white/10 bg-slate-900/60 p-1 shadow-lg shadow-black/30">
         <div class="flex items-center justify-between gap-1">
-          <h2 class="text-lg font-semibold text-white">Salons textuels</h2>
+          <h2 class="text-md font-semibold text-white">Salons</h2>
           <button
             type="button"
             class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200 transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
@@ -1049,7 +1049,6 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
             disabled=${channelsLoading}
           >
             <${RefreshCcw} class="h-3.5 w-3.5" aria-hidden="true" />
-            Actualiser
           </button>
         </div>
         ${channelsError
@@ -1219,7 +1218,7 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
                 });
                 return html`<article
                   key=${message.id}
-                  class="flex gap-4 rounded-2xl border border-white/5 bg-white/5 p-4 text-sm text-slate-100 shadow-inner shadow-black/20"
+                  class="flex gap-4 rounded-2xl border border-white/5 bg-white/5 p-1 text-sm text-slate-100 shadow-inner shadow-black/20"
                 >
                   <${AuthorAvatar} author=${message.author} />
                   <div class="min-w-0 flex-1 space-y-2">
