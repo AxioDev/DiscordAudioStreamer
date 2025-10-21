@@ -3,6 +3,7 @@ import {
   GatewayIntentBits,
   Events,
   ChannelType,
+  PermissionsBitField,
   type Message,
   type GuildBasedChannel,
   type TextChannel,
@@ -634,25 +635,72 @@ export default class DiscordAudioBridge {
       const guild = await this.client.guilds.fetch({ guild: guildId, force: true });
       const fetched = await guild.channels.fetch();
 
+      const guildMember = guild.members.me;
+      if (!guildMember) {
+        console.warn('Skipping text channel listing because the bot member is unavailable in the guild context');
+        return [];
+      }
+
       const summaries: DiscordTextChannelSummary[] = [];
       for (const channel of fetched.values()) {
         if (!this.isSupportedGuildTextChannel(channel)) {
           continue;
         }
 
+        const permissions = channel.permissionsFor(guildMember);
+        if (!permissions) {
+          continue;
+        }
+
+        if (
+          !permissions.has(PermissionsBitField.Flags.ViewChannel) ||
+          !permissions.has(PermissionsBitField.Flags.ReadMessageHistory)
+        ) {
+          continue;
+        }
+
         const topic = typeof channel.topic === 'string' && channel.topic.trim().length > 0 ? channel.topic.trim() : null;
-        const lastMessageId = channel.lastMessageId ?? null;
-        let lastMessageAt: string | null = null;
-        if (lastMessageId && channel.messages?.cache) {
-          const cached = channel.messages.cache.get(lastMessageId);
+        let lastMessageId = channel.lastMessageId ?? channel.lastMessage?.id ?? null;
+        let lastMessage: Message | null = null;
+
+        if (lastMessageId) {
+          const cached = channel.messages?.cache?.get(lastMessageId) ?? channel.lastMessage ?? null;
           if (cached) {
-            const createdAt = cached.createdAt instanceof Date && !Number.isNaN(cached.createdAt.getTime())
-              ? cached.createdAt
-              : new Date(cached.createdTimestamp);
-            if (!Number.isNaN(createdAt.getTime())) {
-              lastMessageAt = createdAt.toISOString();
+            lastMessage = cached;
+          } else {
+            try {
+              lastMessage = await channel.messages.fetch(lastMessageId);
+            } catch (error) {
+              console.warn('Failed to fetch cached last message for channel', channel.id, error);
             }
           }
+        }
+
+        if (!lastMessage) {
+          try {
+            const latest = await channel.messages.fetch({ limit: 1 });
+            const first = latest.first() ?? null;
+            if (first) {
+              lastMessage = first;
+              lastMessageId = first.id;
+            }
+          } catch (error) {
+            console.warn('Failed to fetch latest message for channel', channel.id, error);
+          }
+        }
+
+        if (!lastMessage) {
+          continue;
+        }
+
+        const createdAt =
+          lastMessage.createdAt instanceof Date && !Number.isNaN(lastMessage.createdAt.getTime())
+            ? lastMessage.createdAt
+            : new Date(lastMessage.createdTimestamp);
+        const lastMessageAt = Number.isNaN(createdAt.getTime()) ? null : createdAt.toISOString();
+
+        if (!lastMessageId || !lastMessageAt) {
+          continue;
         }
 
         summaries.push({
@@ -667,12 +715,17 @@ export default class DiscordAudioBridge {
       }
 
       summaries.sort((a, b) => {
-        if (a.position !== b.position) {
-          return a.position - b.position;
+        const dateA = a.lastMessageAt ? Date.parse(a.lastMessageAt) : 0;
+        const dateB = b.lastMessageAt ? Date.parse(b.lastMessageAt) : 0;
+        if (dateA !== dateB) {
+          return dateB - dateA;
         }
         const nameA = (a.name ?? '').toLocaleLowerCase('fr-FR');
         const nameB = (b.name ?? '').toLocaleLowerCase('fr-FR');
-        return nameA.localeCompare(nameB);
+        if (nameA !== nameB) {
+          return nameA.localeCompare(nameB);
+        }
+        return a.id.localeCompare(b.id);
       });
 
       return summaries;
