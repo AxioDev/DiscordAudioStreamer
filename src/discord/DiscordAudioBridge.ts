@@ -2,7 +2,11 @@ import {
   Client,
   GatewayIntentBits,
   Events,
+  ChannelType,
   type Message,
+  type GuildBasedChannel,
+  type TextChannel,
+  type NewsChannel,
   type VoiceState,
   type Snowflake,
   type VoiceBasedChannel,
@@ -79,6 +83,30 @@ export interface DiscordGuildMemberSummary {
   joinedAt: string | null;
   roles: Array<{ id: string; name: string }>;
   isBot: boolean;
+}
+
+export interface DiscordTextChannelSummary {
+  id: string;
+  name: string | null;
+  topic: string | null;
+  lastMessageId: string | null;
+  lastMessageAt: string | null;
+  position: number;
+  parentId: string | null;
+}
+
+export interface DiscordChannelMessageAuthor {
+  id: string;
+  displayName: string | null;
+  username: string | null;
+  avatarUrl: string | null;
+}
+
+export interface DiscordChannelMessage {
+  id: string;
+  content: string;
+  createdAt: string;
+  author: DiscordChannelMessageAuthor;
 }
 
 export interface GuildMembersListOptions {
@@ -185,6 +213,43 @@ export default class DiscordAudioBridge {
     this.speakerTracker.setUserFetcher((userId) => this.client.users.fetch(userId));
 
     this.registerEventHandlers();
+  }
+
+  private resolveActiveGuildId(): Snowflake {
+    const guildId = this.config.guildId ?? this.currentGuildId;
+    if (!guildId) {
+      const error = new Error('GUILD_NOT_CONFIGURED');
+      error.name = 'GUILD_NOT_CONFIGURED';
+      throw error;
+    }
+    return guildId;
+  }
+
+  private isSupportedGuildTextChannel(channel: GuildBasedChannel | null): channel is TextChannel | NewsChannel {
+    if (!channel) {
+      return false;
+    }
+
+    const candidate = channel as GuildBasedChannel & {
+      isTextBased?: () => boolean;
+      isDMBased?: () => boolean;
+    };
+
+    if (typeof candidate.isTextBased !== 'function' || !candidate.isTextBased()) {
+      return false;
+    }
+
+    if (typeof candidate.isDMBased === 'function' && candidate.isDMBased()) {
+      return false;
+    }
+
+    switch (channel.type) {
+      case ChannelType.GuildText:
+      case ChannelType.GuildAnnouncement:
+        return true;
+      default:
+        return false;
+    }
   }
 
   private registerEventHandlers(): void {
@@ -520,12 +585,7 @@ export default class DiscordAudioBridge {
   }
 
   public async getGuildSummary(): Promise<DiscordGuildSummary> {
-    const guildId = this.config.guildId ?? this.currentGuildId;
-    if (!guildId) {
-      const error = new Error('GUILD_NOT_CONFIGURED');
-      error.name = 'GUILD_NOT_CONFIGURED';
-      throw error;
-    }
+    const guildId = this.resolveActiveGuildId();
 
     try {
       const resolvedGuild = await this.client.guilds.fetch({ guild: guildId, withCounts: true });
@@ -563,6 +623,150 @@ export default class DiscordAudioBridge {
         throw error;
       }
       console.error('Failed to fetch guild summary', (error as Error)?.message ?? error);
+      throw error;
+    }
+  }
+
+  public async listTextChannels(): Promise<DiscordTextChannelSummary[]> {
+    const guildId = this.resolveActiveGuildId();
+
+    try {
+      const guild = await this.client.guilds.fetch({ guild: guildId, force: true });
+      const fetched = await guild.channels.fetch();
+
+      const summaries: DiscordTextChannelSummary[] = [];
+      for (const channel of fetched.values()) {
+        if (!this.isSupportedGuildTextChannel(channel)) {
+          continue;
+        }
+
+        const topic = typeof channel.topic === 'string' && channel.topic.trim().length > 0 ? channel.topic.trim() : null;
+        const lastMessageId = channel.lastMessageId ?? null;
+        let lastMessageAt: string | null = null;
+        if (lastMessageId && channel.messages?.cache) {
+          const cached = channel.messages.cache.get(lastMessageId);
+          if (cached) {
+            const createdAt = cached.createdAt instanceof Date && !Number.isNaN(cached.createdAt.getTime())
+              ? cached.createdAt
+              : new Date(cached.createdTimestamp);
+            if (!Number.isNaN(createdAt.getTime())) {
+              lastMessageAt = createdAt.toISOString();
+            }
+          }
+        }
+
+        summaries.push({
+          id: channel.id,
+          name: typeof channel.name === 'string' ? channel.name : null,
+          topic,
+          lastMessageId,
+          lastMessageAt,
+          position: typeof channel.position === 'number' ? channel.position : 0,
+          parentId: channel.parentId ?? null,
+        });
+      }
+
+      summaries.sort((a, b) => {
+        if (a.position !== b.position) {
+          return a.position - b.position;
+        }
+        const nameA = (a.name ?? '').toLocaleLowerCase('fr-FR');
+        const nameB = (b.name ?? '').toLocaleLowerCase('fr-FR');
+        return nameA.localeCompare(nameB);
+      });
+
+      return summaries;
+    } catch (error) {
+      console.error('Failed to list guild text channels', (error as Error)?.message ?? error);
+      throw error;
+    }
+  }
+
+  public async fetchTextChannelMessages(
+    channelId: Snowflake,
+    options: { limit?: number | null; before?: Snowflake | null } = {},
+  ): Promise<{ messages: DiscordChannelMessage[]; hasMore: boolean; nextCursor: string | null }> {
+    const guildId = this.resolveActiveGuildId();
+
+    try {
+      const channel = await this.client.channels.fetch(channelId);
+
+      if (!channel) {
+        const error = new Error('CHANNEL_NOT_FOUND');
+        error.name = 'CHANNEL_NOT_FOUND';
+        throw error;
+      }
+
+      const guildBased = channel as GuildBasedChannel | null;
+      if (!guildBased || guildBased.guildId !== guildId || !this.isSupportedGuildTextChannel(guildBased)) {
+        const error = new Error('CHANNEL_NOT_ACCESSIBLE');
+        error.name = 'CHANNEL_NOT_ACCESSIBLE';
+        throw error;
+      }
+
+      const numericLimit = Number(options.limit);
+      const boundedLimit = Number.isFinite(numericLimit)
+        ? Math.min(Math.max(Math.floor(numericLimit), 1), 100)
+        : 50;
+
+      const fetchOptions: { limit: number; before?: Snowflake } = { limit: boundedLimit };
+      if (options.before) {
+        fetchOptions.before = options.before;
+      }
+
+      const textChannel: TextChannel | NewsChannel = guildBased;
+
+      const fetchedMessages = await textChannel.messages.fetch(fetchOptions);
+      const sorted = Array.from(fetchedMessages.values()).sort(
+        (a, b) => a.createdTimestamp - b.createdTimestamp,
+      );
+
+      const messages: DiscordChannelMessage[] = sorted.map((message) => {
+        const createdAt = message.createdAt instanceof Date && !Number.isNaN(message.createdAt.getTime())
+          ? message.createdAt
+          : new Date(message.createdTimestamp);
+
+        let avatarUrl: string | null = null;
+        if (typeof message.author?.displayAvatarURL === 'function') {
+          try {
+            avatarUrl = message.author.displayAvatarURL({ extension: 'png', size: 128 });
+          } catch (avatarError) {
+            console.warn('Failed to resolve avatar URL for message author', avatarError);
+          }
+        }
+
+        const displayName = message.member?.displayName
+          ?? message.author?.globalName
+          ?? message.author?.username
+          ?? null;
+
+        return {
+          id: message.id,
+          content: typeof message.content === 'string' ? message.content : '',
+          createdAt: Number.isNaN(createdAt.getTime()) ? new Date().toISOString() : createdAt.toISOString(),
+          author: {
+            id: message.author?.id ?? 'unknown',
+            displayName,
+            username: message.author?.username ?? null,
+            avatarUrl,
+          },
+        } satisfies DiscordChannelMessage;
+      });
+
+      const hasMore = fetchedMessages.size === boundedLimit;
+      const nextCursor = messages.length > 0 ? messages[0]?.id ?? null : null;
+
+      return {
+        messages,
+        hasMore,
+        nextCursor,
+      };
+    } catch (error) {
+      if ((error as Error)?.name === 'CHANNEL_NOT_FOUND' || (error as Error)?.name === 'CHANNEL_NOT_ACCESSIBLE') {
+        throw error;
+      }
+
+      console.error('Failed to fetch text channel messages', (error as Error)?.message ?? error);
       throw error;
     }
   }
