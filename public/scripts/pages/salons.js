@@ -7,6 +7,8 @@ import {
   useState,
   RefreshCcw,
   Hash,
+  Search,
+  X,
 } from '../core/deps.js';
 import { buildRoutePath, formatDateTimeLabel } from '../utils/index.js';
 
@@ -315,9 +317,53 @@ export const SalonsPage = () => {
   const [hasMore, setHasMore] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [initialScrollPending, setInitialScrollPending] = useState(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState('');
 
   const messageContainerRef = useRef(null);
   const preserveScrollRef = useRef(null);
+  const messageSearchInputRef = useRef(null);
+
+  useEffect(() => {
+    setMessageSearchQuery('');
+  }, [selectedChannelId]);
+
+  const handleMessageSearchChange = useCallback((event) => {
+    const value = event?.currentTarget?.value ?? '';
+    setMessageSearchQuery(value);
+  }, []);
+
+  const handleClearMessageSearch = useCallback(() => {
+    setMessageSearchQuery('');
+    const input = messageSearchInputRef.current;
+    if (input) {
+      input.focus();
+    }
+  }, []);
+
+  const normalizedSearchQuery = useMemo(() => messageSearchQuery.trim().toLocaleLowerCase('fr-FR'), [messageSearchQuery]);
+
+  const filteredMessages = useMemo(() => {
+    if (!normalizedSearchQuery) {
+      return messages;
+    }
+
+    return messages.filter((message) => {
+      const includesQuery = (value) =>
+        typeof value === 'string' && value.toLocaleLowerCase('fr-FR').includes(normalizedSearchQuery);
+
+      if (includesQuery(message.content)) {
+        return true;
+      }
+
+      if (includesQuery(message.author?.displayName) || includesQuery(message.author?.username)) {
+        return true;
+      }
+
+      return false;
+    });
+  }, [messages, normalizedSearchQuery]);
+
+  const hasSearchQuery = normalizedSearchQuery.length > 0;
 
   useEffect(() => {
     let isActive = true;
@@ -682,7 +728,34 @@ export const SalonsPage = () => {
               ${selectedChannel ? `Salon ${getChannelDisplayName(selectedChannel)}` : 'Sélectionne un salon pour consulter son historique.'}
             </p>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end md:w-auto">
+            <div class="relative flex-1 sm:w-64 md:w-72">
+              <label class="sr-only" for="salons-message-search">Rechercher dans l’historique</label>
+              <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                <${Search} class="h-4 w-4" aria-hidden="true" />
+              </span>
+              <input
+                id="salons-message-search"
+                ref=${messageSearchInputRef}
+                type="search"
+                class="w-full rounded-full border border-white/10 bg-white/5 py-2 pl-9 pr-10 text-sm text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950"
+                placeholder="Rechercher dans l’historique…"
+                value=${messageSearchQuery}
+                onInput=${handleMessageSearchChange}
+                autoComplete="off"
+                spellCheck=${false}
+              />
+              ${hasSearchQuery
+                ? html`<button
+                    type="button"
+                    class="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-white/5 bg-white/10 text-slate-200 transition hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950"
+                    onClick=${handleClearMessageSearch}
+                  >
+                    <span class="sr-only">Effacer la recherche</span>
+                    <${X} class="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>`
+                : null}
+            </div>
             <button
               type="button"
               class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200 transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
@@ -726,7 +799,10 @@ export const SalonsPage = () => {
               ${!messagesLoading && messages.length === 0 && !messagesError
                 ? html`<p class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">Aucun message n’a encore été publié dans ce salon.</p>`
                 : null}
-              ${messages.map((message) => {
+              ${hasSearchQuery && !messagesLoading && messages.length > 0 && filteredMessages.length === 0
+                ? html`<p class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">Aucun message ne correspond à ta recherche.</p>`
+                : null}
+              ${filteredMessages.map((message) => {
                 const timestampLabel = formatTimestampLabel(message.createdAt);
                 const authorName = message.author?.displayName || message.author?.username || 'Membre Libre Antenne';
                 const profileHref = message.author?.id ? buildRoutePath('profile', { userId: message.author.id }) : null;
