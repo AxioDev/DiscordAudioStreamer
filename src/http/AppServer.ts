@@ -137,6 +137,8 @@ interface SitemapComputationContext {
   shopCatalogUpdatedAt: string | null;
 }
 
+type TimeoutError = Error & { code?: string; operation?: string; timeoutMs?: number };
+
 interface AppShellRenderOptions {
   status?: number;
   appHtml?: string | null;
@@ -293,6 +295,8 @@ export default class AppServer {
   private static readonly hypeLeaderboardCacheTtlMs = 24 * 60 * 60 * 1000;
 
   private static readonly textChannelCacheTtlMs = 7 * 24 * 60 * 60 * 1000;
+
+  private static readonly sitemapQueryTimeoutMs = 5000;
 
   private static readonly hypeLeaderboardPrewarmSorts: readonly HypeLeaderboardSortBy[] = [
     'schScoreNorm',
@@ -1208,11 +1212,22 @@ export default class AppServer {
     }
 
     try {
-      const activeUsers = await this.voiceActivityRepository.listActiveUsers({ limit: 1 });
+      const activeUsers = await this.withTimeout(
+        this.voiceActivityRepository.listActiveUsers({ limit: 1 }),
+        AppServer.sitemapQueryTimeoutMs,
+        'voice-activity:list-active-users(latest)',
+      );
       const latest = activeUsers?.[0]?.lastActivityAt;
       return latest instanceof Date ? latest.toISOString() : null;
     } catch (error) {
-      console.warn('Failed to resolve latest member activity for sitemap', error);
+      if (this.isTimeoutError(error)) {
+        console.warn(
+          'Timed out while resolving latest member activity for sitemap after %dms',
+          AppServer.sitemapQueryTimeoutMs,
+        );
+      } else {
+        console.warn('Failed to resolve latest member activity for sitemap', error);
+      }
       return null;
     }
   }
@@ -1229,10 +1244,21 @@ export default class AppServer {
         ...defaultOptions,
         limit: 1,
       };
-      const result = await this.getCachedHypeLeaders(options);
+      const result = await this.withTimeout(
+        this.getCachedHypeLeaders(options),
+        AppServer.sitemapQueryTimeoutMs,
+        'hype-leaderboard:snapshot',
+      );
       return result.snapshot?.bucketStart?.toISOString?.() ?? null;
     } catch (error) {
-      console.warn('Failed to resolve hype leaderboard snapshot for sitemap', error);
+      if (this.isTimeoutError(error)) {
+        console.warn(
+          'Timed out while resolving hype leaderboard snapshot for sitemap after %dms',
+          AppServer.sitemapQueryTimeoutMs,
+        );
+      } else {
+        console.warn('Failed to resolve hype leaderboard snapshot for sitemap', error);
+      }
       return null;
     }
   }
@@ -1338,7 +1364,11 @@ export default class AppServer {
 
     try {
       const [activeUsers, hiddenIds] = await Promise.all([
-        this.voiceActivityRepository.listActiveUsers({ limit: 200 }),
+        this.withTimeout(
+          this.voiceActivityRepository.listActiveUsers({ limit: 200 }),
+          AppServer.sitemapQueryTimeoutMs,
+          'voice-activity:list-active-users(sitemap)',
+        ),
         this.adminService.getHiddenMemberIds(),
       ]);
 
@@ -1351,7 +1381,14 @@ export default class AppServer {
           priority: 0.5,
         }));
     } catch (error) {
-      console.error('Failed to build profile sitemap entries', error);
+      if (this.isTimeoutError(error)) {
+        console.warn(
+          'Timed out while building profile sitemap entries after %dms',
+          AppServer.sitemapQueryTimeoutMs,
+        );
+      } else {
+        console.error('Failed to build profile sitemap entries', error);
+      }
       return [];
     }
   }
@@ -1365,6 +1402,47 @@ export default class AppServer {
       return null;
     }
     return parsed.toISOString();
+  }
+
+  private withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: string): Promise<T> {
+    let timer: NodeJS.Timeout | null = null;
+    return new Promise<T>((resolve, reject) => {
+      timer = setTimeout(() => {
+        timer = null;
+        const timeoutError = new Error(
+          `Timeout after ${timeoutMs}ms while waiting for ${operation}`,
+        ) as TimeoutError;
+        timeoutError.name = 'TimeoutError';
+        timeoutError.code = 'ETIMEOUT';
+        timeoutError.operation = operation;
+        timeoutError.timeoutMs = timeoutMs;
+        reject(timeoutError);
+      }, timeoutMs);
+
+      promise
+        .then((value) => {
+          if (timer) {
+            clearTimeout(timer);
+            timer = null;
+          }
+          resolve(value);
+        })
+        .catch((error) => {
+          if (timer) {
+            clearTimeout(timer);
+            timer = null;
+          }
+          reject(error);
+        });
+    });
+  }
+
+  private isTimeoutError(error: unknown): error is TimeoutError {
+    if (!error || typeof error !== 'object') {
+      return false;
+    }
+    const candidate = error as TimeoutError;
+    return candidate.code === 'ETIMEOUT' || candidate.name === 'TimeoutError';
   }
 
   private renderSitemap(entries: SitemapEntry[]): string {
