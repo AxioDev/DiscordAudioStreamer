@@ -1740,6 +1740,8 @@ const App = () => {
                 })
               : route.name === 'chat'
               ? renderAsyncPage('chat')
+              : route.name === 'salons'
+              ? renderAsyncPage('salons')
               : renderAsyncPage('home', {
                   status,
                   streamInfo,
