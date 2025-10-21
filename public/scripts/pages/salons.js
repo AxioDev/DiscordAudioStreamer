@@ -8,6 +8,7 @@ import {
   RefreshCcw,
   Hash,
   Search,
+  Send,
   X,
   Clock3,
 } from '../core/deps.js';
@@ -15,6 +16,9 @@ import { buildRoutePath, formatDateTimeLabel } from '../utils/index.js';
 
 const MESSAGE_PAGE_SIZE = 50;
 const DEFAULT_CHANNEL_ID = '1000397055442817096';
+const MESSAGE_COOLDOWN_MS = 60 * 60 * 1000;
+const MESSAGE_COOLDOWN_STORAGE_KEY = 'libre-antenne:salons:last-message-at';
+const MAX_MESSAGE_LENGTH = 500;
 
 const normalizeChannel = (entry) => {
   if (!entry || typeof entry !== 'object') {
@@ -374,8 +378,83 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
   const preserveScrollRef = useRef(null);
   const messageSearchInputRef = useRef(null);
 
+  const [composerMessage, setComposerMessage] = useState('');
+  const [composerError, setComposerError] = useState('');
+  const [composerSuccess, setComposerSuccess] = useState('');
+  const [isSubmittingMessage, setIsSubmittingMessage] = useState(false);
+  const [captchaChallenge, setCaptchaChallenge] = useState(null);
+  const [captchaAnswer, setCaptchaAnswer] = useState('');
+  const [captchaError, setCaptchaError] = useState('');
+  const [captchaLoading, setCaptchaLoading] = useState(false);
+  const [cooldownUntil, setCooldownUntil] = useState(null);
+  const [cooldownRemainingMs, setCooldownRemainingMs] = useState(0);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(MESSAGE_COOLDOWN_STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+      const stored = Number(raw);
+      if (Number.isFinite(stored)) {
+        if (stored > Date.now()) {
+          setCooldownUntil(stored);
+        } else {
+          window.localStorage.removeItem(MESSAGE_COOLDOWN_STORAGE_KEY);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to read stored message cooldown', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!cooldownUntil) {
+      setCooldownRemainingMs(0);
+      return;
+    }
+
+    const updateRemaining = () => {
+      const remaining = Math.max(0, cooldownUntil - Date.now());
+      setCooldownRemainingMs(remaining);
+      if (remaining <= 0) {
+        setCooldownUntil(null);
+        if (typeof window !== 'undefined') {
+          try {
+            window.localStorage.removeItem(MESSAGE_COOLDOWN_STORAGE_KEY);
+          } catch (error) {
+            console.warn('Failed to clear message cooldown', error);
+          }
+        }
+      }
+    };
+
+    updateRemaining();
+
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const intervalId = window.setInterval(updateRemaining, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [cooldownUntil]);
+
   useEffect(() => {
     setMessageSearchQuery('');
+  }, [selectedChannelId]);
+
+  useEffect(() => {
+    setComposerMessage('');
+    setComposerError('');
+    setComposerSuccess('');
+    setCaptchaAnswer('');
+    if (!selectedChannelId) {
+      setCaptchaChallenge(null);
+      setCaptchaError('');
+    }
   }, [selectedChannelId]);
 
   const handleMessageSearchChange = useCallback((event) => {
@@ -415,6 +494,77 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
   }, [messages, normalizedSearchQuery]);
 
   const hasSearchQuery = normalizedSearchQuery.length > 0;
+
+  const isOnCooldown = cooldownRemainingMs > 0;
+
+  const cooldownLabel = useMemo(() => {
+    if (!isOnCooldown) {
+      return null;
+    }
+    const remainingSeconds = Math.max(0, Math.ceil(cooldownRemainingMs / 1000));
+    const hours = Math.floor(remainingSeconds / 3600);
+    const minutes = Math.floor((remainingSeconds % 3600) / 60);
+    const seconds = remainingSeconds % 60;
+    if (hours > 0) {
+      return `${hours} h ${minutes.toString().padStart(2, '0')} min`;
+    }
+    if (minutes > 0) {
+      return `${minutes} min ${seconds.toString().padStart(2, '0')} s`;
+    }
+    return `${seconds} s`;
+  }, [cooldownRemainingMs, isOnCooldown]);
+
+  const composerCharacterCount = composerMessage.length;
+
+  const fetchCaptchaChallenge = useCallback(async () => {
+    if (!selectedChannelId) {
+      setCaptchaChallenge(null);
+      setCaptchaAnswer('');
+      return;
+    }
+
+    setCaptchaLoading(true);
+    setCaptchaError('');
+
+    try {
+      const response = await fetch(
+        `/api/text-channels/${encodeURIComponent(selectedChannelId)}/captcha`,
+        { method: 'POST' },
+      );
+      const contentType = response.headers?.get('Content-Type') ?? '';
+      const payload = contentType.includes('application/json') ? await response.json() : null;
+
+      if (!response.ok) {
+        const message =
+          payload && typeof payload.message === 'string'
+            ? payload.message
+            : 'Impossible de charger le captcha.';
+        throw new Error(message);
+      }
+
+      const challenge = payload?.challenge;
+      const challengeId = typeof challenge?.id === 'string' ? challenge.id : null;
+      const question = typeof challenge?.question === 'string' ? challenge.question : null;
+      const expiresAt = typeof challenge?.expiresAt === 'string' ? challenge.expiresAt : null;
+
+      if (!challengeId || !question) {
+        throw new Error('Captcha invalide reçu.');
+      }
+
+      setCaptchaChallenge({ id: challengeId, question, expiresAt });
+      setCaptchaAnswer('');
+      setCaptchaError('');
+    } catch (error) {
+      console.warn('Failed to load message captcha', error);
+      const friendlyMessage =
+        error instanceof Error ? error.message : "Impossible de charger le captcha.";
+      setCaptchaError(friendlyMessage);
+      setCaptchaChallenge(null);
+      setCaptchaAnswer('');
+    } finally {
+      setCaptchaLoading(false);
+    }
+  }, [selectedChannelId]);
 
   useEffect(() => {
     let isActive = true;
@@ -595,6 +745,19 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
     }
   }, [messages, initialScrollPending]);
 
+  useEffect(() => {
+    if (!selectedChannelId || isOnCooldown) {
+      return;
+    }
+    if (captchaLoading) {
+      return;
+    }
+    if (captchaChallenge) {
+      return;
+    }
+    void fetchCaptchaChallenge();
+  }, [selectedChannelId, isOnCooldown, captchaChallenge, captchaLoading, fetchCaptchaChallenge]);
+
   const handleRefreshChannels = useCallback(() => {
     setChannelsRefreshNonce((value) => value + 1);
   }, []);
@@ -685,6 +848,189 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
       setIsLoadingMore(false);
     }
   }, [selectedChannelId, paginationCursor, isLoadingMore]);
+
+  const handleComposerMessageChange = useCallback((event) => {
+    const value = event?.currentTarget?.value ?? '';
+    const limited = value.length > MAX_MESSAGE_LENGTH ? value.slice(0, MAX_MESSAGE_LENGTH) : value;
+    setComposerMessage(limited);
+    setComposerError('');
+    setComposerSuccess('');
+  }, []);
+
+  const handleCaptchaAnswerChange = useCallback((event) => {
+    const value = event?.currentTarget?.value ?? '';
+    setCaptchaAnswer(value);
+    setComposerError('');
+  }, []);
+
+  const handleRequestNewCaptcha = useCallback(() => {
+    setComposerError('');
+    setComposerSuccess('');
+    setCaptchaError('');
+    setCaptchaAnswer('');
+    void fetchCaptchaChallenge();
+  }, [fetchCaptchaChallenge]);
+
+  const handleComposerSubmit = useCallback(
+    async (event) => {
+      event.preventDefault();
+
+      if (isSubmittingMessage) {
+        return;
+      }
+
+      if (!selectedChannelId) {
+        setComposerError('Sélectionne un salon avant d’envoyer un message.');
+        return;
+      }
+
+      if (isOnCooldown) {
+        setComposerError('Tu dois patienter avant d’envoyer un nouveau message.');
+        return;
+      }
+
+      const trimmed = composerMessage.trim();
+      if (!trimmed) {
+        setComposerError('Ton message est vide.');
+        return;
+      }
+
+      if (!captchaChallenge?.id) {
+        setComposerError('Récupère un captcha valide avant d’envoyer ton message.');
+        return;
+      }
+
+      const answer = captchaAnswer.trim();
+      if (!answer) {
+        setComposerError('Entre la réponse au captcha.');
+        return;
+      }
+
+      setIsSubmittingMessage(true);
+      setComposerError('');
+      setComposerSuccess('');
+
+      try {
+        const response = await fetch(
+          `/api/text-channels/${encodeURIComponent(selectedChannelId)}/messages`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message: trimmed,
+              captchaId: captchaChallenge.id,
+              captchaAnswer: answer,
+            }),
+          },
+        );
+
+        const contentType = response.headers?.get('Content-Type') ?? '';
+        const payload = contentType.includes('application/json') ? await response.json() : null;
+
+        if (!response.ok) {
+          const message =
+            payload && typeof payload.message === 'string'
+              ? payload.message
+              : "Impossible d’envoyer le message.";
+          const error = new Error(message);
+          if (payload && typeof payload.error === 'string') {
+            error.code = payload.error;
+          }
+          if (payload && typeof payload.retryAt === 'string') {
+            error.retryAt = payload.retryAt;
+          }
+          throw error;
+        }
+
+        const nextAllowedAtIso = typeof payload?.nextAllowedAt === 'string' ? payload.nextAllowedAt : null;
+        const parsedNextAllowed = nextAllowedAtIso ? Date.parse(nextAllowedAtIso) : NaN;
+        const resolvedNextAllowed = Number.isFinite(parsedNextAllowed)
+          ? parsedNextAllowed
+          : Date.now() + MESSAGE_COOLDOWN_MS;
+
+        setCooldownUntil(resolvedNextAllowed);
+        if (typeof window !== 'undefined') {
+          try {
+            window.localStorage.setItem(
+              MESSAGE_COOLDOWN_STORAGE_KEY,
+              String(resolvedNextAllowed),
+            );
+          } catch (storageError) {
+            console.warn('Failed to persist message cooldown', storageError);
+          }
+        }
+
+        setComposerMessage('');
+        setCaptchaAnswer('');
+        setComposerSuccess('Message envoyé ! Il apparaîtra bientôt dans le salon sélectionné.');
+        setCaptchaChallenge(null);
+        setCaptchaError('');
+        setMessagesNonce((value) => value + 1);
+      } catch (error) {
+        console.warn('Failed to send channel message', error);
+        if (error && typeof error === 'object' && typeof error.retryAt === 'string') {
+          const retryAtMs = Date.parse(error.retryAt);
+          if (Number.isFinite(retryAtMs) && retryAtMs > Date.now()) {
+            setCooldownUntil(retryAtMs);
+            if (typeof window !== 'undefined') {
+              try {
+                window.localStorage.setItem(
+                  MESSAGE_COOLDOWN_STORAGE_KEY,
+                  String(retryAtMs),
+                );
+              } catch (storageError) {
+                console.warn('Failed to persist message cooldown', storageError);
+              }
+            }
+          }
+        }
+
+        if (error && typeof error === 'object' && error.code === 'CAPTCHA_INVALID') {
+          setCaptchaChallenge(null);
+          setCaptchaAnswer('');
+          void fetchCaptchaChallenge();
+        }
+
+        const friendlyMessage =
+          error instanceof Error ? error.message : "Impossible d’envoyer le message.";
+        setComposerError(friendlyMessage);
+      } finally {
+        setIsSubmittingMessage(false);
+      }
+    },
+    [
+      captchaAnswer,
+      captchaChallenge,
+      composerMessage,
+      fetchCaptchaChallenge,
+      isOnCooldown,
+      isSubmittingMessage,
+      selectedChannelId,
+    ],
+  );
+
+  const canSubmitMessage = useMemo(() => {
+    if (!selectedChannelId || !captchaChallenge) {
+      return false;
+    }
+    if (isSubmittingMessage || isOnCooldown) {
+      return false;
+    }
+    if (composerMessage.trim().length === 0) {
+      return false;
+    }
+    if (captchaAnswer.trim().length === 0) {
+      return false;
+    }
+    return true;
+  }, [
+    captchaAnswer,
+    captchaChallenge,
+    composerMessage,
+    isOnCooldown,
+    isSubmittingMessage,
+    selectedChannelId,
+  ]);
 
   const selectedChannel = useMemo(
     () => channels.find((channel) => channel.id === selectedChannelId) ?? null,
@@ -922,6 +1268,101 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
                 </article>`;
               })}
             </div>
+          </div>
+        </div>
+        <div class="rounded-3xl border border-white/10 bg-slate-900/60 p-6 shadow-lg shadow-black/30">
+          <div class="flex flex-col gap-5">
+            <div class="flex flex-col gap-1">
+              <h2 class="text-lg font-semibold text-white">Envoyer un message public</h2>
+              <p class="text-sm text-slate-300">
+                Rédige un message court pour le salon sélectionné. Pour éviter les abus, un captcha est requis et l’envoi est
+                limité à un message par heure.
+              </p>
+            </div>
+            ${composerSuccess
+              ? html`<div class="rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100 shadow-inner shadow-emerald-900/20">${composerSuccess}</div>`
+              : null}
+            ${composerError
+              ? html`<div class="rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100 shadow-inner shadow-rose-900/20">${composerError}</div>`
+              : null}
+            ${isOnCooldown
+              ? html`<div class="rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 shadow-inner shadow-amber-900/20">
+                  ${cooldownLabel
+                    ? `Tu pourras envoyer un nouveau message dans ${cooldownLabel}.`
+                    : 'Tu pourras envoyer un nouveau message dans moins d’une minute.'}
+                </div>`
+              : null}
+            <form class="space-y-5" onSubmit=${handleComposerSubmit}>
+              <div class="space-y-2">
+                <label class="text-sm font-semibold text-white" for="salons-composer-message">Message</label>
+                <textarea
+                  id="salons-composer-message"
+                  class="min-h-[6.5rem] w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                  value=${composerMessage}
+                  onInput=${handleComposerMessageChange}
+                  maxLength=${MAX_MESSAGE_LENGTH}
+                  placeholder="Ton message pour la communauté…"
+                  disabled=${isSubmittingMessage || isOnCooldown || !selectedChannelId}
+                  autoComplete="off"
+                  spellCheck=${false}
+                ></textarea>
+                <div class="flex items-center justify-between text-xs text-slate-400">
+                  <span>Le message sera publié via le compte Libre Antenne.</span>
+                  <span>${composerCharacterCount}/${MAX_MESSAGE_LENGTH}</span>
+                </div>
+              </div>
+              <div class="space-y-2">
+                <label class="text-sm font-semibold text-white" for="salons-composer-captcha">Captcha</label>
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <div class="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+                    ${captchaLoading
+                      ? 'Chargement du captcha…'
+                      : captchaChallenge?.question ?? 'Clique sur « Nouveau captcha » pour continuer.'}
+                  </div>
+                  <div class="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                    <input
+                      id="salons-composer-captcha"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      class="w-full rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60 sm:w-40"
+                      value=${captchaAnswer}
+                      onInput=${handleCaptchaAnswerChange}
+                      placeholder="Réponse"
+                      autoComplete="off"
+                      disabled=${
+                        isSubmittingMessage
+                        || isOnCooldown
+                        || !selectedChannelId
+                        || captchaLoading
+                        || !captchaChallenge
+                      }
+                    />
+                    <button
+                      type="button"
+                      class="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick=${handleRequestNewCaptcha}
+                      disabled=${isSubmittingMessage || isOnCooldown || !selectedChannelId || captchaLoading}
+                    >
+                      Nouveau captcha
+                    </button>
+                  </div>
+                </div>
+                ${captchaError ? html`<p class="text-xs text-rose-200">${captchaError}</p>` : null}
+              </div>
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p class="text-xs text-slate-400">Limite : un message toutes les 60 minutes.</p>
+                <button
+                  type="submit"
+                  class="inline-flex items-center gap-2 rounded-full border border-amber-300/60 bg-amber-500/20 px-4 py-2 text-sm font-semibold text-amber-100 transition hover:bg-amber-500/30 focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled=${!canSubmitMessage}
+                >
+                  ${isSubmittingMessage
+                    ? 'Envoi…'
+                    : html`<span class="inline-flex items-center gap-2"><${Send} class="h-4 w-4" aria-hidden="true" />Envoyer</span>`}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       </div>

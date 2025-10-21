@@ -824,6 +824,68 @@ export default class DiscordAudioBridge {
     }
   }
 
+  public async sendTextChannelMessage(channelId: Snowflake, content: string): Promise<DiscordChannelMessage> {
+    const guildId = this.resolveActiveGuildId();
+
+    try {
+      const channel = await this.client.channels.fetch(channelId);
+
+      if (!channel) {
+        const error = new Error('CHANNEL_NOT_FOUND');
+        error.name = 'CHANNEL_NOT_FOUND';
+        throw error;
+      }
+
+      const guildBased = channel as GuildBasedChannel | null;
+      if (!guildBased || guildBased.guildId !== guildId || !this.isSupportedGuildTextChannel(guildBased)) {
+        const error = new Error('CHANNEL_NOT_ACCESSIBLE');
+        error.name = 'CHANNEL_NOT_ACCESSIBLE';
+        throw error;
+      }
+
+      const textChannel: TextChannel | NewsChannel = guildBased;
+
+      const sentMessage = await textChannel.send({ content });
+
+      const createdAt = sentMessage.createdAt instanceof Date && !Number.isNaN(sentMessage.createdAt.getTime())
+        ? sentMessage.createdAt
+        : new Date(sentMessage.createdTimestamp);
+
+      let avatarUrl: string | null = null;
+      if (typeof sentMessage.author?.displayAvatarURL === 'function') {
+        try {
+          avatarUrl = sentMessage.author.displayAvatarURL({ extension: 'png', size: 128 });
+        } catch (avatarError) {
+          console.warn('Failed to resolve avatar URL for sent message author', avatarError);
+        }
+      }
+
+      const displayName = sentMessage.member?.displayName
+        ?? sentMessage.author?.globalName
+        ?? sentMessage.author?.username
+        ?? null;
+
+      return {
+        id: sentMessage.id,
+        content: typeof sentMessage.content === 'string' ? sentMessage.content : '',
+        createdAt: Number.isNaN(createdAt.getTime()) ? new Date().toISOString() : createdAt.toISOString(),
+        author: {
+          id: sentMessage.author?.id ?? 'unknown',
+          displayName,
+          username: sentMessage.author?.username ?? null,
+          avatarUrl,
+        },
+      } satisfies DiscordChannelMessage;
+    } catch (error) {
+      if ((error as Error)?.name === 'CHANNEL_NOT_FOUND' || (error as Error)?.name === 'CHANNEL_NOT_ACCESSIBLE') {
+        throw error;
+      }
+
+      console.error('Failed to send text channel message', (error as Error)?.message ?? error);
+      throw error;
+    }
+  }
+
   public async joinVoice(guildId: Snowflake, channelId: Snowflake): Promise<VoiceConnection> {
     this.shouldAutoReconnect = true;
     const guild = this.client.guilds.cache.get(guildId);
