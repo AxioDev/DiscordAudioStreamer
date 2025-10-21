@@ -19,6 +19,7 @@ const DEFAULT_CHANNEL_ID = '1000397055442817096';
 const MESSAGE_COOLDOWN_MS = 60 * 60 * 1000;
 const MESSAGE_COOLDOWN_STORAGE_KEY = 'libre-antenne:salons:last-message-at';
 const MAX_MESSAGE_LENGTH = 500;
+const IS_PUBLIC_MESSAGE_COMPOSER_ENABLED = false;
 
 const normalizeChannel = (entry) => {
   if (!entry || typeof entry !== 'object') {
@@ -517,6 +518,13 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
   const composerCharacterCount = composerMessage.length;
 
   const fetchCaptchaChallenge = useCallback(async () => {
+    if (!IS_PUBLIC_MESSAGE_COMPOSER_ENABLED) {
+      setCaptchaChallenge(null);
+      setCaptchaAnswer('');
+      setCaptchaError('');
+      return;
+    }
+
     if (!selectedChannelId) {
       setCaptchaChallenge(null);
       setCaptchaAnswer('');
@@ -746,6 +754,10 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
   }, [messages, initialScrollPending]);
 
   useEffect(() => {
+    if (!IS_PUBLIC_MESSAGE_COMPOSER_ENABLED) {
+      return;
+    }
+
     if (!selectedChannelId || isOnCooldown) {
       return;
     }
@@ -868,12 +880,21 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
     setComposerSuccess('');
     setCaptchaError('');
     setCaptchaAnswer('');
+    if (!IS_PUBLIC_MESSAGE_COMPOSER_ENABLED) {
+      return;
+    }
+
     void fetchCaptchaChallenge();
   }, [fetchCaptchaChallenge]);
 
   const handleComposerSubmit = useCallback(
     async (event) => {
       event.preventDefault();
+
+      if (!IS_PUBLIC_MESSAGE_COMPOSER_ENABLED) {
+        setComposerError("L’envoi de messages publics est temporairement désactivé.");
+        return;
+      }
 
       if (isSubmittingMessage) {
         return;
@@ -1010,6 +1031,10 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
   );
 
   const canSubmitMessage = useMemo(() => {
+    if (!IS_PUBLIC_MESSAGE_COMPOSER_ENABLED) {
+      return false;
+    }
+
     if (!selectedChannelId || !captchaChallenge) {
       return false;
     }
@@ -1271,90 +1296,96 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
                 limité à un message par heure.
               </p>
             </div>
-            ${composerSuccess
-              ? html`<div class="rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100 shadow-inner shadow-emerald-900/20">${composerSuccess}</div>`
-              : null}
-            ${composerError
-              ? html`<div class="rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100 shadow-inner shadow-rose-900/20">${composerError}</div>`
-              : null}
-            ${isOnCooldown
-              ? html`<div class="rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 shadow-inner shadow-amber-900/20">
-                  ${cooldownLabel
-                    ? `Tu pourras envoyer un nouveau message dans ${cooldownLabel}.`
-                    : 'Tu pourras envoyer un nouveau message dans moins d’une minute.'}
-                </div>`
-              : null}
-            <form class="space-y-5" onSubmit=${handleComposerSubmit}>
-              <div class="space-y-2">
-                <label class="text-sm font-semibold text-white" for="salons-composer-message">Message</label>
-                <textarea
-                  id="salons-composer-message"
-                  class="min-h-[6.5rem] w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
-                  value=${composerMessage}
-                  onInput=${handleComposerMessageChange}
-                  maxLength=${MAX_MESSAGE_LENGTH}
-                  placeholder="Ton message pour la communauté…"
-                  disabled=${isSubmittingMessage || isOnCooldown || !selectedChannelId}
-                  autoComplete="off"
-                  spellCheck=${false}
-                ></textarea>
-                <div class="flex items-center justify-between text-xs text-slate-400">
-                  <span>Le message sera publié via le compte Libre Antenne.</span>
-                  <span>${composerCharacterCount}/${MAX_MESSAGE_LENGTH}</span>
-                </div>
-              </div>
-              <div class="space-y-2">
-                <label class="text-sm font-semibold text-white" for="salons-composer-captcha">Captcha</label>
-                <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <div class="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
-                    ${captchaLoading
-                      ? 'Chargement du captcha…'
-                      : captchaChallenge?.question ?? 'Clique sur « Nouveau captcha » pour continuer.'}
-                  </div>
-                  <div class="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-                    <input
-                      id="salons-composer-captcha"
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      class="w-full rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60 sm:w-40"
-                      value=${captchaAnswer}
-                      onInput=${handleCaptchaAnswerChange}
-                      placeholder="Réponse"
-                      autoComplete="off"
-                      disabled=${
-                        isSubmittingMessage
-                        || isOnCooldown
-                        || !selectedChannelId
-                        || captchaLoading
-                        || !captchaChallenge
-                      }
-                    />
-                    <button
-                      type="button"
-                      class="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
-                      onClick=${handleRequestNewCaptcha}
-                      disabled=${isSubmittingMessage || isOnCooldown || !selectedChannelId || captchaLoading}
-                    >
-                      Nouveau captcha
-                    </button>
-                  </div>
-                </div>
-                ${captchaError ? html`<p class="text-xs text-rose-200">${captchaError}</p>` : null}
-              </div>
-              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p class="text-xs text-slate-400">Limite : un message toutes les 60 minutes.</p>
-                <button
-                  type="submit"
-                  class="inline-flex items-center gap-2 rounded-full border border-amber-300/60 bg-amber-500/20 px-4 py-2 text-sm font-semibold text-amber-100 transition hover:bg-amber-500/30 focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled=${!canSubmitMessage}
-                >
-                  ${isSubmittingMessage
-                    ? 'Envoi…'
-                    : html`<span class="inline-flex items-center gap-2"><${Send} class="h-4 w-4" aria-hidden="true" />Envoyer</span>`}
-                </button>
-              </div>
-            </form>
+            ${IS_PUBLIC_MESSAGE_COMPOSER_ENABLED
+              ? html`
+                  ${composerSuccess
+                    ? html`<div class="rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100 shadow-inner shadow-emerald-900/20">${composerSuccess}</div>`
+                    : null}
+                  ${composerError
+                    ? html`<div class="rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100 shadow-inner shadow-rose-900/20">${composerError}</div>`
+                    : null}
+                  ${isOnCooldown
+                    ? html`<div class="rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 shadow-inner shadow-amber-900/20">
+                        ${cooldownLabel
+                          ? `Tu pourras envoyer un nouveau message dans ${cooldownLabel}.`
+                          : 'Tu pourras envoyer un nouveau message dans moins d’une minute.'}
+                      </div>`
+                    : null}
+                  <form class="space-y-5" onSubmit=${handleComposerSubmit}>
+                    <div class="space-y-2">
+                      <label class="text-sm font-semibold text-white" for="salons-composer-message">Message</label>
+                      <textarea
+                        id="salons-composer-message"
+                        class="min-h-[6.5rem] w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                        value=${composerMessage}
+                        onInput=${handleComposerMessageChange}
+                        maxLength=${MAX_MESSAGE_LENGTH}
+                        placeholder="Ton message pour la communauté…"
+                        disabled=${isSubmittingMessage || isOnCooldown || !selectedChannelId}
+                        autoComplete="off"
+                        spellCheck=${false}
+                      ></textarea>
+                      <div class="flex items-center justify-between text-xs text-slate-400">
+                        <span>Le message sera publié via le compte Libre Antenne.</span>
+                        <span>${composerCharacterCount}/${MAX_MESSAGE_LENGTH}</span>
+                      </div>
+                    </div>
+                    <div class="space-y-2">
+                      <label class="text-sm font-semibold text-white" for="salons-composer-captcha">Captcha</label>
+                      <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+                        <div class="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+                          ${captchaLoading
+                            ? 'Chargement du captcha…'
+                            : captchaChallenge?.question ?? 'Clique sur « Nouveau captcha » pour continuer.'}
+                        </div>
+                        <div class="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                          <input
+                            id="salons-composer-captcha"
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            class="w-full rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60 sm:w-40"
+                            value=${captchaAnswer}
+                            onInput=${handleCaptchaAnswerChange}
+                            placeholder="Réponse"
+                            autoComplete="off"
+                            disabled=${
+                              isSubmittingMessage
+                              || isOnCooldown
+                              || !selectedChannelId
+                              || captchaLoading
+                              || !captchaChallenge
+                            }
+                          />
+                          <button
+                            type="button"
+                            class="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                            onClick=${handleRequestNewCaptcha}
+                            disabled=${isSubmittingMessage || isOnCooldown || !selectedChannelId || captchaLoading}
+                          >
+                            Nouveau captcha
+                          </button>
+                        </div>
+                      </div>
+                      ${captchaError ? html`<p class="text-xs text-rose-200">${captchaError}</p>` : null}
+                    </div>
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <p class="text-xs text-slate-400">Limite : un message toutes les 60 minutes.</p>
+                      <button
+                        type="submit"
+                        class="inline-flex items-center gap-2 rounded-full border border-amber-300/60 bg-amber-500/20 px-4 py-2 text-sm font-semibold text-amber-100 transition hover:bg-amber-500/30 focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled=${!canSubmitMessage}
+                      >
+                        ${isSubmittingMessage
+                          ? 'Envoi…'
+                          : html`<span class="inline-flex items-center gap-2"><${Send} class="h-4 w-4" aria-hidden="true" />Envoyer</span>`}
+                      </button>
+                    </div>
+                  </form>
+                `
+              : html`<div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+                  L’envoi de messages publics est temporairement désactivé. Merci de revenir plus tard.
+                </div>`}
           </div>
         </div>
       </div>
