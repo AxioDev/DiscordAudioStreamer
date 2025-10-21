@@ -4,7 +4,6 @@ import { spawn } from 'child_process';
 import Critters from 'critters';
 import fs from 'fs/promises';
 import path from 'path';
-import sharp from 'sharp';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -139,10 +138,37 @@ async function collectRasterImages() {
   return results;
 }
 
+let sharpInstancePromise = null;
+
+async function loadSharp() {
+  if (!sharpInstancePromise) {
+    sharpInstancePromise = (async () => {
+      try {
+        const module = await import('sharp');
+        return module?.default ?? module;
+      } catch (error) {
+        console.warn(
+          '[build-client] Sharp module not available; raster image optimisation will be skipped.',
+          error,
+        );
+        return null;
+      }
+    })();
+  }
+  return sharpInstancePromise;
+}
+
 async function optimizeRasterImages() {
   const files = await collectRasterImages();
   if (files.length === 0) {
     return [];
+  }
+
+  const sharp = await loadSharp();
+  if (!sharp) {
+    return files.map((file) => ({
+      source: `/${toPosixPath(file.relative)}`,
+    }));
   }
 
   await ensureDir(mediaOutDir);
