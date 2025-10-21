@@ -1039,8 +1039,8 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
 
   return html`
     <section class="salons-page grid gap-6 lg:grid-cols-[minmax(0,176px)_minmax(0,1fr)] xl:grid-cols-[minmax(0,192px)_minmax(0,1fr)]">
-      <aside class="flex flex-col gap-1 rounded-3xl border border-white/10 bg-slate-900/60 p-1 shadow-lg shadow-black/30">
-        <div class="flex items-center justify-between gap-1">
+      <aside class="flex flex-col gap-1 rounded-3xl border border-white/10 bg-slate-900/60 p-2 shadow-lg shadow-black/30">
+        <div class="flex items-center justify-between gap-1 pb-2">
           <h2 class="text-md font-semibold text-white">Salons</h2>
           <button
             type="button"
@@ -1075,7 +1075,7 @@ export const SalonsPage = ({ bootstrap = null } = {}) => {
                 return html`<li key=${channel.id}>
                   <button
                     type="button"
-                    class="group relative w-full overflow-hidden rounded-2xl border text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
+                    class="group relative p-1 w-full overflow-hidden rounded-md border text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
                       isActive
                         ? 'border-amber-400/70 bg-amber-500/10 text-white shadow-lg shadow-amber-900/30'
                         : 'border-white/10 bg-white/5 text-slate-200 hover:border-amber-300/50 hover:bg-white/10 hover:text-white'
