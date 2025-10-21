@@ -2,100 +2,15 @@ import type { Application, Request, Response } from 'express';
 import config from '../../config';
 import { query } from '../../lib/db';
 import { generateAnswer, getEmbedding } from '../../lib/openai';
+import {
+  buildVectorLiteral,
+  ensureDiscordVectorSchema,
+  PgvectorExtensionRequiredError,
+} from '../../services/DiscordVectorRepository';
 
 interface DiscordVectorRow {
   content: string;
   metadata: Record<string, unknown> | null;
-}
-
-interface PostgresError extends Error {
-  code?: string;
-}
-
-const embeddingDimensions = 1536;
-let ensureTablePromise: Promise<void> | null = null;
-
-class PgvectorExtensionRequiredError extends Error {
-  public readonly reason = 'PGVECTOR_EXTENSION_REQUIRED';
-  public readonly originalError: unknown;
-
-  constructor(options?: { cause?: unknown }) {
-    super('The pgvector extension must be installed to store embeddings (missing type "vector").');
-    this.name = 'PgvectorExtensionRequiredError';
-    this.originalError = options?.cause;
-  }
-}
-
-async function hasPgvectorExtension(): Promise<boolean> {
-  const result = await query<{ exists: boolean }>(
-    `SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') AS exists;`,
-  );
-
-  return result.rows[0]?.exists === true;
-}
-
-async function ensureDiscordVectorsTable(): Promise<void> {
-  if (!ensureTablePromise) {
-    ensureTablePromise = (async () => {
-      let createExtensionError: unknown;
-      try {
-        await query('CREATE EXTENSION IF NOT EXISTS vector;');
-      } catch (error) {
-        createExtensionError = error;
-        console.warn('Failed to ensure pgvector extension; proceeding to verify availability.', error);
-      }
-
-      let extensionAvailable = false;
-      let extensionCheckError: unknown;
-      try {
-        extensionAvailable = await hasPgvectorExtension();
-      } catch (error) {
-        extensionCheckError = error;
-        console.warn('Failed to verify pgvector extension availability.', error);
-      }
-
-      if (!extensionAvailable) {
-        throw new PgvectorExtensionRequiredError({ cause: extensionCheckError ?? createExtensionError });
-      }
-
-      try {
-        await query(
-          `CREATE TABLE IF NOT EXISTS discord_vectors (
-            id BIGSERIAL PRIMARY KEY,
-            content TEXT NOT NULL,
-            metadata JSONB,
-            embedding vector(${embeddingDimensions}) NOT NULL
-          );`,
-        );
-      } catch (error) {
-        const postgresError = error as PostgresError;
-        if (postgresError?.code === '42704') {
-          throw new Error(
-            'The pgvector extension must be installed to store embeddings (missing type "vector").',
-          );
-        }
-        throw error;
-      }
-
-      try {
-        await query(
-          `CREATE INDEX IF NOT EXISTS discord_vectors_embedding_idx
-            ON discord_vectors USING ivfflat (embedding vector_cosine_ops);`,
-        );
-      } catch (error) {
-        console.warn('Failed to ensure discord_vectors ivfflat index; continuing without index.', error);
-      }
-    })().catch((error) => {
-      ensureTablePromise = null;
-      throw error;
-    });
-  }
-
-  await ensureTablePromise;
-}
-
-function buildVectorLiteral(values: readonly number[]): string {
-  return `[${values.map((value) => Number(value).toString()).join(',')}]`;
 }
 
 function buildContextFromRows(rows: readonly DiscordVectorRow[]): string {
@@ -139,7 +54,7 @@ export function registerChatRoute(app: Application): void {
     }
 
     try {
-      await ensureDiscordVectorsTable();
+      await ensureDiscordVectorSchema();
       const embedding = await getEmbedding(messageRaw);
       const vectorLiteral = buildVectorLiteral(embedding);
       const result = await query<DiscordVectorRow>(
