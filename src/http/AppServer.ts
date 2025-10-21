@@ -1024,6 +1024,7 @@ export default class AppServer {
       { path: '/blog/publier', changeFreq: 'monthly', priority: 0.5 },
       { path: '/about', changeFreq: 'monthly', priority: 0.5 },
       { path: '/cgu', changeFreq: 'yearly', priority: 0.4 },
+      { path: '/salons', changeFreq: 'hourly', priority: 0.65 },
     ];
   }
 
@@ -1140,6 +1141,8 @@ export default class AppServer {
         case '/blog':
         case '/blog/publier':
           return [context.latestBlogPostDate];
+        case '/salons':
+          return [context.latestProfileActivityAt];
         case '/about':
         case '/cgu':
         default:
@@ -4585,6 +4588,85 @@ export default class AppServer {
       }
     });
 
+    this.app.get('/api/text-channels', async (_req, res) => {
+      try {
+        const channels = await this.discordBridge.listTextChannels();
+        res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=90');
+        res.json({ channels });
+      } catch (error) {
+        const name = (error as Error)?.name;
+        if (name === 'GUILD_NOT_CONFIGURED') {
+          res.status(503).json({
+            error: 'GUILD_NOT_CONFIGURED',
+            message: 'La configuration du serveur Discord est incomplète.',
+          });
+          return;
+        }
+        console.error('Failed to list text channels', error);
+        res.status(500).json({
+          error: 'TEXT_CHANNELS_FAILED',
+          message: 'Impossible de récupérer les salons textuels pour le moment.',
+        });
+      }
+    });
+
+    this.app.get('/api/text-channels/:channelId/messages', async (req, res) => {
+      const rawChannelId = typeof req.params.channelId === 'string' ? req.params.channelId.trim() : '';
+      if (!rawChannelId) {
+        res.status(400).json({
+          error: 'CHANNEL_ID_REQUIRED',
+          message: 'Le salon textuel est requis.',
+        });
+        return;
+      }
+
+      const beforeParam = typeof req.query.before === 'string' ? req.query.before.trim() : null;
+      const before = beforeParam && beforeParam.length > 0 ? beforeParam : null;
+
+      let limit: number | undefined;
+      const rawLimit = req.query.limit;
+      if (typeof rawLimit === 'string') {
+        const numeric = Number(rawLimit);
+        if (Number.isFinite(numeric)) {
+          limit = numeric;
+        }
+      }
+
+      try {
+        const payload = await this.discordBridge.fetchTextChannelMessages(rawChannelId, { limit, before });
+        res.setHeader('Cache-Control', 'no-store');
+        res.json(payload);
+      } catch (error) {
+        const name = (error as Error)?.name;
+        if (name === 'GUILD_NOT_CONFIGURED') {
+          res.status(503).json({
+            error: 'GUILD_NOT_CONFIGURED',
+            message: 'La configuration du serveur Discord est incomplète.',
+          });
+          return;
+        }
+        if (name === 'CHANNEL_NOT_FOUND') {
+          res.status(404).json({
+            error: 'CHANNEL_NOT_FOUND',
+            message: 'Impossible de trouver ce salon textuel.',
+          });
+          return;
+        }
+        if (name === 'CHANNEL_NOT_ACCESSIBLE') {
+          res.status(403).json({
+            error: 'CHANNEL_NOT_ACCESSIBLE',
+            message: 'Ce salon textuel est inaccessible pour le moment.',
+          });
+          return;
+        }
+        console.error('Failed to fetch text channel messages', error);
+        res.status(500).json({
+          error: 'TEXT_CHANNEL_MESSAGES_FAILED',
+          message: 'Impossible de récupérer les messages de ce salon.',
+        });
+      }
+    });
+
     this.app.get('/api/community/pulse', async (_req, res) => {
       if (!this.voiceActivityRepository) {
         res.status(503).json({
@@ -5940,6 +6022,40 @@ export default class AppServer {
         console.error('Failed to prerender members page', error);
         this.respondWithAppShell(res, metadata);
       }
+    });
+
+    this.app.get('/salons', (_req, res) => {
+      const metadata: SeoPageMetadata = {
+        title: `${this.config.siteName} · Salons textuels & historique des messages`,
+        description:
+          'Explore les salons textuels du Discord Libre Antenne et remonte dans l’historique des échanges publics.',
+        path: '/salons',
+        canonicalUrl: this.toAbsoluteUrl('/salons'),
+        keywords: this.combineKeywords(
+          this.config.siteName,
+          'salons textuels Discord',
+          'messages Libre Antenne',
+          'radio libre communautaire',
+        ),
+        openGraphType: 'website',
+        breadcrumbs: [
+          { name: 'Accueil', path: '/' },
+          { name: 'Salons textuels', path: '/salons' },
+        ],
+        structuredData: [
+          {
+            '@context': 'https://schema.org',
+            '@type': 'CollectionPage',
+            name: `${this.config.siteName} – Salons textuels`,
+            description: 'Liste des salons textuels et historique des messages publics de Libre Antenne.',
+            url: this.toAbsoluteUrl('/salons'),
+            inLanguage: this.config.siteLanguage,
+          },
+        ],
+      };
+
+      const preloadState: AppPreloadState = { route: { name: 'salons', params: {} } };
+      this.respondWithAppShell(res, metadata, { preloadState });
     });
 
     this.app.get(['/boutique', '/shop'], (req, res) => {

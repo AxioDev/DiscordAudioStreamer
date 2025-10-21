@@ -10,6 +10,7 @@ const SHOP_ALIASES = new Set(['boutique', 'shop']);
 const BAN_ALIASES = new Set(['bannir', 'ban']);
 const PROFILE_ALIASES = new Set(['profil', 'profile']);
 const CHAT_ALIASES = new Set(['chat', 'assistant', 'assistant-ia']);
+const SALONS_ALIASES = new Set(['salons', 'channels', 'text-channels']);
 const CGU_ALIASES = new Set([
   'cgu',
   'conditions-generales',
@@ -77,6 +78,8 @@ export const buildRoutePath = (name, params = {}) => {
       return '/blog/publier';
     case 'ban':
       return '/bannir';
+    case 'salons':
+      return '/salons';
     case 'about':
       return '/about';
     case 'cgu':
@@ -183,6 +186,9 @@ export const parseRouteFromLocation = (location) => {
   }
   if (CHAT_ALIASES.has(head)) {
     return { name: 'chat', params: {} };
+  }
+  if (SALONS_ALIASES.has(head)) {
+    return { name: 'salons', params: {} };
   }
   if (BAN_ALIASES.has(head)) {
     return { name: 'ban', params: {} };
