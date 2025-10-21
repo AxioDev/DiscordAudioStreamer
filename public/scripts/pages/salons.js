@@ -31,6 +31,35 @@ const normalizeChannel = (entry) => {
   return { id, name, topic, lastMessageAt, lastMessageId, position };
 };
 
+const buildNormalizedChannels = (entries) => {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+
+  return entries
+    .map(normalizeChannel)
+    .filter((entry) => entry && entry.lastMessageId && entry.lastMessageAt)
+    .sort((a, b) => {
+      const dateA = Date.parse(a.lastMessageAt ?? '');
+      const dateB = Date.parse(b.lastMessageAt ?? '');
+      if (Number.isFinite(dateA) && Number.isFinite(dateB) && dateA !== dateB) {
+        return dateB - dateA;
+      }
+      if (Number.isFinite(dateA)) {
+        return -1;
+      }
+      if (Number.isFinite(dateB)) {
+        return 1;
+      }
+      const nameA = (a.name ?? '').toLocaleLowerCase('fr-FR');
+      const nameB = (b.name ?? '').toLocaleLowerCase('fr-FR');
+      if (nameA !== nameB) {
+        return nameA.localeCompare(nameB);
+      }
+      return a.id.localeCompare(b.id);
+    });
+};
+
 const normalizeMessage = (entry) => {
   if (!entry || typeof entry !== 'object') {
     return null;
@@ -302,12 +331,33 @@ const AuthorAvatar = ({ author }) => {
   </div>`;
 };
 
-export const SalonsPage = () => {
-  const [channels, setChannels] = useState([]);
-  const [channelsLoading, setChannelsLoading] = useState(true);
+export const SalonsPage = ({ bootstrap = null } = {}) => {
+  const bootstrapData = useMemo(() => {
+    if (!bootstrap || typeof bootstrap !== 'object') {
+      return { channels: [], refreshedAt: null };
+    }
+
+    const channels = buildNormalizedChannels(bootstrap.channels);
+    const refreshedAt = typeof bootstrap.refreshedAt === 'string' ? bootstrap.refreshedAt : null;
+    return { channels, refreshedAt };
+  }, [bootstrap]);
+
+  const [channels, setChannels] = useState(() => bootstrapData.channels);
+  const [channelsLoading, setChannelsLoading] = useState(() => bootstrapData.channels.length === 0);
   const [channelsError, setChannelsError] = useState('');
   const [channelsRefreshNonce, setChannelsRefreshNonce] = useState(0);
-  const [selectedChannelId, setSelectedChannelId] = useState(null);
+  const [selectedChannelId, setSelectedChannelId] = useState(() => {
+    if (bootstrapData.channels.length === 0) {
+      return null;
+    }
+    const preferred = bootstrapData.channels.find((channel) => channel.id === DEFAULT_CHANNEL_ID);
+    if (preferred) {
+      return preferred.id;
+    }
+    return bootstrapData.channels[0]?.id ?? null;
+  });
+
+  const skipInitialFetchRef = useRef(bootstrapData.channels.length > 0);
 
   const [messages, setMessages] = useState([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
@@ -369,6 +419,17 @@ export const SalonsPage = () => {
     let isActive = true;
     const controller = new AbortController();
 
+    if (skipInitialFetchRef.current && channelsRefreshNonce === 0) {
+      skipInitialFetchRef.current = false;
+      setChannelsLoading(false);
+      return () => {
+        isActive = false;
+        controller.abort();
+      };
+    }
+
+    skipInitialFetchRef.current = false;
+
     const loadChannels = async () => {
       setChannelsLoading(true);
       setChannelsError('');
@@ -389,30 +450,7 @@ export const SalonsPage = () => {
         }
 
         const payload = await response.json();
-        const normalized = Array.isArray(payload?.channels)
-          ? payload.channels
-              .map(normalizeChannel)
-              .filter((entry) => entry && entry.lastMessageId && entry.lastMessageAt)
-              .sort((a, b) => {
-                const dateA = Date.parse(a.lastMessageAt ?? '');
-                const dateB = Date.parse(b.lastMessageAt ?? '');
-                if (Number.isFinite(dateA) && Number.isFinite(dateB) && dateA !== dateB) {
-                  return dateB - dateA;
-                }
-                if (Number.isFinite(dateA)) {
-                  return -1;
-                }
-                if (Number.isFinite(dateB)) {
-                  return 1;
-                }
-                const nameA = (a.name ?? '').toLocaleLowerCase('fr-FR');
-                const nameB = (b.name ?? '').toLocaleLowerCase('fr-FR');
-                if (nameA !== nameB) {
-                  return nameA.localeCompare(nameB);
-                }
-                return a.id.localeCompare(b.id);
-              })
-          : [];
+        const normalized = buildNormalizedChannels(payload?.channels);
 
         if (!isActive) {
           return;

@@ -1741,7 +1741,7 @@ const App = () => {
               : route.name === 'chat'
               ? renderAsyncPage('chat')
               : route.name === 'salons'
-              ? renderAsyncPage('salons')
+              ? renderAsyncPage('salons', { bootstrap: BOOTSTRAP_PAGES.salons ?? null })
               : renderAsyncPage('home', {
                   status,
                   streamInfo,

@@ -14,7 +14,7 @@ import type AnonymousSpeechManager from '../services/AnonymousSpeechManager';
 import type { Config } from '../config';
 import { WebSocketServer } from 'ws';
 import type DiscordAudioBridge from '../discord/DiscordAudioBridge';
-import type { DiscordUserIdentity } from '../discord/DiscordAudioBridge';
+import type { DiscordUserIdentity, DiscordTextChannelSummary } from '../discord/DiscordAudioBridge';
 import type ShopService from '../services/ShopService';
 import { ShopError, type ShopProvider, type PublicProduct } from '../services/ShopService';
 import type VoiceActivityRepository from '../services/VoiceActivityRepository';
@@ -253,6 +253,11 @@ interface StatisticsPageBootstrap {
   snapshot: CommunityStatisticsSnapshot;
 }
 
+interface SalonsPageBootstrap {
+  channels: DiscordTextChannelSummary[];
+  refreshedAt: string | null;
+}
+
 interface AppPreloadState {
   route?: AppRouteDescriptor;
   participants?: Participant[];
@@ -263,12 +268,15 @@ interface AppPreloadState {
     classements?: ClassementsPageBootstrap;
     shop?: ShopPageBootstrap;
     statistiques?: StatisticsPageBootstrap;
+    salons?: SalonsPageBootstrap;
   };
   bridgeStatus?: BridgeStatus;
 }
 
 export default class AppServer {
   private static readonly hypeLeaderboardCacheTtlMs = 24 * 60 * 60 * 1000;
+
+  private static readonly textChannelCacheTtlMs = 7 * 24 * 60 * 60 * 1000;
 
   private static readonly hypeLeaderboardPrewarmSorts: readonly HypeLeaderboardSortBy[] = [
     'schScoreNorm',
@@ -337,6 +345,14 @@ export default class AppServer {
   private readonly blogSubmissionService: BlogSubmissionService;
 
   private readonly seoRenderer: SeoRenderer;
+
+  private textChannelCache:
+    | { channels: DiscordTextChannelSummary[]; fetchedAt: number; expiresAt: number }
+    | null = null;
+
+  private textChannelPromise:
+    | Promise<{ channels: DiscordTextChannelSummary[]; fetchedAt: number }>
+    | null = null;
 
   private readonly dailyArticleService: DailyArticleService | null;
 
@@ -4596,9 +4612,10 @@ export default class AppServer {
 
     this.app.get('/api/text-channels', async (_req, res) => {
       try {
-        const channels = await this.discordBridge.listTextChannels();
-        res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=90');
-        res.json({ channels });
+        const { channels, fetchedAt } = await this.getCachedTextChannels();
+        const refreshedAt = Number.isFinite(fetchedAt) ? new Date(fetchedAt).toISOString() : null;
+        res.setHeader('Cache-Control', 'public, max-age=3600, stale-while-revalidate=604800');
+        res.json({ channels, refreshedAt });
       } catch (error) {
         const name = (error as Error)?.name;
         if (name === 'GUILD_NOT_CONFIGURED') {
@@ -6109,7 +6126,7 @@ export default class AppServer {
       }
     });
 
-    this.app.get('/salons', (_req, res) => {
+    this.app.get('/salons', async (_req, res) => {
       const metadata: SeoPageMetadata = {
         title: `${this.config.siteName} · Salons textuels & historique des messages`,
         description:
@@ -6140,6 +6157,20 @@ export default class AppServer {
       };
 
       const preloadState: AppPreloadState = { route: { name: 'salons', params: {} } };
+
+      try {
+        const { channels, fetchedAt } = await this.getCachedTextChannels();
+        const refreshedAt = Number.isFinite(fetchedAt) ? new Date(fetchedAt).toISOString() : null;
+        preloadState.pages = {
+          salons: {
+            channels,
+            refreshedAt,
+          },
+        };
+      } catch (error) {
+        console.error('Failed to preload text channels for salons page', error);
+      }
+
       this.respondWithAppShell(res, metadata, { preloadState });
     });
 
@@ -7127,6 +7158,36 @@ export default class AppServer {
 
     this.hypeLeaderboardPromise.set(cacheKey, promise);
     return promise;
+  }
+
+  private async getCachedTextChannels(): Promise<{ channels: DiscordTextChannelSummary[]; fetchedAt: number }> {
+    const now = Date.now();
+    const cached = this.textChannelCache;
+    if (cached && cached.expiresAt > now) {
+      return { channels: cached.channels, fetchedAt: cached.fetchedAt };
+    }
+
+    if (this.textChannelPromise) {
+      return this.textChannelPromise;
+    }
+
+    const loader = this.discordBridge
+      .listTextChannels()
+      .then((channels) => {
+        const fetchedAt = Date.now();
+        this.textChannelCache = {
+          channels,
+          fetchedAt,
+          expiresAt: fetchedAt + AppServer.textChannelCacheTtlMs,
+        };
+        return { channels, fetchedAt };
+      })
+      .finally(() => {
+        this.textChannelPromise = null;
+      });
+
+    this.textChannelPromise = loader;
+    return loader;
   }
 
   private async prewarmHypeLeaderboardCache(): Promise<void> {
