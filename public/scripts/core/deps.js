@@ -49,6 +49,7 @@ import {
   Volume2,
   VolumeX,
   Minus,
+  Send,
   X,
 } from 'lucide-preact';
 
@@ -106,5 +107,6 @@ export {
   Volume2,
   VolumeX,
   Minus,
+  Send,
   X,
 };
