@@ -607,8 +607,8 @@ export const SalonsPage = () => {
   );
 
   return html`
-    <section class="salons-page grid gap-6 lg:grid-cols-[minmax(0,224px)_minmax(0,1fr)] xl:grid-cols-[minmax(0,256px)_minmax(0,1fr)]">
-      <aside class="flex flex-col gap-4 rounded-3xl border border-white/10 bg-slate-900/60 p-6 shadow-lg shadow-black/30">
+    <section class="salons-page grid gap-6 lg:grid-cols-[minmax(0,176px)_minmax(0,1fr)] xl:grid-cols-[minmax(0,192px)_minmax(0,1fr)]">
+      <aside class="flex flex-col gap-3 rounded-3xl border border-white/10 bg-slate-900/60 p-4 shadow-lg shadow-black/30">
         <div class="flex items-center justify-between gap-3">
           <h2 class="text-lg font-semibold text-white">Salons textuels</h2>
           <button
@@ -638,34 +638,34 @@ export const SalonsPage = () => {
           ? html`<p class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">Aucun salon textuel n’est disponible pour le moment.</p>`
           : null}
         ${channels.length > 0
-          ? html`<ul class="space-y-1.5">
+          ? html`<ul class="space-y-1">
               ${channels.map((channel) => {
                 const isActive = channel.id === selectedChannelId;
                 const lastMessageLabel = formatTimestampLabel(channel.lastMessageAt);
                 return html`<li key=${channel.id}>
                   <button
                     type="button"
-                    class="w-full rounded-2xl border px-3.5 py-2.5 text-left transition focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950 ${
+                    class="w-full rounded-2xl border px-3 py-2 text-left transition focus:outline-none focus:ring-2 focus:ring-amber-300/60 focus:ring-offset-2 focus:ring-offset-slate-950 ${
                       isActive
                         ? 'border-amber-400/60 bg-amber-500/10 text-white shadow-lg shadow-amber-900/30'
                         : 'border-white/10 bg-white/5 text-slate-200 hover:border-amber-300/40 hover:bg-amber-500/10 hover:text-white'
                     }"
                     onClick=${() => handleSelectChannel(channel.id)}
                   >
-                    <div class="flex items-start gap-2.5">
-                      <span class="mt-1 inline-flex h-7 w-7 flex-none items-center justify-center rounded-xl border border-white/10 bg-white/10 text-slate-200 ${
+                    <div class="flex items-start gap-2">
+                      <span class="mt-0.5 inline-flex h-6 w-6 flex-none items-center justify-center rounded-xl border border-white/10 bg-white/10 text-slate-200 ${
                         isActive ? 'border-amber-300/60 text-amber-200' : ''
                       }">
                         <${Hash} class="h-4 w-4" aria-hidden="true" />
                       </span>
-                      <div class="flex min-w-0 flex-col gap-1">
-                        <p class="truncate text-sm font-semibold">${getChannelDisplayName(channel)}</p>
+                      <div class="flex min-w-0 flex-col gap-0.5">
+                        <p class="truncate text-[13px] font-semibold leading-5">${getChannelDisplayName(channel)}</p>
                         ${channel.topic
-                          ? html`<p class="line-clamp-2 text-xs text-slate-300/80">${channel.topic}</p>`
+                          ? html`<p class="line-clamp-2 text-[11px] leading-4 text-slate-300/80">${channel.topic}</p>`
                           : null}
                         ${lastMessageLabel
-                          ? html`<p class="text-xs text-slate-400">Dernier message · ${lastMessageLabel}</p>`
-                          : html`<p class="text-xs text-slate-500">Aucun message récent</p>`}
+                          ? html`<p class="text-[11px] text-slate-400">Dernier message · ${lastMessageLabel}</p>`
+                          : html`<p class="text-[11px] text-slate-500">Aucun message récent</p>`}
                       </div>
                     </div>
                   </button>
