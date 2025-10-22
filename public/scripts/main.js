@@ -927,6 +927,7 @@ const App = () => {
       'ban',
       'about',
       'cgu',
+      'cgv-vente',
     ];
 
     const startPrefetch = () => {
@@ -1872,6 +1873,8 @@ const App = () => {
           ${
             route.name === 'cgu'
               ? renderAsyncPage('cgu')
+              : route.name === 'cgv-vente'
+              ? renderAsyncPage('cgv-vente')
               : route.name === 'ban'
               ? renderAsyncPage('ban')
               : route.name === 'about'
