@@ -1,5 +1,8 @@
 import { Pool, PoolConfig } from 'pg';
 import { attachPostgresQueryLogger } from './utils/PostgresQueryLogger';
+import { getSharedPostgresPool } from './utils/SharedPostgresPool';
+
+const VOICE_POOL_ERROR_MARK = Symbol('VoiceActivityRepositoryPoolErrorHandler');
 
 export interface VoiceActivityRepositoryOptions {
   url?: string;
@@ -544,23 +547,28 @@ export default class VoiceActivityRepository {
     }
 
     if (!this.pool) {
-      const sslConfig = this.ssl ? { rejectUnauthorized: false } : undefined;
-      this.pool = new Pool({
+      const { pool } = getSharedPostgresPool({
         connectionString: this.connectionString,
-        ssl: sslConfig,
-        ...this.poolConfig,
+        ssl: this.ssl,
+        poolConfig: this.poolConfig,
       });
 
-      this.pool.on('error', (error: unknown) => {
-        console.error('Unexpected error from PostgreSQL connection pool', error);
-      });
+      const typedPool = pool as Pool & { [VOICE_POOL_ERROR_MARK]?: boolean };
+      if (!typedPool[VOICE_POOL_ERROR_MARK]) {
+        typedPool[VOICE_POOL_ERROR_MARK] = true;
+        pool.on('error', (error: unknown) => {
+          console.error('Unexpected error from PostgreSQL connection pool', error);
+        });
+      }
 
-      attachPostgresQueryLogger(this.pool, {
+      attachPostgresQueryLogger(pool, {
         context: 'VoiceActivityRepository',
         debug: this.debugQueries,
         connectionString: this.connectionString,
         ssl: this.ssl,
       });
+
+      this.pool = pool;
     }
 
     return this.pool;

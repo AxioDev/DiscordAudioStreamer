@@ -1,5 +1,8 @@
 import { Pool, PoolConfig } from 'pg';
 import { attachPostgresQueryLogger } from './utils/PostgresQueryLogger';
+import { getSharedPostgresPool } from './utils/SharedPostgresPool';
+
+const BLOG_POOL_ERROR_MARK = Symbol('BlogRepositoryPoolErrorHandler');
 
 export interface BlogRepositoryOptions {
   url?: string;
@@ -91,22 +94,28 @@ export default class BlogRepository {
       return this.pool;
     }
 
-    this.pool = new Pool({
+    const { pool } = getSharedPostgresPool({
       connectionString: this.connectionString,
-      ssl: this.ssl ? { rejectUnauthorized: false } : undefined,
-      ...this.poolConfig,
+      ssl: this.ssl,
+      poolConfig: this.poolConfig,
     });
 
-    this.pool.on('error', (error) => {
-      console.error('BlogRepository: erreur de connexion à la base de données', error);
-    });
+    const typedPool = pool as Pool & { [BLOG_POOL_ERROR_MARK]?: boolean };
+    if (!typedPool[BLOG_POOL_ERROR_MARK]) {
+      typedPool[BLOG_POOL_ERROR_MARK] = true;
+      pool.on('error', (error) => {
+        console.error('BlogRepository: erreur de connexion à la base de données', error);
+      });
+    }
 
-    attachPostgresQueryLogger(this.pool, {
+    attachPostgresQueryLogger(pool, {
       context: 'BlogRepository',
       debug: this.debugQueries,
       connectionString: this.connectionString,
       ssl: this.ssl,
     });
+
+    this.pool = pool;
 
     return this.pool;
   }

@@ -123,67 +123,71 @@ export function attachPostgresQueryLogger(pool: Pool, options: QueryLoggerOption
     return;
   }
 
-  const typedPool = pool as Pool & { [QUERY_LOGGER_MARK]?: boolean };
-  if (typedPool[QUERY_LOGGER_MARK]) {
-    return;
+  const typedPool = pool as Pool & { [QUERY_LOGGER_MARK]?: Set<string> };
+  let contexts = typedPool[QUERY_LOGGER_MARK];
+  if (!contexts) {
+    contexts = new Set<string>();
+    typedPool[QUERY_LOGGER_MARK] = contexts;
+
+    const originalQuery = pool.query.bind(pool);
+
+    pool.query = ((...args: unknown[]) => {
+      const contextLabel = Array.from(contexts!).sort().join(', ') || context;
+      const [textOrConfig, valuesOrCallback, maybeCallback] = args;
+
+      let queryText: string | undefined;
+      let values: unknown[] | undefined;
+
+      if (typeof textOrConfig === 'string') {
+        queryText = textOrConfig;
+        if (Array.isArray(valuesOrCallback)) {
+          values = valuesOrCallback;
+        } else if (Array.isArray(maybeCallback)) {
+          values = maybeCallback;
+        }
+      } else if (textOrConfig && typeof textOrConfig === 'object') {
+        const config = textOrConfig as { text?: unknown; values?: unknown };
+        if (typeof config.text === 'string') {
+          queryText = config.text;
+        }
+        if (Array.isArray(config.values)) {
+          values = config.values;
+        }
+      }
+
+      const normalizedText = normalizeQueryText(queryText);
+      const sanitizedValues = values?.map((value) => sanitizeValue(value));
+
+      const logError = (error: unknown, phase: 'async' | 'sync'): void => {
+        const basePayload = {
+          query: normalizedText ?? queryText ?? '<inconnue>',
+          values: sanitizedValues ?? values,
+          error: (error as Error)?.message || error,
+        } as Record<string, unknown>;
+        const hint = getAdditionalErrorContext(error);
+        if (hint) {
+          basePayload.hint = hint;
+        }
+
+        const prefix = phase === 'async' ? 'échec de la requête' : 'erreur synchrone';
+        console.error(`[SupabaseDebug] ${contextLabel}: ${prefix}`, basePayload);
+      };
+
+      try {
+        const result = originalQuery(...(args as Parameters<Pool['query']>)) as unknown;
+        if (result instanceof Promise) {
+          return result.catch((error) => {
+            logError(error, 'async');
+            throw error;
+          });
+        }
+        return result as ReturnType<Pool['query']>;
+      } catch (error) {
+        logError(error, 'sync');
+        throw error;
+      }
+    }) as typeof pool.query;
   }
-  typedPool[QUERY_LOGGER_MARK] = true;
 
-  const originalQuery = pool.query.bind(pool);
-
-  pool.query = ((...args: unknown[]) => {
-    const [textOrConfig, valuesOrCallback, maybeCallback] = args;
-
-    let queryText: string | undefined;
-    let values: unknown[] | undefined;
-
-    if (typeof textOrConfig === 'string') {
-      queryText = textOrConfig;
-      if (Array.isArray(valuesOrCallback)) {
-        values = valuesOrCallback;
-      } else if (Array.isArray(maybeCallback)) {
-        values = maybeCallback;
-      }
-    } else if (textOrConfig && typeof textOrConfig === 'object') {
-      const config = textOrConfig as { text?: unknown; values?: unknown };
-      if (typeof config.text === 'string') {
-        queryText = config.text;
-      }
-      if (Array.isArray(config.values)) {
-        values = config.values;
-      }
-    }
-
-    const normalizedText = normalizeQueryText(queryText);
-    const sanitizedValues = values?.map((value) => sanitizeValue(value));
-
-    const logError = (error: unknown, phase: 'async' | 'sync'): void => {
-      const basePayload = {
-        query: normalizedText ?? queryText ?? '<inconnue>',
-        values: sanitizedValues ?? values,
-        error: (error as Error)?.message || error,
-      } as Record<string, unknown>;
-      const hint = getAdditionalErrorContext(error);
-      if (hint) {
-        basePayload.hint = hint;
-      }
-
-      const prefix = phase === 'async' ? 'échec de la requête' : 'erreur synchrone';
-      console.error(`[SupabaseDebug] ${context}: ${prefix}`, basePayload);
-    };
-
-    try {
-      const result = originalQuery(...(args as Parameters<Pool['query']>)) as unknown;
-      if (result instanceof Promise) {
-        return result.catch((error) => {
-          logError(error, 'async');
-          throw error;
-        });
-      }
-      return result as ReturnType<Pool['query']>;
-    } catch (error) {
-      logError(error, 'sync');
-      throw error;
-    }
-  }) as typeof pool.query;
+  contexts.add(context);
 }
