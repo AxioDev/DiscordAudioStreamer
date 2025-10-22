@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import minifyHTML from 'express-minify-html-terser';
 import fs from 'fs';
 import path from 'path';
-import type { Server } from 'http';
+import type { IncomingMessage, Server } from 'http';
 import { randomUUID } from 'crypto';
 import { icons as lucideIcons, type IconNode } from 'lucide';
 import { aboutPageContent } from '../content/about';
@@ -14,7 +14,7 @@ import type { Participant, BridgeStatus } from '../services/SpeakerTracker';
 import type SseService from '../services/SseService';
 import type AnonymousSpeechManager from '../services/AnonymousSpeechManager';
 import type { Config } from '../config';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, type WebSocket } from 'ws';
 import type DiscordAudioBridge from '../discord/DiscordAudioBridge';
 import type { DiscordUserIdentity, DiscordTextChannelSummary } from '../discord/DiscordAudioBridge';
 import type ShopService from '../services/ShopService';
@@ -7245,79 +7245,109 @@ export default class AppServer {
       this.respondWithAppShell(res, metadata, { appHtml, preloadState });
     });
 
-    this.app.get('/cgv-vente', (_req, res) => {
-      const metadata: SeoPageMetadata = {
-        title: `${this.config.siteName} · Conditions générales de vente & informations boutique`,
-        description:
-          'Retrouve le détail des prix TTC, des moyens de paiement acceptés, des délais de livraison et de ton droit de rétractation pour la boutique Libre Antenne.',
-        path: '/cgv-vente',
-        canonicalUrl: this.toAbsoluteUrl('/cgv-vente'),
-        keywords: this.combineKeywords(
-          this.config.siteName,
-          'conditions générales de vente',
-          'CGV Libre Antenne',
-          'paiement boutique',
-          'livraison radio libre',
-        ),
-        openGraphType: 'website',
-        breadcrumbs: [
-          { name: 'Accueil', path: '/' },
-          { name: 'Conditions de vente', path: '/cgv-vente' },
-          { name: 'Mentions légales', path },
-        ],
-        structuredData: [
-          {
-            '@context': 'https://schema.org',
-            '@type': 'TermsOfService',
-            name: `Conditions générales de vente – ${this.config.siteName}`,
-            description:
-              'Conditions générales de vente de la boutique Libre Antenne : prix TTC, moyens de paiement, livraison et droit de rétractation.',
-            url: this.toAbsoluteUrl('/cgv-vente'),
-            inLanguage: this.config.siteLanguage,
-            provider: {
-            '@type': 'WebPage',
-            name: `Mentions légales – ${this.config.siteName}`,
-            description:
-              'Mentions légales, éditeur responsable, contacts officiels et informations d’hébergement du service Libre Antenne.',
-            url: this.toAbsoluteUrl(path),
-            inLanguage: this.config.siteLanguage,
-            isPartOf: {
-              '@type': 'WebSite',
-              name: this.config.siteName,
-              url: this.config.publicBaseUrl,
-            },
-            publisher: {
-              '@type': 'Organization',
-              name: this.config.siteName,
-              url: this.config.publicBaseUrl,
-            },
-            termsOfServiceType: 'ConsumerTerms',
-            dateModified: '2025-03-10',
-          },
-        ],
-      };
-
-      const appHtml = this.buildCgvVentePageHtml();
-      const preloadState: AppPreloadState = {
-        route: { name: 'cgv-vente', params: {} },
-            contactPoint: [
-              {
-                '@type': 'ContactPoint',
-                contactType: 'Support & questions légales',
-                email: 'contact@libre-antenne.fm',
-                availableLanguage: [this.config.siteLanguage || 'fr'],
+      this.app.get('/cgv-vente', (_req, res) => {
+        const metadata: SeoPageMetadata = {
+          title: `${this.config.siteName} · Conditions générales de vente & informations boutique`,
+          description:
+            'Retrouve le détail des prix TTC, des moyens de paiement acceptés, des délais de livraison et de ton droit de rétractation pour la boutique Libre Antenne.',
+          path: '/cgv-vente',
+          canonicalUrl: this.toAbsoluteUrl('/cgv-vente'),
+          keywords: this.combineKeywords(
+            this.config.siteName,
+            'conditions générales de vente',
+            'CGV Libre Antenne',
+            'paiement boutique',
+            'livraison radio libre',
+          ),
+          openGraphType: 'website',
+          breadcrumbs: [
+            { name: 'Accueil', path: '/' },
+            { name: 'Conditions de vente', path: '/cgv-vente' },
+          ],
+          structuredData: [
+            {
+              '@context': 'https://schema.org',
+              '@type': 'TermsOfService',
+              name: `Conditions générales de vente – ${this.config.siteName}`,
+              description:
+                'Conditions générales de vente de la boutique Libre Antenne : prix TTC, moyens de paiement, livraison et droit de rétractation.',
+              url: this.toAbsoluteUrl('/cgv-vente'),
+              inLanguage: this.config.siteLanguage,
+              provider: {
+                '@type': 'Organization',
+                name: this.config.siteName,
+                url: this.config.publicBaseUrl,
+                contactPoint: [
+                  {
+                    '@type': 'ContactPoint',
+                    contactType: 'Support & questions légales',
+                    email: 'contact@libre-antenne.fm',
+                    availableLanguage: [this.config.siteLanguage || 'fr'],
+                  },
+                ],
               },
-            ],
-          },
-        ],
-      };
+              termsOfServiceType: 'ConsumerTerms',
+              dateModified: '2025-03-10',
+            },
+          ],
+        };
 
-      const appHtml = this.buildLegalMentionsPageHtml();
-      const preloadState: AppPreloadState = {
-        route: { name: 'mentions-legales', params: {} },
-      };
-      this.respondWithAppShell(res, metadata, { appHtml, preloadState });
-    });
+        const appHtml = this.buildCgvVentePageHtml();
+        const preloadState: AppPreloadState = {
+          route: { name: 'cgv-vente', params: {} },
+        };
+        this.respondWithAppShell(res, metadata, { appHtml, preloadState });
+      });
+
+      this.app.get('/mentions-legales', (_req, res) => {
+        const path = '/mentions-legales';
+        const metadata: SeoPageMetadata = {
+          title: `${this.config.siteName} · Mentions légales & éditeur responsable`,
+          description:
+            'Mentions légales, éditeur responsable, contacts officiels et informations d’hébergement du service Libre Antenne.',
+          path,
+          canonicalUrl: this.toAbsoluteUrl(path),
+          keywords: this.combineKeywords(
+            this.config.siteName,
+            'mentions légales Libre Antenne',
+            'éditeur responsable',
+            'contact officiel',
+            'hébergeur',
+          ),
+          openGraphType: 'website',
+          breadcrumbs: [
+            { name: 'Accueil', path: '/' },
+            { name: 'Mentions légales', path },
+          ],
+          structuredData: [
+            {
+              '@context': 'https://schema.org',
+              '@type': 'WebPage',
+              name: `Mentions légales – ${this.config.siteName}`,
+              description:
+                'Mentions légales, éditeur responsable, contacts officiels et informations d’hébergement du service Libre Antenne.',
+              url: this.toAbsoluteUrl(path),
+              inLanguage: this.config.siteLanguage,
+              isPartOf: {
+                '@type': 'WebSite',
+                name: this.config.siteName,
+                url: this.config.publicBaseUrl,
+              },
+              publisher: {
+                '@type': 'Organization',
+                name: this.config.siteName,
+                url: this.config.publicBaseUrl,
+              },
+            },
+          ],
+        };
+
+        const appHtml = this.buildLegalMentionsPageHtml();
+        const preloadState: AppPreloadState = {
+          route: { name: 'mentions-legales', params: {} },
+        };
+        this.respondWithAppShell(res, metadata, { appHtml, preloadState });
+      });
 
     this.app.get(['/assistant', '/assistant-ia', '/chat'], (req, res) => {
       if (req.path !== '/assistant') {
@@ -8668,13 +8698,18 @@ export default class AppServer {
     if (!this.httpServer) {
       return;
     }
-    this.wsServer = new WebSocketServer({ server: this.httpServer, path: '/anonymous-stream' });
-    this.wsServer.on('connection', (socket, request) => {
+
+    const server = new WebSocketServer({ server: this.httpServer, path: '/anonymous-stream' });
+
+    server.on('connection', (socket: WebSocket, request: IncomingMessage) => {
       this.anonymousSpeechManager.handleSocketConnection(socket, request);
     });
-    this.wsServer.on('error', (error) => {
+
+    server.on('error', (error: Error) => {
       console.warn('WebSocket server error', error);
     });
+
+    this.wsServer = server;
   }
 
   private extractAnonymousToken(req: Request): string | null {
