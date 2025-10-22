@@ -2395,11 +2395,17 @@ export default class AppServer {
       parts.push(
         '<section id="home-community-pulse" class="rounded-3xl border border-slate-800/60 bg-slate-950/70 p-8">',
       );
+      const rawWindowLabel = typeof pulse.windowLabel === 'string' ? pulse.windowLabel.trim() : '';
+      const headingWindowLabel = rawWindowLabel
+        ? rawWindowLabel.startsWith('Sur ')
+          ? `Chiffres sur ${rawWindowLabel.slice(4)}`
+          : `Chiffres ${rawWindowLabel}`
+        : 'Chiffres';
       parts.push('<div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">');
       parts.push('<div>');
       parts.push('<p class="text-xs uppercase tracking-[0.3em] text-amber-300/80">Pulse communautaire</p>');
       parts.push(
-        `<h2 class="text-2xl font-semibold text-white">Tendance des ${this.escapeHtml(pulse.windowLabel)}</h2>`,
+        `<h2 class="text-2xl font-semibold text-white">${this.escapeHtml(headingWindowLabel)}</h2>`,
       );
       parts.push(`<p class="text-sm text-slate-300">${this.escapeHtml(pulse.comparisonLabel)}</p>`);
       parts.push('</div>');
@@ -2447,7 +2453,7 @@ export default class AppServer {
       parts.push('<div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">');
       parts.push('<div>');
       parts.push('<p class="text-xs uppercase tracking-[0.3em] text-amber-300/80">Pulse communautaire</p>');
-      parts.push('<h2 class="text-2xl font-semibold text-white">Tendance des 15 dernières minutes</h2>');
+      parts.push('<h2 class="text-2xl font-semibold text-white">Chiffres sur les 15 dernières minutes</h2>');
       parts.push('<p class="text-sm text-slate-300">Indicateurs en cours de chargement…</p>');
       parts.push('</div>');
       parts.push('<p class="text-xs text-slate-400">Actualisation en cours…</p>');
