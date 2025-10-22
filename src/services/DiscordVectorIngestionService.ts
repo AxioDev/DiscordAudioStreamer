@@ -522,6 +522,13 @@ export default class DiscordVectorIngestionService {
         since: range.since,
         until: range.until,
         limit: this.maxVoiceTranscriptions,
+        order: 'desc',
+      });
+
+      records.sort((a, b) => {
+        const aTime = a.timestamp instanceof Date ? a.timestamp.getTime() : Number.NEGATIVE_INFINITY;
+        const bTime = b.timestamp instanceof Date ? b.timestamp.getTime() : Number.NEGATIVE_INFINITY;
+        return aTime - bTime;
       });
 
       return records.map((record) => {
