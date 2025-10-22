@@ -2502,7 +2502,7 @@ const PersonaInsightList = ({ title, items = [], emptyLabel = 'Aucune informatio
     : [];
 
   return html`
-    <section class="flex h-full flex-col gap-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+    <section class="flex h-full min-w-0 flex-col gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 break-words">
       <div class="flex items-center justify-between gap-3">
         <h3 class="text-sm font-semibold uppercase tracking-[0.3em] text-slate-300">${title}</h3>
         ${normalizedItems.length
@@ -2510,7 +2510,7 @@ const PersonaInsightList = ({ title, items = [], emptyLabel = 'Aucune informatio
           : null}
       </div>
       ${normalizedItems.length === 0
-        ? html`<p class="text-sm text-slate-400">${emptyLabel}</p>`
+        ? html`<p class="break-words text-sm text-slate-400">${emptyLabel}</p>`
         : html`
             <ul class="space-y-3 text-sm">
               ${normalizedItems.map((item, index) => {
@@ -2522,18 +2522,18 @@ const PersonaInsightList = ({ title, items = [], emptyLabel = 'Aucune informatio
                 const level = typeof item.confidence === 'string' ? item.confidence : 'low';
 
                 return html`
-                  <li key=${`${titleText}-${index}`} class="rounded-xl border border-white/5 bg-black/10 p-3">
+                  <li key=${`${titleText}-${index}`} class="break-words rounded-xl border border-white/5 bg-black/10 p-3">
                     <div class="flex flex-col gap-2">
                       <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                         <p class="text-sm font-semibold text-white">${titleText || detailText || 'Information'}</p>
                         <${PersonaConfidenceBadge} level=${level} />
                       </div>
                       ${detailText
-                        ? html`<p class="text-sm leading-relaxed text-slate-300">${detailText}</p>`
+                        ? html`<p class="break-words text-sm leading-relaxed text-slate-300">${detailText}</p>`
                         : null}
                       ${evidence.length
                         ? html`<ul class="mt-1 list-disc space-y-1 pl-5 text-xs text-slate-400">
-                            ${evidence.map((entry, evidenceIndex) => html`<li key=${evidenceIndex}>${entry}</li>`) }
+                            ${evidence.map((entry, evidenceIndex) => html`<li key=${evidenceIndex} class="break-words">${entry}</li>`) }
                           </ul>`
                         : null}
                     </div>
@@ -2595,10 +2595,10 @@ const ProfilePersonaCard = ({ persona }) => {
           <p class="text-xs uppercase tracking-[0.35em] text-indigo-200/80">Portrait synthétique</p>
           <h2 class="text-2xl font-semibold text-white">Résumé du profil</h2>
           ${summary
-            ? html`<p class="text-sm leading-relaxed text-slate-200">${summary}</p>`
-            : html`<p class="text-sm text-slate-400">Pas encore de résumé disponible.</p>`}
+            ? html`<p class="break-words text-sm leading-relaxed text-slate-200">${summary}</p>`
+            : html`<p class="break-words text-sm text-slate-400">Pas encore de résumé disponible.</p>`}
           ${typeof identity.selfDescription === 'string' && identity.selfDescription.trim().length > 0
-            ? html`<blockquote class="rounded-2xl border border-indigo-400/30 bg-indigo-500/10 p-4 text-sm italic text-indigo-100">
+            ? html`<blockquote class="break-words rounded-2xl border border-indigo-400/30 bg-indigo-500/10 p-4 text-sm italic text-indigo-100">
                 « ${identity.selfDescription.trim()} »
               </blockquote>`
             : null}
