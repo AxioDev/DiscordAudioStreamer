@@ -4748,6 +4748,11 @@ export default class AppServer {
 
     registerChatRoute(this.app);
 
+    this.app.get('/api/pages/about', (_req, res) => {
+      res.setHeader('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
+      res.json(aboutPageContent);
+    });
+
     this.app.get('/api/shop/products', (_req, res) => {
       res.json({
         currency: this.shopService.getCurrency(),
