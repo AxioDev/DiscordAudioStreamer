@@ -58,6 +58,7 @@ const FINALITIES = [
 const CONSERVATION_RULES = [
   'Données audio et préférences locales : uniquement le temps nécessaire à la diffusion en direct ou à l’usage de ton navigateur.',
   'Historique de participation et classements : conservation maximale de douze mois, avec anonymisation progressive au-delà.',
+  'Profils et données personnelles des membres partis : suppression automatique 28 jours et 23 heures après leur départ du serveur Discord.',
   'Logs techniques et métriques d’audience : conservation inférieure ou égale à trente jours, agrégats anonymisés jusqu’à vingt-quatre mois.',
   'Documents contractuels et commandes : conservation légale de cinq ans, puis archivage sécurisé ou suppression.',
 ];
@@ -156,7 +157,7 @@ const CguPage = () => html`
       </div>
     </section>
 
-    <p class="text-xs uppercase tracking-[0.25em] text-slate-500">Dernière mise à jour : 4 novembre 2024</p>
+    <p class="text-xs uppercase tracking-[0.25em] text-slate-500">Dernière mise à jour : 10 mars 2025</p>
   </${Fragment}>
 `;
 

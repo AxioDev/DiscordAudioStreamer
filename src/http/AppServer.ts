@@ -3840,7 +3840,7 @@ export default class AppServer {
         usage:
           'Affichage des participants, génération des classements, lutte contre le spam et modération communautaire.',
         retention:
-          'Historique agrégé conservé douze mois pour les classements ; anonymisation ou suppression des identifiants 30 jours après départ du serveur.',
+          'Historique agrégé conservé douze mois pour les classements ; suppression des identifiants 28 jours et 23 heures après départ du serveur Discord.',
       },
       {
         title: 'Statistiques d’écoute et journaux techniques',
@@ -3879,6 +3879,7 @@ export default class AppServer {
     const conservationRules = [
       'Données audio et préférences locales : uniquement le temps nécessaire à la diffusion en direct ou à l’usage de ton navigateur.',
       'Historique de participation et classements : conservation maximale de douze mois, avec anonymisation progressive au-delà.',
+      'Profils et données personnelles des membres partis : suppression automatique 28 jours et 23 heures après leur départ du serveur Discord.',
       'Logs techniques et métriques d’audience : conservation inférieure ou égale à trente jours, agrégats anonymisés jusqu’à vingt-quatre mois.',
       'Documents contractuels et commandes : conservation légale de cinq ans, puis archivage sécurisé ou suppression.',
     ];
@@ -3986,7 +3987,7 @@ export default class AppServer {
     parts.push('</div>');
     parts.push('</section>');
 
-    parts.push('<p class="text-xs uppercase tracking-[0.25em] text-slate-500">Dernière mise à jour : 4 novembre 2024</p>');
+    parts.push('<p class="text-xs uppercase tracking-[0.25em] text-slate-500">Dernière mise à jour : 10 mars 2025</p>');
     parts.push('</div>');
 
     return parts.join('');

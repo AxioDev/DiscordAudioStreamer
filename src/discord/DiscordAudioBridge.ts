@@ -11,6 +11,8 @@ import {
   type VoiceState,
   type Snowflake,
   type VoiceBasedChannel,
+  type GuildMember,
+  type PartialGuildMember,
 } from 'discord.js';
 import {
   joinVoiceChannel,
@@ -274,6 +276,20 @@ export default class DiscordAudioBridge {
         await this.handleVoiceStateUpdate(oldState, newState);
       } catch (error) {
         console.error('Voice state update handling failed', error);
+      }
+    });
+    this.client.on(Events.GuildMemberAdd, async (member) => {
+      try {
+        await this.handleGuildMemberAdd(member);
+      } catch (error) {
+        console.error('Guild member add handling failed', error);
+      }
+    });
+    this.client.on(Events.GuildMemberRemove, async (member) => {
+      try {
+        await this.handleGuildMemberRemove(member);
+      } catch (error) {
+        console.error('Guild member remove handling failed', error);
       }
     });
   }
@@ -1257,6 +1273,132 @@ export default class DiscordAudioBridge {
     if (oldState?.channelId === this.currentVoiceChannelId && channelId !== this.currentVoiceChannelId) {
       await this.speakerTracker.handleVoiceStateUpdate(userId, null);
     }
+  }
+
+  private async handleGuildMemberAdd(member: GuildMember | PartialGuildMember): Promise<void> {
+    if (!this.voiceActivityRepository) {
+      return;
+    }
+
+    const guildId = member.guild?.id;
+    if (!guildId) {
+      return;
+    }
+
+    if (this.config.guildId && guildId !== this.config.guildId) {
+      return;
+    }
+
+    let resolvedMember: GuildMember;
+    if ('partial' in member && member.partial) {
+      try {
+        resolvedMember = await member.fetch();
+      } catch (error) {
+        console.warn('Failed to resolve partial guild member on join', (error as Error)?.message ?? error);
+        return;
+      }
+    } else {
+      resolvedMember = member as GuildMember;
+    }
+
+    const user = resolvedMember.user;
+    if (!user) {
+      return;
+    }
+
+    if (user.bot) {
+      this.knownBotUserIds.add(resolvedMember.id);
+    }
+
+    const username = typeof user.username === 'string' ? user.username : null;
+    const globalName = typeof user.globalName === 'string' ? user.globalName : null;
+    const nickname = typeof resolvedMember.nickname === 'string' ? resolvedMember.nickname : null;
+    const displayName = typeof resolvedMember.displayName === 'string'
+      ? resolvedMember.displayName
+      : nickname ?? globalName ?? username ?? null;
+    const avatarUrl = typeof resolvedMember.displayAvatarURL === 'function'
+      ? resolvedMember.displayAvatarURL({ extension: 'png', size: 128 })
+      : null;
+    const joinedAt = resolvedMember.joinedAt instanceof Date && !Number.isNaN(resolvedMember.joinedAt.getTime())
+      ? resolvedMember.joinedAt
+      : null;
+    const roles = Array.from(resolvedMember.roles.cache.values())
+      .filter((role) => role.id !== guildId)
+      .map((role) => ({ id: role.id, name: role.name }));
+    const now = new Date();
+
+    this.syncUsers([
+      {
+        userId: resolvedMember.id,
+        guildId,
+        username,
+        displayName,
+        nickname,
+        firstSeenAt: joinedAt ?? now,
+        lastSeenAt: now,
+        metadata: {
+          globalName,
+          avatarUrl,
+          roles,
+          isBot: Boolean(user.bot),
+        },
+        departedAt: null,
+      },
+    ]);
+  }
+
+  private async handleGuildMemberRemove(member: GuildMember | PartialGuildMember): Promise<void> {
+    if (!this.voiceActivityRepository) {
+      return;
+    }
+
+    const guildId = member.guild?.id;
+    if (!guildId) {
+      return;
+    }
+
+    if (this.config.guildId && guildId !== this.config.guildId) {
+      return;
+    }
+
+    const user = member.user;
+    const userId = member.id;
+    if (!userId) {
+      return;
+    }
+
+    if (user?.bot) {
+      this.knownBotUserIds.add(userId);
+      return;
+    }
+
+    const username = typeof user?.username === 'string' ? user.username : null;
+    const globalName = typeof user?.globalName === 'string' ? user.globalName : null;
+    const nickname = typeof member.nickname === 'string' ? member.nickname : null;
+    const displayName = typeof member.displayName === 'string'
+      ? member.displayName
+      : nickname ?? globalName ?? username ?? null;
+    const avatarUrl = typeof user?.displayAvatarURL === 'function'
+      ? user.displayAvatarURL({ extension: 'png', size: 128 })
+      : null;
+    const departedAt = new Date();
+
+    this.syncUsers([
+      {
+        userId,
+        guildId,
+        username,
+        displayName,
+        nickname,
+        lastSeenAt: departedAt,
+        metadata: {
+          globalName,
+          avatarUrl,
+          departedAt: departedAt.toISOString(),
+        },
+        departedAt,
+      },
+    ]);
   }
 
   private setupAnonymousPipeline(connection: VoiceConnection): void {
