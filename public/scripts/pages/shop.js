@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   AlertCircle,
+  ArrowRight,
   Coffee,
   Coins,
   RefreshCcw,
@@ -293,6 +294,22 @@ export const ShopPage = ({ bootstrap = null }) => {
             ${SHOP_CONTENT.sections.cryptoFriendly.description}
           </p>
         </div>
+      </section>
+
+      <section class="space-y-4 rounded-3xl border border-white/10 bg-white/5 px-6 py-8 text-sm text-slate-200 shadow-xl shadow-slate-950/40 backdrop-blur-xl">
+        <h2 class="text-xl font-semibold text-white">Conditions générales de vente</h2>
+        <p class="leading-relaxed">
+          Les prix indiqués dans la boutique sont toutes taxes comprises et tes justificatifs de paiement mentionnent
+          la TVA applicable. Retrouve le détail des modes de règlement, des délais de livraison et de ton droit de
+          rétractation dans nos CGV.
+        </p>
+        <a
+          class="inline-flex items-center gap-2 self-start rounded-full border border-white/15 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-white transition hover:bg-white/20"
+          href="/cgv-vente"
+        >
+          Lire les CGV
+          <${ArrowRight} class="h-4 w-4" aria-hidden="true" />
+        </a>
       </section>
     </${Fragment}>
   `;
