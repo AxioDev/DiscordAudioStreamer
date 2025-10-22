@@ -3829,9 +3829,9 @@ export default class AppServer {
         description:
           'Les voix captées sur Discord sont transmises en continu pour la diffusion publique du direct Libre Antenne.',
         usage:
-          'Diffusion du direct, supervision technique en temps réel et détection d’abus pour protéger les membres.',
+          'Diffusion du direct, supervision technique en temps réel et, si nécessaire, constitution ponctuelle d’extraits anonymisés pour investiguer un abus.',
         retention:
-          'Aucun enregistrement permanent. Tampon de diffusion inférieur à deux minutes et journaux techniques conservés 24 heures maximum.',
+          'Tampon de diffusion inférieur à deux minutes. Les enregistrements optionnels sont désactivés par défaut ; lorsqu’ils sont activés pour la modération, les extraits anonymisés sont supprimés automatiquement à l’issue du délai configuré (`RECORDINGS_RETENTION_DAYS`).',
       },
       {
         title: 'Métadonnées Discord & activité communautaire',
@@ -3877,7 +3877,7 @@ export default class AppServer {
       'Respecter les obligations légales en matière de facturation, de conservation comptable et de réponse aux autorités compétentes.',
     ];
     const conservationRules = [
-      'Données audio et préférences locales : uniquement le temps nécessaire à la diffusion en direct ou à l’usage de ton navigateur.',
+      'Données audio et préférences locales : aucun enregistrement par défaut ; tampon temps réel inférieur à deux minutes ; si l’option de modération est activée, les extraits anonymisés sont purgés avant l’échéance `RECORDINGS_RETENTION_DAYS`.',
       'Historique de participation et classements : conservation maximale de douze mois, avec anonymisation progressive au-delà.',
       'Profils et données personnelles des membres partis : suppression automatique 28 jours et 23 heures après leur départ du serveur Discord.',
       'Logs techniques et métriques d’audience : conservation inférieure ou égale à trente jours, agrégats anonymisés jusqu’à vingt-quatre mois.',
