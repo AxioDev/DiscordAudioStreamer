@@ -172,6 +172,7 @@ export const parseRouteFromLocation = (location) => {
   }
   if (CGV_ALIASES.has(head)) {
     return { name: 'cgv-vente', params: {} };
+  }
   if (MENTIONS_ALIASES.has(head)) {
     return { name: 'mentions-legales', params: {} };
   }
