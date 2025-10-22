@@ -66,13 +66,6 @@ export interface DiscordVectorIngestionServiceOptions {
 }
 
 const defaultMarkdownSources: MarkdownSource[] = [
-  { id: 'doc:readme', relativePath: 'README.md', title: 'Guide principal du projet', category: 'documentation' },
-  {
-    id: 'doc:statistics-dashboard',
-    relativePath: path.join('src', 'README_STATISTIQUES.md'),
-    title: 'Tableau de bord des statistiques communautaires',
-    category: 'documentation',
-  },
   {
     id: 'doc:seo-report',
     relativePath: path.join('docs', 'rapport-seo.md'),
@@ -93,14 +86,7 @@ const defaultMarkdownSources: MarkdownSource[] = [
   },
 ];
 
-const defaultJsonSources: JsonSource[] = [
-  {
-    id: 'doc:lighthouse-report',
-    relativePath: path.join('docs', 'performance', 'lighthouse-report.json'),
-    title: 'Rapport Lighthouse (JSON)',
-    category: 'documentation',
-  },
-];
+const defaultJsonSources: JsonSource[] = [];
 
 export default class DiscordVectorIngestionService {
   private readonly blogService: BlogService | null;
