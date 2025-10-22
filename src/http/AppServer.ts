@@ -1229,6 +1229,7 @@ export default class AppServer {
       { path: '/blog/publier', changeFreq: 'monthly', priority: 0.5 },
       { path: '/about', changeFreq: 'monthly', priority: 0.5 },
       { path: '/cgu', changeFreq: 'yearly', priority: 0.4 },
+      { path: '/cgv-vente', changeFreq: 'yearly', priority: 0.35 },
       { path: '/salons', changeFreq: 'hourly', priority: 0.65 },
     ];
   }
@@ -1372,6 +1373,9 @@ export default class AppServer {
           return [context.latestProfileActivityAt];
         case '/about':
         case '/cgu':
+          return [];
+        case '/cgv-vente':
+          return [context.shopCatalogUpdatedAt];
         default:
           return [];
       }
@@ -3993,6 +3997,170 @@ export default class AppServer {
     return parts.join('');
   }
 
+  private buildCgvVentePageHtml(): string {
+    const parts: string[] = [];
+    const pricingPrinciples = [
+      'Les prix sont indiqués en euros, toutes taxes comprises (TTC) et incluent la TVA applicable.',
+      'Les frais de livraison sont précisés avant validation du paiement lorsque le produit est expédié physiquement.',
+      'Les éventuelles promotions sont appliquées automatiquement au moment du paiement et ne sont pas cumulables.',
+      'Les paiements sont débités immédiatement au moment de la confirmation, sauf indication contraire de ton prestataire bancaire.',
+    ];
+    const paymentOptions = [
+      {
+        icon: 'CreditCard',
+        title: 'Stripe – Cartes bancaires, Apple Pay, Google Pay',
+        description:
+          'Paiement sécurisé via Stripe avec authentification forte quand elle est requise. Les cartes Visa, Mastercard, CB, Apple Pay et Google Pay sont acceptées.',
+        helper:
+          'Aucun numéro de carte n’est stocké sur nos serveurs ; Stripe nous transmet uniquement un identifiant de transaction.',
+      },
+      {
+        icon: 'Wallet',
+        title: 'PayPal – Compte PayPal ou cartes enregistrées',
+        description:
+          'Tu peux régler via ton solde PayPal, une carte liée à ton compte ou un paiement invité. PayPal agit en tant qu’intermédiaire de paiement.',
+        helper:
+          'Le débit est immédiat et PayPal t’enverra sa propre confirmation en parallèle de la nôtre.',
+      },
+      {
+        icon: 'Coins',
+        title: 'CoinGate – Bitcoin, Lightning & plus de 70 altcoins',
+        description:
+          'Les paiements crypto sont convertis en euros lors de l’encaissement ou conservés selon ta préférence CoinGate. Les montants sont verrouillés au moment de la commande.',
+        helper:
+          'Assure-toi de finaliser la transaction avant l’expiration du compte à rebours CoinGate pour éviter l’annulation automatique.',
+      },
+    ];
+    const deliverySteps = [
+      {
+        title: 'Production & emballage',
+        body:
+          'Les articles physiques sont fabriqués à la demande puis emballés avec protection anti-chocs avant expédition. Tu reçois un courriel de confirmation dès la mise en production.',
+      },
+      {
+        title: 'Transport & suivi',
+        body:
+          'La livraison s’effectue en France métropolitaine et dans l’Union européenne via un transporteur partenaire. Un lien de suivi est envoyé dès la prise en charge du colis.',
+      },
+      {
+        title: 'Produits numériques',
+        body:
+          'Les accès premium et contenus dématérialisés sont délivrés immédiatement après validation du paiement via un lien sécurisé ou un rôle Discord attribué automatiquement.',
+      },
+    ];
+    const withdrawalSteps = [
+      'Préviens-nous sous quatorze jours à compter de la réception en écrivant à axiocontactezmoi@protonmail.com ou via le salon Discord #support.',
+      'Indique ton numéro de commande, le produit concerné et la date de réception pour faciliter le traitement.',
+      'Remballe le produit dans son état d’origine. Les retours sont à ta charge sauf erreur de notre part ; le remboursement intervient sous quatorze jours après réception.',
+    ];
+    const withdrawalExceptions = [
+      'Les contenus numériques fournis immédiatement après achat (accès premium, téléchargements) ne bénéficient pas du droit de rétractation une fois le lien ou le rôle livré, conformément à l’article L221-28 du Code de la consommation.',
+      'Les produits personnalisés ou clairement adaptés à tes demandes spécifiques ne sont pas repris.',
+    ];
+    const serviceChannels = [
+      'Salon Discord #support – réponses rapides pendant les heures de diffusion en direct.',
+      'Email : axiocontactezmoi@protonmail.com – suivi écrit, questions de facturation ou réclamations.',
+      'Suivi logistique : lien de tracking communiqué par email dès l’expédition du colis.',
+    ];
+    const contactEmail = 'axiocontactezmoi@protonmail.com';
+
+    parts.push('<div class="cgv-vente-page flex flex-col gap-10">');
+    parts.push(
+      '<article class="space-y-6 rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/40 backdrop-blur-xl">',
+    );
+    parts.push('<p class="text-xs uppercase tracking-[0.35em] text-slate-300">Libre Antenne</p>');
+    parts.push('<h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">Conditions générales de vente</h1>');
+    parts.push(
+      '<p class="text-base leading-relaxed text-slate-200">Ces conditions générales de vente (CGV) encadrent les achats réalisés sur la boutique Libre Antenne. Elles complètent nos CGU et décrivent précisément les prix TTC, modalités de paiement, délais de livraison, droit de rétractation et modes de contact du service client.</p>',
+    );
+    parts.push(
+      '<p class="text-base leading-relaxed text-slate-200">Toute commande implique l’acceptation sans réserve des présentes CGV. N’hésite pas à nous contacter si tu as la moindre question avant de valider ton panier.</p>',
+    );
+    parts.push('<ul class="list-disc space-y-2 pl-6 text-sm text-slate-200">');
+    for (const principle of pricingPrinciples) {
+      parts.push(`<li>${this.escapeHtml(principle)}</li>`);
+    }
+    parts.push('</ul>');
+    parts.push('</article>');
+
+    parts.push('<section class="grid gap-6 lg:grid-cols-3">');
+    for (const option of paymentOptions) {
+      parts.push(
+        '<article class="flex h-full flex-col rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">',
+      );
+      parts.push('<div class="flex items-center gap-3">');
+      parts.push(
+        `<span class="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white">${this.renderLucideIcon(option.icon, 'h-5 w-5')}</span>`,
+      );
+      parts.push(`<h2 class="text-lg font-semibold text-white">${this.escapeHtml(option.title)}</h2>`);
+      parts.push('</div>');
+      parts.push(`<p class="mt-4 text-sm leading-relaxed text-slate-300">${this.escapeHtml(option.description)}</p>`);
+      parts.push(`<p class="mt-3 text-xs text-slate-400">${this.escapeHtml(option.helper)}</p>`);
+      parts.push('</article>');
+    }
+    parts.push('</section>');
+
+    parts.push('<section class="grid gap-6 lg:grid-cols-3">');
+    for (const step of deliverySteps) {
+      parts.push(
+        '<article class="rounded-3xl border border-white/10 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">',
+      );
+      parts.push('<h3 class="flex items-center gap-2 text-lg font-semibold text-white">');
+      parts.push(`${this.renderLucideIcon('Truck', 'h-5 w-5 text-emerald-300')}<span>${this.escapeHtml(step.title)}</span>`);
+      parts.push('</h3>');
+      parts.push(`<p class="mt-3 text-sm leading-relaxed text-slate-300">${this.escapeHtml(step.body)}</p>`);
+      parts.push('</article>');
+    }
+    parts.push('</section>');
+
+    parts.push('<section class="grid gap-6 lg:grid-cols-2">');
+    parts.push(
+      '<div class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/30 backdrop-blur">',
+    );
+    parts.push('<h3 class="flex items-center gap-2 text-lg font-semibold text-white">');
+    parts.push(`${this.renderLucideIcon('RefreshCcw', 'h-5 w-5 text-emerald-300')}<span>Droit de rétractation</span>`);
+    parts.push('</h3>');
+    parts.push(
+      '<p class="mt-3 text-sm leading-relaxed text-slate-300">Conformément au Code de la consommation, tu disposes d’un délai de 14 jours à compter de la réception pour te rétracter, hors exceptions prévues par la loi.</p>',
+    );
+    parts.push('<ol class="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-300">');
+    for (const step of withdrawalSteps) {
+      parts.push(`<li>${this.escapeHtml(step)}</li>`);
+    }
+    parts.push('</ol>');
+    parts.push('<div class="mt-4 rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-xs text-slate-400">');
+    for (const exception of withdrawalExceptions) {
+      parts.push(`<p class="mt-2 first:mt-0">${this.escapeHtml(exception)}</p>`);
+    }
+    parts.push('</div>');
+    parts.push('</div>');
+
+    parts.push(
+      '<div class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/30 backdrop-blur">',
+    );
+    parts.push('<h3 class="flex items-center gap-2 text-lg font-semibold text-white">');
+    parts.push(`${this.renderLucideIcon('ShieldCheck', 'h-5 w-5 text-emerald-300')}<span>Service client & suivi</span>`);
+    parts.push('</h3>');
+    parts.push(
+      '<p class="mt-3 text-sm leading-relaxed text-slate-300">Notre équipe reste disponible avant, pendant et après la commande pour répondre à tes questions, suivre un colis ou traiter une réclamation.</p>',
+    );
+    parts.push('<ul class="mt-4 list-disc space-y-2 pl-5 text-sm text-slate-300">');
+    for (const channel of serviceChannels) {
+      parts.push(`<li>${this.escapeHtml(channel)}</li>`);
+    }
+    parts.push('</ul>');
+    parts.push(
+      `<a class="mt-5 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-white transition hover:bg-white/20" href="mailto:${this.escapeHtml(contactEmail)}">Nous écrire${this.renderLucideIcon('ArrowRight', 'h-4 w-4')}</a>`,
+    );
+    parts.push('</div>');
+    parts.push('</section>');
+
+    parts.push('<p class="text-xs uppercase tracking-[0.25em] text-slate-500">Dernière mise à jour : 10 mars 2025</p>');
+    parts.push('</div>');
+
+    return parts.join('');
+  }
+
   private normalizeClassementLeader(leader: HypeLeaderWithTrend, index: number): ClassementLeaderBootstrap {
     const rank = Number.isFinite(leader.rank) ? Math.max(1, Math.floor(Number(leader.rank))) : index + 1;
     const absoluteRank = Number.isFinite(leader.absoluteRank)
@@ -4782,7 +4950,8 @@ export default class AppServer {
           cancelUrl: typeof cancelUrl === 'string' ? cancelUrl : undefined,
           customerEmail: typeof customerEmail === 'string' ? customerEmail : undefined,
         });
-        res.status(201).json(session);
+        const termsUrl = this.toAbsoluteUrl('/cgv-vente');
+        res.status(201).json({ ...session, termsUrl });
       } catch (error) {
         this.handleShopError(res, error);
       }
@@ -6882,6 +7051,52 @@ export default class AppServer {
       const appHtml = this.buildCguPageHtml();
       const preloadState: AppPreloadState = {
         route: { name: 'cgu', params: {} },
+      };
+      this.respondWithAppShell(res, metadata, { appHtml, preloadState });
+    });
+
+    this.app.get('/cgv-vente', (_req, res) => {
+      const metadata: SeoPageMetadata = {
+        title: `${this.config.siteName} · Conditions générales de vente & informations boutique`,
+        description:
+          'Retrouve le détail des prix TTC, des moyens de paiement acceptés, des délais de livraison et de ton droit de rétractation pour la boutique Libre Antenne.',
+        path: '/cgv-vente',
+        canonicalUrl: this.toAbsoluteUrl('/cgv-vente'),
+        keywords: this.combineKeywords(
+          this.config.siteName,
+          'conditions générales de vente',
+          'CGV Libre Antenne',
+          'paiement boutique',
+          'livraison radio libre',
+        ),
+        openGraphType: 'website',
+        breadcrumbs: [
+          { name: 'Accueil', path: '/' },
+          { name: 'Conditions de vente', path: '/cgv-vente' },
+        ],
+        structuredData: [
+          {
+            '@context': 'https://schema.org',
+            '@type': 'TermsOfService',
+            name: `Conditions générales de vente – ${this.config.siteName}`,
+            description:
+              'Conditions générales de vente de la boutique Libre Antenne : prix TTC, moyens de paiement, livraison et droit de rétractation.',
+            url: this.toAbsoluteUrl('/cgv-vente'),
+            inLanguage: this.config.siteLanguage,
+            provider: {
+              '@type': 'Organization',
+              name: this.config.siteName,
+              url: this.config.publicBaseUrl,
+            },
+            termsOfServiceType: 'ConsumerTerms',
+            dateModified: '2025-03-10',
+          },
+        ],
+      };
+
+      const appHtml = this.buildCgvVentePageHtml();
+      const preloadState: AppPreloadState = {
+        route: { name: 'cgv-vente', params: {} },
       };
       this.respondWithAppShell(res, metadata, { appHtml, preloadState });
     });

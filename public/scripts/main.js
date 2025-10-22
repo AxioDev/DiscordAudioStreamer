@@ -47,6 +47,8 @@ const ROUTE_LOADERS = {
   classements: () =>
     import('./pages/classements.js').then((module) => module?.ClassementsPage ?? null),
   cgu: () => import('./pages/cgu.js').then((module) => module?.CguPage ?? null),
+  'cgv-vente': () =>
+    import('./pages/cgv-vente.js').then((module) => module?.CgvVentePage ?? null),
   chat: () => import('./pages/chat.js').then((module) => module?.ChatPage ?? null),
   salons: () => import('./pages/salons.js').then((module) => module?.SalonsPage ?? null),
   members: () => import('./pages/members.js').then((module) => module?.MembersPage ?? null),
@@ -72,6 +74,7 @@ const PRERENDER_CLASS_TOKENS = [
   'shop-page',
   'about-page',
   'cgu-page',
+  'cgv-vente-page',
 ];
 
 const PWA_PROMPT_STORAGE_KEY = 'libre-antenne:pwa-prompt';
