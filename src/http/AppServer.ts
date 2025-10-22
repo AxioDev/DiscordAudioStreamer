@@ -7,6 +7,7 @@ import path from 'path';
 import type { Server } from 'http';
 import { randomUUID } from 'crypto';
 import { icons as lucideIcons, type IconNode } from 'lucide';
+import { aboutPageContent } from '../content/about';
 import type FfmpegTranscoder from '../audio/FfmpegTranscoder';
 import type SpeakerTracker from '../services/SpeakerTracker';
 import type { Participant, BridgeStatus } from '../services/SpeakerTracker';
@@ -3690,48 +3691,23 @@ export default class AppServer {
   }
 
   private buildAboutPageHtml(): string {
+    const { hero, highlights } = aboutPageContent;
     const parts: string[] = [];
     parts.push('<div class="about-page flex flex-col gap-10">');
     parts.push(
       '<section class="space-y-6 rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/40 backdrop-blur-xl">',
     );
-    parts.push('<p class="text-xs uppercase tracking-[0.35em] text-slate-300">Libre Antenne</p>');
-    parts.push('<h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">À propos de Libre Antenne</h1>');
+    parts.push(`<p class="text-xs uppercase tracking-[0.35em] text-slate-300">${this.escapeHtml(hero.eyebrow)}</p>`);
+    parts.push(`<h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">${this.escapeHtml(hero.title)}</h1>`);
+    for (const paragraph of hero.paragraphs) {
+      parts.push(`<p class="text-base leading-relaxed text-slate-200">${this.escapeHtml(paragraph)}</p>`);
+    }
     parts.push(
-      '<p class="text-base leading-relaxed text-slate-200">Libre Antenne est une zone franche où les voix prennent le pouvoir. Le flux est volontairement brut, capté en direct sur notre serveur Discord pour amplifier les histoires, les confidences et les improvisations qui naissent.</p>',
-    );
-    parts.push(
-      '<p class="text-base leading-relaxed text-slate-200">Notre équipe façonne un espace accueillant pour les marginaux créatifs, les gamers insomniaques et toutes les personnes qui ont besoin d’un micro ouvert. Ici, aucune intervention n’est scriptée : la seule règle est de respecter la vibe collective et de laisser la spontanéité guider la conversation.</p>',
-    );
-    parts.push(
-      `<a class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/20 hover:text-white" href="https://discord.gg/" target="_blank" rel="noreferrer">Rejoindre la communauté${this.renderLucideIcon('ArrowRight', 'h-4 w-4')}</a>`,
+      `<a class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/20 hover:text-white" href="${this.escapeHtml(hero.cta.href)}" target="_blank" rel="noreferrer">${this.escapeHtml(hero.cta.label)}${this.renderLucideIcon('ArrowRight', 'h-4 w-4')}</a>`,
     );
     parts.push('</section>');
 
     parts.push('<section class="grid gap-6 md:grid-cols-2">');
-    const highlights: Array<{ title: string; body: string }> = [
-      {
-        title: 'Un laboratoire créatif',
-        body:
-          'Sessions freestyle, confessions lunaires, débats improvisés : chaque passage est un moment unique façonné par la communauté. Le direct nous permet de capturer cette énergie sans filtre.',
-      },
-      {
-        title: 'Technologie artisanale',
-        body:
-          'Notre mixeur audio fait circuler chaque voix avec finesse. Les outils open source et les contributions des membres permettent d’améliorer constamment la qualité du flux.',
-      },
-      {
-        title: 'Communauté inclusive',
-        body:
-          'Peu importe ton accent, ton parcours ou ton rythme de vie : tu es accueilli·e tant que tu joues collectif et que tu respectes celles et ceux qui partagent le micro.',
-      },
-      {
-        title: 'Un projet vivant',
-        body:
-          'Les bénévoles, auditeurs et créateurs participent à l’évolution de Libre Antenne. Chaque nouvelle voix façonne la suite de l’aventure et inspire les fonctionnalités à venir.',
-      },
-    ];
-
     for (const highlight of highlights) {
       parts.push(
         '<div class="rounded-3xl border border-white/10 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">',
@@ -3741,6 +3717,9 @@ export default class AppServer {
       parts.push('</div>');
     }
     parts.push('</section>');
+    parts.push(
+      `<script type="application/json" id="about-page-content">${this.escapeHtml(JSON.stringify(aboutPageContent))}</script>`,
+    );
     parts.push('</div>');
 
     return parts.join('');
