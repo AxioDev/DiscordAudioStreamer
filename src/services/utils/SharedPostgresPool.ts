@@ -9,9 +9,15 @@ export interface SharedPostgresPoolOptions {
 export interface SharedPostgresPoolResult {
   pool: Pool;
   isNew: boolean;
+  release: () => Promise<void>;
 }
 
-const poolCache = new Map<string, Pool>();
+interface CachedPoolEntry {
+  pool: Pool;
+  refCount: number;
+}
+
+const poolCache = new Map<string, CachedPoolEntry>();
 
 function resolvePoolConfig(options: SharedPostgresPoolOptions): PoolConfig {
   const { connectionString, ssl, poolConfig } = options;
@@ -43,24 +49,52 @@ function getPoolCacheKey(options: SharedPostgresPoolOptions, config: PoolConfig)
   return `${options.connectionString}|${serializePoolConfig(config)}`;
 }
 
+function createRelease(cacheKey: string, entry: CachedPoolEntry): () => Promise<void> {
+  let released = false;
+
+  return async () => {
+    if (released) {
+      return;
+    }
+
+    released = true;
+    entry.refCount -= 1;
+
+    if (entry.refCount <= 0) {
+      poolCache.delete(cacheKey);
+      try {
+        await entry.pool.end();
+      } catch (error) {
+        console.error('Failed to close shared PostgreSQL connection pool', error);
+      }
+    }
+  };
+}
+
 export function getSharedPostgresPool(options: SharedPostgresPoolOptions): SharedPostgresPoolResult {
   const resolvedConfig = resolvePoolConfig(options);
   const cacheKey = getPoolCacheKey(options, resolvedConfig);
 
-  const existingPool = poolCache.get(cacheKey);
-  if (existingPool) {
-    return { pool: existingPool, isNew: false };
+  const existingEntry = poolCache.get(cacheKey);
+  if (existingEntry) {
+    existingEntry.refCount += 1;
+    return {
+      pool: existingEntry.pool,
+      isNew: false,
+      release: createRelease(cacheKey, existingEntry),
+    };
   }
 
   const pool = new Pool(resolvedConfig);
-  poolCache.set(cacheKey, pool);
+  const entry: CachedPoolEntry = { pool, refCount: 1 };
+  poolCache.set(cacheKey, entry);
 
   pool.once('end', () => {
     const cached = poolCache.get(cacheKey);
-    if (cached === pool) {
+    if (cached && cached.pool === pool) {
       poolCache.delete(cacheKey);
     }
   });
 
-  return { pool, isNew: true };
+  return { pool, isNew: true, release: createRelease(cacheKey, entry) };
 }

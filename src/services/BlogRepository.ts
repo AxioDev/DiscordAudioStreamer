@@ -71,6 +71,7 @@ export default class BlogRepository {
   private readonly debugQueries: boolean;
 
   private pool: Pool | null = null;
+  private releasePool: (() => Promise<void>) | null = null;
 
   private warnedAboutMissingConnection = false;
 
@@ -94,7 +95,7 @@ export default class BlogRepository {
       return this.pool;
     }
 
-    const { pool } = getSharedPostgresPool({
+    const { pool, release } = getSharedPostgresPool({
       connectionString: this.connectionString,
       ssl: this.ssl,
       poolConfig: this.poolConfig,
@@ -116,6 +117,7 @@ export default class BlogRepository {
     });
 
     this.pool = pool;
+    this.releasePool = release;
 
     return this.pool;
   }
@@ -124,11 +126,15 @@ export default class BlogRepository {
     if (!this.pool) {
       return;
     }
-    try {
-      await this.pool.end();
-    } finally {
-      this.pool = null;
+    const release = this.releasePool;
+    this.pool = null;
+    this.releasePool = null;
+
+    if (!release) {
+      return;
     }
+
+    await release();
   }
 
   async ensureSchema(): Promise<void> {

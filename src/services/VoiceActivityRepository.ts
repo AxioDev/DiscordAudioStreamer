@@ -483,6 +483,7 @@ export default class VoiceActivityRepository {
   private readonly debugQueries: boolean;
 
   private pool: Pool | null;
+  private releasePool: (() => Promise<void>) | null;
 
   private warnedAboutMissingConnection: boolean;
 
@@ -519,6 +520,7 @@ export default class VoiceActivityRepository {
     this.poolConfig = poolConfig;
     this.debugQueries = Boolean(debug);
     this.pool = null;
+    this.releasePool = null;
     this.warnedAboutMissingConnection = false;
     this.schemaIntrospectionPromise = null;
     this.voiceInterruptsColumns = null;
@@ -547,7 +549,7 @@ export default class VoiceActivityRepository {
     }
 
     if (!this.pool) {
-      const { pool } = getSharedPostgresPool({
+      const { pool, release } = getSharedPostgresPool({
         connectionString: this.connectionString,
         ssl: this.ssl,
         poolConfig: this.poolConfig,
@@ -569,6 +571,7 @@ export default class VoiceActivityRepository {
       });
 
       this.pool = pool;
+      this.releasePool = release;
     }
 
     return this.pool;
@@ -4583,13 +4586,14 @@ ${limitClause}`;
       return;
     }
 
-    const pool = this.pool;
+    const release = this.releasePool;
     this.pool = null;
+    this.releasePool = null;
 
-    try {
-      await pool.end();
-    } catch (error) {
-      console.error('Failed to close PostgreSQL connection pool', error);
+    if (!release) {
+      return;
     }
+
+    await release();
   }
 }
