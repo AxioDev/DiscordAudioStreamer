@@ -139,6 +139,7 @@ void blogSubmissionService.initialize().catch((error) => {
 const discordVectorIngestionService = new DiscordVectorIngestionService({
   blogService,
   projectRoot: path.resolve(__dirname, '..'),
+  voiceActivityRepository,
 });
 
 discordVectorIngestionService.startScheduledSynchronization();

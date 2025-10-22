@@ -4,6 +4,7 @@ import config from '../src/config';
 import BlogRepository from '../src/services/BlogRepository';
 import BlogService from '../src/services/BlogService';
 import DiscordVectorIngestionService from '../src/services/DiscordVectorIngestionService';
+import VoiceActivityRepository from '../src/services/VoiceActivityRepository';
 
 async function main(): Promise<void> {
   if (!config.database?.url) {
@@ -29,12 +30,23 @@ async function main(): Promise<void> {
 
   await blogService.initialize();
 
-  const ingestionService = new DiscordVectorIngestionService({
-    blogService,
-    projectRoot: path.resolve(__dirname, '..'),
+  const voiceActivityRepository = new VoiceActivityRepository({
+    url: config.database.url,
+    ssl: config.database.ssl,
+    debug: config.database.logQueries,
   });
 
-  await ingestionService.synchronize();
+  try {
+    const ingestionService = new DiscordVectorIngestionService({
+      blogService,
+      projectRoot: path.resolve(__dirname, '..'),
+      voiceActivityRepository,
+    });
+
+    await ingestionService.synchronize();
+  } finally {
+    await voiceActivityRepository.close();
+  }
 }
 
 void main()

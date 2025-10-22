@@ -198,6 +198,18 @@ export interface UserPersonaCandidateRecord {
   personaVersion: string | null;
 }
 
+export interface KnownUserRecord {
+  userId: string;
+  guildId: string | null;
+  username: string | null;
+  nickname: string | null;
+  pseudo: string | null;
+  displayName: string | null;
+  firstSeenAt: Date | null;
+  lastSeenAt: Date | null;
+  metadata: Record<string, unknown> | null;
+}
+
 export type MemberEngagementSort = 'voice' | 'messages';
 
 export interface MemberEngagementCursor {
@@ -1989,6 +2001,169 @@ export default class VoiceActivityRepository {
     } catch (error) {
       console.error('Failed to list members by engagement', error);
       return { members: [], nextCursor: null };
+    }
+  }
+
+  public async listKnownUsers({
+    activeSince = null,
+    limit = null,
+  }: {
+    activeSince?: Date | null;
+    limit?: number | null;
+  } = {}): Promise<KnownUserRecord[]> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return [];
+    }
+
+    const normalizeString = (value: unknown): string | null => {
+      if (typeof value !== 'string') {
+        if (value == null) {
+          return null;
+        }
+        if (typeof value === 'number' || typeof value === 'boolean') {
+          const stringValue = String(value);
+          return stringValue.trim().length > 0 ? stringValue.trim() : null;
+        }
+        return null;
+      }
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    };
+
+    const normalizeDate = (value: unknown): Date | null => {
+      if (value instanceof Date) {
+        return Number.isNaN(value.getTime()) ? null : value;
+      }
+      if (value == null) {
+        return null;
+      }
+      const parsed = new Date(String(value));
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    const normalizeMetadata = (value: unknown): Record<string, unknown> | null => {
+      if (!value) {
+        return null;
+      }
+      if (typeof value === 'object') {
+        return value as Record<string, unknown>;
+      }
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return null;
+        }
+        try {
+          const parsed = JSON.parse(trimmed) as unknown;
+          return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null;
+        } catch (error) {
+          console.warn('Failed to parse user metadata JSON', error);
+          return null;
+        }
+      }
+      return null;
+    };
+
+    try {
+      await this.ensureSchemaIntrospection(pool);
+      if (!this.usersColumns || this.usersColumns.size === 0) {
+        return [];
+      }
+
+      const includeColumn = (column: string): boolean => Boolean(this.usersColumns?.has(column));
+
+      const selectColumns: string[] = [
+        'user_id::text AS user_id',
+        includeColumn('guild_id') ? 'guild_id::text AS guild_id' : 'NULL::text AS guild_id',
+        includeColumn('username') ? 'username::text AS username' : 'NULL::text AS username',
+        includeColumn('nickname') ? 'nickname::text AS nickname' : 'NULL::text AS nickname',
+        includeColumn('pseudo') ? 'pseudo::text AS pseudo' : 'NULL::text AS pseudo',
+        includeColumn('display_name') ? 'display_name::text AS display_name' : 'NULL::text AS display_name',
+        includeColumn('first_seen') ? 'first_seen AS first_seen' : 'NULL::timestamptz AS first_seen',
+        includeColumn('last_seen') ? 'last_seen AS last_seen' : 'NULL::timestamptz AS last_seen',
+        includeColumn('metadata') ? 'metadata AS metadata' : 'NULL::jsonb AS metadata',
+      ];
+
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+
+      const sinceDate = activeSince instanceof Date && !Number.isNaN(activeSince.getTime()) ? activeSince : null;
+      if (sinceDate && (includeColumn('last_seen') || includeColumn('first_seen'))) {
+        const lastSeenExpr = includeColumn('last_seen') ? 'last_seen' : 'NULL::timestamptz';
+        const firstSeenExpr = includeColumn('first_seen') ? 'first_seen' : 'NULL::timestamptz';
+        params.push(sinceDate.toISOString());
+        conditions.push(`COALESCE(${lastSeenExpr}, ${firstSeenExpr}) >= $${params.length}`);
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      let limitClause = '';
+      if (limit != null && Number.isFinite(limit)) {
+        const numericLimit = Math.max(1, Math.floor(Number(limit)));
+        params.push(numericLimit);
+        limitClause = `LIMIT $${params.length}`;
+      }
+
+      const orderByClause = includeColumn('last_seen')
+        ? 'ORDER BY COALESCE(last_seen, first_seen) DESC NULLS LAST'
+        : includeColumn('first_seen')
+        ? 'ORDER BY first_seen DESC NULLS LAST'
+        : 'ORDER BY user_id ASC';
+
+      const query = `
+        SELECT ${selectColumns.join(', ')}
+          FROM users
+          ${whereClause}
+          ${orderByClause}
+          ${limitClause}
+      `;
+
+      const result = await pool.query(query, params);
+      const rows = result.rows ?? [];
+
+      return rows
+        .map((row) => {
+          const userId = normalizeString(row?.user_id);
+          if (!userId) {
+            return null;
+          }
+
+          const guildId = normalizeString(row?.guild_id);
+          const username = normalizeString(row?.username);
+          const nickname = normalizeString(row?.nickname);
+          const pseudo = normalizeString(row?.pseudo);
+          const displayNameCandidate =
+            normalizeString(row?.display_name) ??
+            nickname ??
+            pseudo ??
+            username ??
+            normalizeString((row?.metadata as Record<string, unknown> | undefined)?.displayName) ??
+            normalizeString((row?.metadata as Record<string, unknown> | undefined)?.display_name);
+          const firstSeenAt = normalizeDate(row?.first_seen);
+          const lastSeenAt = normalizeDate(row?.last_seen);
+          const metadata = normalizeMetadata(row?.metadata);
+
+          return {
+            userId,
+            guildId,
+            username,
+            nickname,
+            pseudo,
+            displayName: displayNameCandidate,
+            firstSeenAt,
+            lastSeenAt,
+            metadata,
+          } satisfies KnownUserRecord;
+        })
+        .filter((record): record is KnownUserRecord => record !== null);
+    } catch (error) {
+      if ((error as { code?: string })?.code === '42P01') {
+        console.warn('users table not found; skipping user listing');
+        return [];
+      }
+      console.error('Failed to list known users', error);
+      return [];
     }
   }
 

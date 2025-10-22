@@ -75,6 +75,17 @@ npm run migrate:blog
 
 Le script insère les articles manquants, supprime les entrées migrées et retire définitivement la table `blog_post_proposals`.
 
+### Synchronisation des vecteurs Discord
+
+La synchronisation des embeddings vectoriels combine les articles du blog, la documentation et l’activité Discord (transcriptions vocales, messages, présence et profils persona). Pour éviter de retraiter un historique trop volumineux, définissez la fenêtre temporelle via la variable `DISCORD_VECTOR_LOOKBACK_WEEKS` :
+
+```env
+# Exemple : ne synchroniser que les 6 dernières semaines d'activité Discord
+DISCORD_VECTOR_LOOKBACK_WEEKS=6
+```
+
+Par défaut, le service indexe les huit dernières semaines d’activité. Réduisez cette valeur pour accélérer les synchronisations ou l’augmentez pour englober une période plus longue.
+
 ## Statistiques et confidentialité
 
 Ces données sont calculées à partir de l’activité vocale et textuelle enregistrée.
