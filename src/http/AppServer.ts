@@ -56,6 +56,7 @@ import SeoRenderer, {
 import AdminService, { type HiddenMemberRecord } from '../services/AdminService';
 import DailyArticleService, { type DailyArticleServiceStatus } from '../services/DailyArticleService';
 import type UserPersonaService from '../services/UserPersonaService';
+import type { UserPersonaServiceStatus } from '../services/UserPersonaService';
 import SitemapLastModStore from './SitemapLastModStore';
 import StatisticsService, {
   type CommunityStatisticsSnapshot,
@@ -3896,6 +3897,32 @@ export default class AppServer {
       'Courrier postal sur demande pour les requêtes nécessitant une identification renforcée.',
     ];
 
+    const openAiDetails = {
+      name: 'OpenAI, LLC (États-Unis)',
+      role:
+        'Sous-traitant IA pour la génération du journal quotidien, l’assistant conversationnel et les fiches membres.',
+      data: [
+        'Extraits de transcriptions vocales pseudonymisées (identifiants Discord hachés, horodatages, canaux).',
+        'Résumés de messages publics, indicateurs d’activité et instructions nécessaires pour cadrer la requête.',
+      ],
+      legalBasis:
+        "Intérêt légitime de proposer des outils éditoriaux et communautaires, complété par l'exécution du contrat pour les contenus publiés.",
+      processingCountry: 'Traitement effectué sur des infrastructures OpenAI localisées aux États-Unis.',
+      retention:
+        'OpenAI conserve les prompts et réponses au maximum 30 jours pour supervision des abus avant suppression définitive.',
+      safeguards: [
+        'Clauses contractuelles types (UE) et addendum de traitement des données OpenAI API.',
+        'Flux chiffrés en transit (TLS 1.2+) et aucune réutilisation pour l’entraînement des modèles.',
+      ],
+    };
+
+    const internationalTransferNotes = [
+      'Les requêtes IA quittent l’UE via TLS 1.2+ vers les centres de données OpenAI situés aux États-Unis.',
+      'Les clauses contractuelles types de la Commission européenne et l’addendum OpenAI encadrent ces transferts.',
+      'OpenAI supprime prompts et sorties au plus tard 30 jours après traitement, sans réentraînement des modèles.',
+      'Tu peux désactiver DailyArticleService ou UserPersonaService depuis « Services IA » (administration) ou en configurant OPENAI_DAILY_ARTICLE_DISABLED / OPENAI_PERSONA_DISABLED avant redémarrage. Toute personne peut aussi s’opposer en écrivant à axiocontactezmoi@protonmail.com ou via #support.',
+    ];
+
     parts.push('<div class="cgu-page flex flex-col gap-10">');
     parts.push(
       '<article class="space-y-6 rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/40 backdrop-blur-xl">',
@@ -3985,6 +4012,56 @@ export default class AppServer {
     }
     parts.push('</ul>');
     parts.push('</div>');
+    parts.push('</section>');
+
+    parts.push('<section class="grid gap-6 lg:grid-cols-2">');
+    parts.push(
+      '<article class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/30 backdrop-blur">',
+    );
+    parts.push('<h2 class="text-lg font-semibold text-white">Sous-traitant IA : OpenAI</h2>');
+    parts.push(`<p class="mt-3 text-sm leading-relaxed text-slate-300">${this.escapeHtml(openAiDetails.role)}</p>`);
+    parts.push('<dl class="mt-4 space-y-3 text-sm text-slate-300">');
+    parts.push('<div>');
+    parts.push('<dt class="font-semibold text-slate-200">Organisation</dt>');
+    parts.push(`<dd>${this.escapeHtml(openAiDetails.name)}</dd>`);
+    parts.push('</div>');
+    parts.push('<div>');
+    parts.push('<dt class="font-semibold text-slate-200">Données transférées</dt>');
+    parts.push(
+      `<dd><ul class="mt-2 list-disc space-y-1 pl-5">${openAiDetails.data
+        .map((item) => `<li>${this.escapeHtml(item)}</li>`)
+        .join('')}</ul></dd>`,
+    );
+    parts.push('</div>');
+    parts.push('<div>');
+    parts.push('<dt class="font-semibold text-slate-200">Base juridique</dt>');
+    parts.push(`<dd>${this.escapeHtml(openAiDetails.legalBasis)}</dd>`);
+    parts.push('</div>');
+    parts.push('<div>');
+    parts.push('<dt class="font-semibold text-slate-200">Pays de traitement</dt>');
+    parts.push(`<dd>${this.escapeHtml(openAiDetails.processingCountry)}</dd>`);
+    parts.push('</div>');
+    parts.push('<div>');
+    parts.push('<dt class="font-semibold text-slate-200">Durée & garanties</dt>');
+    parts.push(
+      `<dd><p>${this.escapeHtml(openAiDetails.retention)}</p><ul class="mt-2 list-disc space-y-1 pl-5">${openAiDetails.safeguards
+        .map((item) => `<li>${this.escapeHtml(item)}</li>`)
+        .join('')}</ul></dd>`,
+    );
+    parts.push('</div>');
+    parts.push('</dl>');
+    parts.push('</article>');
+
+    parts.push(
+      '<article class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/30 backdrop-blur">',
+    );
+    parts.push('<h2 class="text-lg font-semibold text-white">Transferts internationaux & opposition</h2>');
+    parts.push('<ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-300">');
+    for (const note of internationalTransferNotes) {
+      parts.push(`<li>${this.escapeHtml(note)}</li>`);
+    }
+    parts.push('</ul>');
+    parts.push('</article>');
     parts.push('</section>');
 
     parts.push('<p class="text-xs uppercase tracking-[0.25em] text-slate-500">Dernière mise à jour : 10 mars 2025</p>');
@@ -8400,6 +8477,7 @@ export default class AppServer {
     discord: { guildId: string | null; excludedUserIds: string[] };
     hiddenMembers: HiddenMemberRecord[];
     dailyArticle: DailyArticleServiceStatus;
+    userPersona: UserPersonaServiceStatus;
   }> {
     const [hiddenMembers] = await Promise.all([this.adminService.listHiddenMembers()]);
 
@@ -8419,6 +8497,7 @@ export default class AppServer {
       },
       hiddenMembers,
       dailyArticle: this.getDailyArticleStatusSnapshot(),
+      userPersona: this.getUserPersonaStatusSnapshot(),
     };
   }
 
@@ -8436,6 +8515,25 @@ export default class AppServer {
         openAI: Boolean(this.config.openAI.apiKey),
         blogRepository: Boolean(this.blogRepository),
         voiceActivityRepository: Boolean(this.voiceActivityRepository),
+        configEnabled: !this.config.openAI.dailyArticleDisabled,
+      },
+    };
+  }
+
+  private getUserPersonaStatusSnapshot(): UserPersonaServiceStatus {
+    if (this.userPersonaService) {
+      return this.userPersonaService.getStatus();
+    }
+
+    return {
+      enabled: false,
+      running: false,
+      nextRunAt: null,
+      lastRunAt: null,
+      dependencies: {
+        openAI: Boolean(this.config.openAI.apiKey),
+        voiceActivityRepository: Boolean(this.voiceActivityRepository),
+        configEnabled: !this.config.openAI.personaDisabled,
       },
     };
   }

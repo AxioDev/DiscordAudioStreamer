@@ -50,6 +50,18 @@ export interface PersonaGenerationResult {
   message?: string;
 }
 
+export interface UserPersonaServiceStatus {
+  enabled: boolean;
+  running: boolean;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  dependencies: {
+    openAI: boolean;
+    voiceActivityRepository: boolean;
+    configEnabled: boolean;
+  };
+}
+
 interface FormattedSamples {
   formatted: string;
   count: number;
@@ -336,10 +348,23 @@ export default class UserPersonaService {
 
   private running = false;
 
+  private readonly enabled: boolean;
+
+  private nextRunAt: Date | null = null;
+
+  private lastRunAt: Date | null = null;
+
   constructor(options: UserPersonaServiceOptions) {
     this.config = options.config;
     this.voiceActivityRepository = options.voiceActivityRepository ?? null;
     this.openai = this.config.openAI.apiKey ? new OpenAI({ apiKey: this.config.openAI.apiKey }) : null;
+
+    this.enabled = false;
+
+    if (this.config.openAI.personaDisabled) {
+      console.warn('UserPersonaService désactivé (désactivation manuelle via la configuration).');
+      return;
+    }
 
     if (!this.openai || !this.voiceActivityRepository) {
       const reasons: string[] = [];
@@ -352,9 +377,11 @@ export default class UserPersonaService {
       if (reasons.length > 0) {
         console.warn(`UserPersonaService désactivé (${reasons.join(', ')}).`);
       }
+      this.enabled = false;
       return;
     }
 
+    this.enabled = true;
     this.scheduleInitialRun();
   }
 
@@ -363,6 +390,21 @@ export default class UserPersonaService {
       clearTimeout(this.timer);
       this.timer = null;
     }
+    this.nextRunAt = null;
+  }
+
+  public getStatus(): UserPersonaServiceStatus {
+    return {
+      enabled: this.enabled,
+      running: this.running,
+      nextRunAt: this.nextRunAt ? this.nextRunAt.toISOString() : null,
+      lastRunAt: this.lastRunAt ? this.lastRunAt.toISOString() : null,
+      dependencies: {
+        openAI: Boolean(this.openai),
+        voiceActivityRepository: Boolean(this.voiceActivityRepository),
+        configEnabled: !this.config.openAI.personaDisabled,
+      },
+    };
   }
 
   public async generatePersonaForUser(userId: string): Promise<PersonaGenerationResult> {
@@ -465,18 +507,24 @@ export default class UserPersonaService {
   }
 
   private scheduleInitialRun(): void {
+    if (!this.enabled) {
+      return;
+    }
+
     if (this.timer) {
       clearTimeout(this.timer);
     }
 
     this.timer = setTimeout(() => this.execute(), INITIAL_DELAY_MS);
+    this.nextRunAt = new Date(Date.now() + INITIAL_DELAY_MS);
     if (typeof this.timer.unref === 'function') {
       this.timer.unref();
     }
   }
 
   private scheduleNextRun(): void {
-    if (!this.openai || !this.voiceActivityRepository) {
+    if (!this.enabled || !this.openai || !this.voiceActivityRepository) {
+      this.nextRunAt = null;
       return;
     }
 
@@ -487,6 +535,7 @@ export default class UserPersonaService {
     const intervalMinutes = this.config.openAI.personaIntervalMinutes;
     const delay = Math.max(intervalMinutes * 60 * 1000, 60_000);
 
+    this.nextRunAt = new Date(Date.now() + delay);
     this.timer = setTimeout(() => this.execute(), delay);
     if (typeof this.timer.unref === 'function') {
       this.timer.unref();
@@ -503,6 +552,7 @@ export default class UserPersonaService {
     }
 
     this.running = true;
+    this.lastRunAt = new Date();
     try {
       await this.runOnce();
     } catch (error) {
