@@ -2267,6 +2267,9 @@ const AudioPlayer = ({ streamInfo, audioKey, status, bridgeStatus = { serverDeaf
   `;
 };
 
+const PRIVACY_MESSAGE_MAX_LENGTH = 320;
+const PRIVACY_CONTACT_MAX_LENGTH = 120;
+
 const formatDurationLabel = (ms) => {
   if (!Number.isFinite(ms) || ms <= 0) {
     return '—';
@@ -2294,9 +2297,27 @@ const ProfileIdentityCard = ({ profile, userId }) => {
 
   const [isAvatarOpen, setIsAvatarOpen] = useState(false);
   const [isHideModalOpen, setIsHideModalOpen] = useState(false);
+  const [isDeletionModalOpen, setIsDeletionModalOpen] = useState(false);
+  const [deletionOptions, setDeletionOptions] = useState([]);
+  const [deletionOptionsLoading, setDeletionOptionsLoading] = useState(false);
+  const [deletionOptionsError, setDeletionOptionsError] = useState('');
+  const [hasLoadedDeletionOptions, setHasLoadedDeletionOptions] = useState(false);
+  const [selectedDeletionMethod, setSelectedDeletionMethod] = useState('');
+  const [deletionMessage, setDeletionMessage] = useState(
+    'Merci de supprimer immédiatement mes données du profil.',
+  );
+  const [deletionContactHandle, setDeletionContactHandle] = useState('');
+  const [deletionError, setDeletionError] = useState('');
+  const [deletionSuccess, setDeletionSuccess] = useState('');
+  const [deletionNextAllowedAt, setDeletionNextAllowedAt] = useState(null);
+  const [captchaChallenge, setCaptchaChallenge] = useState(null);
+  const [captchaAnswer, setCaptchaAnswer] = useState('');
+  const [captchaError, setCaptchaError] = useState('');
+  const [captchaLoading, setCaptchaLoading] = useState(false);
+  const [isSubmittingDeletion, setIsSubmittingDeletion] = useState(false);
 
   useEffect(() => {
-    if (!(isAvatarOpen || isHideModalOpen) || typeof document === 'undefined') {
+    if (!(isAvatarOpen || isHideModalOpen || isDeletionModalOpen) || typeof document === 'undefined') {
       return undefined;
     }
 
@@ -2308,6 +2329,7 @@ const ProfileIdentityCard = ({ profile, userId }) => {
         event.preventDefault();
         setIsAvatarOpen(false);
         setIsHideModalOpen(false);
+        setIsDeletionModalOpen(false);
       }
     };
 
@@ -2317,7 +2339,7 @@ const ProfileIdentityCard = ({ profile, userId }) => {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isAvatarOpen, isHideModalOpen]);
+  }, [isAvatarOpen, isHideModalOpen, isDeletionModalOpen]);
 
   const handleOpenAvatar = useCallback(() => {
     if (!avatarUrl) {
@@ -2337,6 +2359,257 @@ const ProfileIdentityCard = ({ profile, userId }) => {
   const handleCloseHideModal = useCallback(() => {
     setIsHideModalOpen(false);
   }, []);
+
+  const fetchDeletionOptions = useCallback(async () => {
+    setDeletionOptionsLoading(true);
+    setDeletionOptionsError('');
+    try {
+      const response = await fetch('/api/privacy/data-deletion/options', {
+        headers: { Accept: 'application/json' },
+      });
+      let payload = {};
+      try {
+        payload = await response.json();
+      } catch (parseError) {
+        payload = {};
+      }
+
+      if (!response.ok) {
+        const message =
+          typeof payload?.message === 'string'
+            ? payload.message
+            : "Impossible de charger les options de contact.";
+        throw new Error(message);
+      }
+
+      const rawOptions = Array.isArray(payload?.options) ? payload.options : [];
+      const normalized = rawOptions
+        .map((option) => {
+          if (!option || typeof option !== 'object') {
+            return null;
+          }
+          const id = typeof option.id === 'string' ? option.id : '';
+          const label = typeof option.label === 'string' ? option.label : '';
+          const description = typeof option.description === 'string' ? option.description : '';
+          if (!id || !label) {
+            return null;
+          }
+          return { id, label, description };
+        })
+        .filter(Boolean);
+
+      setDeletionOptions(normalized);
+      setSelectedDeletionMethod((current) => {
+        if (current && normalized.some((option) => option.id === current)) {
+          return current;
+        }
+        return normalized.length > 0 ? normalized[0].id : '';
+      });
+    } catch (error) {
+      setDeletionOptions([]);
+      setSelectedDeletionMethod('');
+      setDeletionOptionsError(
+        error instanceof Error ? error.message : "Impossible de charger les options de contact.",
+      );
+    } finally {
+      setDeletionOptionsLoading(false);
+      setHasLoadedDeletionOptions(true);
+    }
+  }, []);
+
+  const fetchDeletionCaptcha = useCallback(async () => {
+    setCaptchaLoading(true);
+    setCaptchaError('');
+    try {
+      const response = await fetch('/api/privacy/data-deletion/captcha', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      });
+      let payload = {};
+      try {
+        payload = await response.json();
+      } catch (parseError) {
+        payload = {};
+      }
+
+      if (!response.ok) {
+        const message =
+          typeof payload?.message === 'string'
+            ? payload.message
+            : 'Impossible de charger le captcha.';
+        throw new Error(message);
+      }
+
+      const challenge = payload?.challenge && typeof payload.challenge === 'object' ? payload.challenge : null;
+      setCaptchaChallenge(challenge);
+    } catch (error) {
+      setCaptchaChallenge(null);
+      setCaptchaError(error instanceof Error ? error.message : 'Impossible de charger le captcha.');
+    } finally {
+      setCaptchaLoading(false);
+    }
+  }, []);
+
+  const handleOpenDeletionModal = useCallback(() => {
+    setIsDeletionModalOpen(true);
+    setDeletionError('');
+    setDeletionSuccess('');
+    setDeletionNextAllowedAt(null);
+    setDeletionOptionsError('');
+    setHasLoadedDeletionOptions(false);
+    setCaptchaAnswer('');
+    setCaptchaChallenge(null);
+    setCaptchaError('');
+  }, []);
+
+  const handleCloseDeletionModal = useCallback(() => {
+    setIsDeletionModalOpen(false);
+    setDeletionError('');
+    setDeletionSuccess('');
+    setDeletionNextAllowedAt(null);
+    setCaptchaAnswer('');
+    setCaptchaChallenge(null);
+    setCaptchaError('');
+    setIsSubmittingDeletion(false);
+  }, []);
+
+  const handleRequestNewCaptcha = useCallback(() => {
+    if (!captchaLoading) {
+      fetchDeletionCaptcha();
+    }
+  }, [captchaLoading, fetchDeletionCaptcha]);
+
+  const handleSubmitDeletion = useCallback(
+    async (event) => {
+      event.preventDefault();
+      if (isSubmittingDeletion) {
+        return;
+      }
+
+      setDeletionError('');
+      setDeletionSuccess('');
+      setDeletionNextAllowedAt(null);
+
+      const trimmedMessage = deletionMessage.trim();
+      if (!selectedDeletionMethod) {
+        setDeletionError('Choisis un canal de contact pour envoyer la demande.');
+        return;
+      }
+      if (!captchaChallenge?.id) {
+        setDeletionError('Récupère un captcha valide avant de soumettre la demande.');
+        return;
+      }
+      if (!trimmedMessage) {
+        setDeletionError('Explique brièvement ta demande de suppression.');
+        return;
+      }
+
+      setIsSubmittingDeletion(true);
+
+      try {
+        const response = await fetch('/api/privacy/data-deletion', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({
+            contactMethod: selectedDeletionMethod,
+            message: trimmedMessage,
+            contactHandle: deletionContactHandle.trim(),
+            profileId: userId ?? null,
+            profileName: displayName,
+            captchaId: captchaChallenge.id,
+            captchaAnswer,
+          }),
+        });
+        let payload = {};
+        try {
+          payload = await response.json();
+        } catch (parseError) {
+          payload = {};
+        }
+
+        if (!response.ok) {
+          const message =
+            typeof payload?.message === 'string'
+              ? payload.message
+              : 'Impossible de transmettre la demande.';
+          setDeletionError(message);
+          if (typeof payload?.retryAt === 'string') {
+            setDeletionNextAllowedAt(payload.retryAt);
+          }
+          return;
+        }
+
+        setDeletionSuccess(
+          typeof payload?.message === 'string'
+            ? payload.message
+            : 'Ta demande a été transmise à l’équipe.',
+        );
+        setDeletionNextAllowedAt(typeof payload?.nextAllowedAt === 'string' ? payload.nextAllowedAt : null);
+        setCaptchaAnswer('');
+        setCaptchaChallenge(null);
+        setCaptchaError('');
+      } catch (error) {
+        setDeletionError(
+          error instanceof Error ? error.message : 'Impossible de transmettre la demande pour le moment.',
+        );
+      } finally {
+        setIsSubmittingDeletion(false);
+      }
+    },
+    [
+      isSubmittingDeletion,
+      selectedDeletionMethod,
+      captchaChallenge,
+      deletionMessage,
+      deletionContactHandle,
+      userId,
+      displayName,
+      captchaAnswer,
+    ],
+  );
+
+  useEffect(() => {
+    if (!isDeletionModalOpen) {
+      return;
+    }
+
+    if (!hasLoadedDeletionOptions && !deletionOptionsLoading) {
+      fetchDeletionOptions();
+      return;
+    }
+
+    if (
+      hasLoadedDeletionOptions &&
+      deletionOptions.length > 0 &&
+      !captchaChallenge &&
+      !captchaLoading &&
+      !captchaError
+    ) {
+      fetchDeletionCaptcha();
+    }
+  }, [
+    isDeletionModalOpen,
+    hasLoadedDeletionOptions,
+    deletionOptionsLoading,
+    deletionOptions.length,
+    captchaChallenge,
+    captchaLoading,
+    captchaError,
+    fetchDeletionOptions,
+    fetchDeletionCaptcha,
+  ]);
+
+  const messageCharacters = deletionMessage.length;
+  const formattedNextAllowed = useMemo(() => {
+    if (!deletionNextAllowedAt) {
+      return null;
+    }
+    const timestamp = Date.parse(deletionNextAllowedAt);
+    if (Number.isNaN(timestamp)) {
+      return null;
+    }
+    return formatRelative(timestamp, Date.now());
+  }, [deletionNextAllowedAt]);
 
   return html`
     <section class="relative rounded-3xl border border-white/10 bg-gradient-to-br from-slate-950 via-slate-950/90 to-indigo-950/40 p-6 shadow-xl shadow-indigo-900/30 backdrop-blur">
@@ -2374,11 +2647,19 @@ const ProfileIdentityCard = ({ profile, userId }) => {
             ${identifier ? html`<p class="text-xs text-slate-500">${identifier}</p>` : null}
           </div>
         </div>
-        <div class="flex justify-center sm:justify-end">
+        <div class="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-end">
+          <button
+            type="button"
+            onClick=${handleOpenDeletionModal}
+            class="inline-flex w-full items-center justify-center gap-2 rounded-full border border-rose-400/60 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-500/20 hover:text-white sm:w-auto"
+          >
+            <${ShieldCheck} class="h-4 w-4" aria-hidden="true" />
+            Demander la suppression des données
+          </button>
           <button
             type="button"
             onClick=${handleOpenHideModal}
-            class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white"
+            class="inline-flex w-full items-center justify-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white sm:w-auto"
           >
             Masquer ma fiche publique
           </button>
@@ -2413,6 +2694,189 @@ const ProfileIdentityCard = ({ profile, userId }) => {
                 decoding="async"
               />
             </button>
+          </div>`
+        : null}
+
+      ${isDeletionModalOpen
+        ? html`<div
+            class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 p-4 backdrop-blur"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="profile-deletion-modal-title"
+            onClick=${handleCloseDeletionModal}
+          >
+            <div
+              class="relative w-full max-w-2xl rounded-3xl border border-white/10 bg-slate-950/95 p-6 text-left shadow-2xl shadow-slate-950/80"
+              onClick=${(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick=${handleCloseDeletionModal}
+                class="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-200 transition hover:bg-white/10 hover:text-white"
+                aria-label="Fermer la fenêtre"
+              >
+                <${X} class="h-4 w-4" aria-hidden="true" />
+              </button>
+              <div class="space-y-5 pr-6">
+                <div class="space-y-1">
+                  <p class="text-xs uppercase tracking-[0.35em] text-indigo-200/70">Données personnelles</p>
+                  <h2 id="profile-deletion-modal-title" class="text-2xl font-semibold text-white">
+                    Suppression immédiate des données
+                  </h2>
+                </div>
+                <p class="text-sm text-slate-300">
+                  Résous un captcha puis choisis où envoyer ta demande. Un message sera transmis à l’équipe de
+                  modération avec les informations de ton profil.
+                </p>
+                ${deletionOptionsLoading
+                  ? html`<p class="text-sm text-slate-300">Chargement des options de contact…</p>`
+                  : deletionOptionsError
+                  ? html`<p class="rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-2 text-xs text-rose-100">
+                      ${deletionOptionsError}
+                    </p>`
+                  : deletionOptions.length === 0
+                  ? html`<p class="rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-100">
+                      Aucun canal n’est disponible pour le moment. Contacte directement l’équipe sur Discord pour
+                      accélérer la suppression.
+                    </p>`
+                  : html`<form class="space-y-5" onSubmit=${handleSubmitDeletion}>
+                      <fieldset class="space-y-3">
+                        <legend class="text-xs uppercase tracking-[0.35em] text-slate-300">Canal de contact</legend>
+                        <div class="space-y-2">
+                          ${deletionOptions.map((option) => {
+                            const isSelected = selectedDeletionMethod === option.id;
+                            return html`<label
+                              key=${option.id}
+                              class=${[
+                                'flex items-start gap-3 rounded-2xl border p-3 text-sm transition',
+                                isSelected
+                                  ? 'border-indigo-400/60 bg-indigo-500/15 text-white'
+                                  : 'border-white/10 bg-white/5 text-slate-200 hover:border-indigo-300/50',
+                              ].join(' ')}
+                            >
+                              <input
+                                type="radio"
+                                name="profile-deletion-contact"
+                                value=${option.id}
+                                checked=${isSelected}
+                                onChange=${() => setSelectedDeletionMethod(option.id)}
+                                class="mt-1 h-4 w-4 border-slate-500 text-indigo-400 focus:ring-indigo-400"
+                              />
+                              <span>
+                                <span class="font-semibold text-white">${option.label}</span>
+                                ${option.description
+                                  ? html`<p class="mt-1 text-xs leading-relaxed text-slate-300">${option.description}</p>`
+                                  : null}
+                              </span>
+                            </label>`;
+                          })}
+                        </div>
+                      </fieldset>
+
+                      <label class="flex flex-col gap-2 text-sm text-slate-200">
+                        <span>Message à transmettre</span>
+                        <textarea
+                          value=${deletionMessage}
+                          onInput=${(event) =>
+                            setDeletionMessage(
+                              event.currentTarget.value.slice(0, PRIVACY_MESSAGE_MAX_LENGTH),
+                            )}
+                          class="min-h-[6rem] w-full rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white shadow-inner shadow-black/20 focus:border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                          required
+                        ></textarea>
+                        <span class="text-xs text-slate-500">
+                          ${messageCharacters}/${PRIVACY_MESSAGE_MAX_LENGTH} caractères
+                        </span>
+                      </label>
+
+                      <label class="flex flex-col gap-2 text-sm text-slate-200">
+                        <span>Moyen de te recontacter (optionnel)</span>
+                        <input
+                          type="text"
+                          value=${deletionContactHandle}
+                          onInput=${(event) =>
+                            setDeletionContactHandle(
+                              event.currentTarget.value.slice(0, PRIVACY_CONTACT_MAX_LENGTH),
+                            )}
+                          class="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white shadow-inner shadow-black/20 focus:border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                          placeholder="Pseudo Discord, adresse e-mail…"
+                        />
+                      </label>
+
+                      <div class="space-y-2">
+                        <label class="text-sm font-semibold text-white" for="profile-deletion-captcha">Captcha</label>
+                        <div class="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-slate-100">
+                          ${captchaLoading
+                            ? 'Chargement du captcha…'
+                            : captchaChallenge?.question ?? 'Clique sur « Nouveau captcha » pour continuer.'}
+                        </div>
+                        <input
+                          id="profile-deletion-captcha"
+                          type="text"
+                          inputmode="numeric"
+                          pattern="[0-9]*"
+                          value=${captchaAnswer}
+                          onInput=${(event) =>
+                            setCaptchaAnswer(event.currentTarget.value.replace(/[^0-9]/g, '').slice(0, 3))}
+                          class="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white shadow-inner shadow-black/20 focus:border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                          placeholder="Réponse"
+                          required
+                        />
+                        <div class="flex items-center justify-between gap-3 text-xs text-slate-400">
+                          <button
+                            type="button"
+                            onClick=${handleRequestNewCaptcha}
+                            class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
+                            disabled=${captchaLoading || isSubmittingDeletion}
+                          >
+                            Nouveau captcha
+                          </button>
+                          <span>Le captcha expire au bout de quelques minutes.</span>
+                        </div>
+                        ${captchaError ? html`<p class="text-xs text-rose-200">${captchaError}</p>` : null}
+                      </div>
+
+                      ${deletionError
+                        ? html`<p class="rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-2 text-xs text-rose-100">
+                            ${deletionError}
+                          </p>`
+                        : null}
+                      ${deletionSuccess
+                        ? html`<p class="rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-2 text-xs text-emerald-100">
+                            ${deletionSuccess}
+                            ${formattedNextAllowed
+                              ? html`<br /><span class="text-[0.7rem] text-emerald-200/80">
+                                  Nouvelle demande possible ${formattedNextAllowed}.
+                                </span>`
+                              : null}
+                          </p>`
+                        : null}
+
+                      <div class="flex justify-end gap-3">
+                        <button
+                          type="button"
+                          onClick=${handleCloseDeletionModal}
+                          class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white"
+                          disabled=${isSubmittingDeletion}
+                        >
+                          Annuler
+                        </button>
+                        <button
+                          type="submit"
+                          class=${[
+                            'inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition',
+                            isSubmittingDeletion
+                              ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-100'
+                              : 'border-indigo-400/60 bg-indigo-500/10 text-indigo-100 hover:bg-indigo-500/20 hover:text-white',
+                          ].join(' ')}
+                          disabled=${isSubmittingDeletion}
+                        >
+                          ${isSubmittingDeletion ? 'Envoi…' : 'Envoyer la demande'}
+                        </button>
+                      </div>
+                    </form>`}
+              </div>
+            </div>
           </div>`
         : null}
 
