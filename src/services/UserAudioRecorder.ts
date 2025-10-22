@@ -2,6 +2,8 @@ import path from 'node:path';
 import { createWriteStream, mkdirSync, statSync, type WriteStream } from 'node:fs';
 import { promises as fs } from 'node:fs';
 
+import VoiceAnonymizer from '../audio/VoiceAnonymizer';
+
 const WAV_HEADER_BYTES = 44;
 const MIN_RECORDING_DURATION_MS = 30_000;
 
@@ -56,6 +58,7 @@ interface RecordingSessionOptions {
   writeHeaderOnStart?: boolean;
   onFinalize?: (payload: RecordingSessionFinalizePayload) => void;
   onFinalizeError?: (error: unknown) => void;
+  transform?: (chunk: Buffer) => Buffer;
 }
 
 class RecordingSession implements UserAudioRecordingSession {
@@ -73,6 +76,8 @@ class RecordingSession implements UserAudioRecordingSession {
 
   private readonly onFinalizeError: RecordingSessionOptions['onFinalizeError'];
 
+  private readonly transform: RecordingSessionOptions['transform'] | null;
+
   constructor(
     private readonly stream: WriteStream,
     public readonly filePath: string,
@@ -83,6 +88,7 @@ class RecordingSession implements UserAudioRecordingSession {
     this.writeHeaderOnStart = options.writeHeaderOnStart !== false;
     this.onFinalize = options.onFinalize;
     this.onFinalizeError = options.onFinalizeError;
+    this.transform = typeof options.transform === 'function' ? options.transform : null;
 
     if (this.writeHeaderOnStart) {
       this.stream.write(this.headerFactory(this.initialDataLength));
@@ -98,8 +104,28 @@ class RecordingSession implements UserAudioRecordingSession {
       return;
     }
 
-    this.dataLength += chunk.length;
-    this.stream.write(chunk);
+    let payload: Buffer = chunk;
+
+    if (this.transform) {
+      try {
+        const transformed = this.transform(chunk);
+        if (Buffer.isBuffer(transformed)) {
+          payload = transformed;
+        }
+      } catch (error) {
+        console.error('Recording transform failed', {
+          filePath: this.filePath,
+          error,
+        });
+      }
+    }
+
+    if (!payload || payload.length === 0) {
+      return;
+    }
+
+    this.dataLength += payload.length;
+    this.stream.write(payload);
   }
 
   public finalize(): Promise<void> {
@@ -226,6 +252,8 @@ export default class UserAudioRecorder {
       mkdirSync(directory, { recursive: true });
 
       const userId = identity.id;
+      const anonymizer = this.createVoiceAnonymizer();
+      const transform = anonymizer ? (chunk: Buffer) => anonymizer.process(chunk) : undefined;
       const reusable = this.preparePendingRecording(userId);
       if (reusable) {
         const stream = createWriteStream(reusable.filePath, { flags: 'a' });
@@ -242,6 +270,7 @@ export default class UserAudioRecorder {
           onFinalizeError: (error) => {
             this.handlePendingRecordingFinalizeError(userId, reusable.filePath, error);
           },
+          transform,
         });
       }
 
@@ -265,6 +294,7 @@ export default class UserAudioRecorder {
         onFinalizeError: (error) => {
           this.handlePendingRecordingFinalizeError(userId, filePath, error);
         },
+        transform,
       });
 
       this.pendingRecordings.set(userId, pendingRecord);
@@ -275,6 +305,26 @@ export default class UserAudioRecorder {
         userId: identity.id,
         error,
       });
+      return null;
+    }
+  }
+
+  private createVoiceAnonymizer(): VoiceAnonymizer | null {
+    if (!Number.isFinite(this.sampleRate) || this.sampleRate <= 0) {
+      return null;
+    }
+
+    if (!Number.isFinite(this.bytesPerSample) || this.bytesPerSample <= 0) {
+      return null;
+    }
+
+    try {
+      return new VoiceAnonymizer({
+        sampleRate: this.sampleRate,
+        bytesPerSample: this.bytesPerSample,
+      });
+    } catch (error) {
+      console.error('Failed to create voice anonymizer for recording session', { error });
       return null;
     }
   }
