@@ -363,6 +363,8 @@ export default class AppServer {
 
   private readonly messageSubmissionLog = new Map<string, number>();
 
+  private readonly privacyRequestLog = new Map<string, number>();
+
   private readonly blogService: BlogService;
 
   private readonly blogRepository: BlogRepository | null;
@@ -1044,6 +1046,14 @@ export default class AppServer {
     }
   }
 
+  private cleanupExpiredPrivacyRequests(now = Date.now()): void {
+    for (const [key, timestamp] of this.privacyRequestLog.entries()) {
+      if (timestamp + MESSAGE_COOLDOWN_MS <= now) {
+        this.privacyRequestLog.delete(key);
+      }
+    }
+  }
+
   private createMessageCaptchaChallenge(): MessageCaptchaChallenge {
     this.cleanupExpiredMessageCaptchas();
 
@@ -1091,6 +1101,42 @@ export default class AppServer {
     }
 
     return numericAnswer === stored.answer;
+  }
+
+  private getPrivacyDeletionOptions(): Array<{
+    id: 'private' | 'radio';
+    label: string;
+    description: string;
+    channelId: string;
+  }> {
+    const deletionConfig = this.config.privacy?.deletionRequest ?? { privateChannelId: undefined, radioChannelId: undefined };
+
+    const options: Array<{
+      id: 'private' | 'radio';
+      label: string;
+      description: string;
+      channelId: string;
+    }> = [];
+
+    if (deletionConfig.privateChannelId) {
+      options.push({
+        id: 'private',
+        label: 'Message privé',
+        description: 'Transmission discrète à l’équipe de modération.',
+        channelId: deletionConfig.privateChannelId,
+      });
+    }
+
+    if (deletionConfig.radioChannelId) {
+      options.push({
+        id: 'radio',
+        label: 'Message dans la radio',
+        description: 'Annonce publique adressée au salon de la radio.',
+        channelId: deletionConfig.radioChannelId,
+      });
+    }
+
+    return options;
   }
 
   private combineKeywords(...sources: Array<string | string[] | null | undefined>): string[] {
@@ -4963,6 +5009,175 @@ export default class AppServer {
         res.status(500).json({
           error: 'TEXT_CHANNEL_MESSAGE_SEND_FAILED',
           message: "Impossible d'envoyer le message pour le moment.",
+        });
+      }
+    });
+
+    this.app.get('/api/privacy/data-deletion/options', (_req, res) => {
+      const options = this.getPrivacyDeletionOptions().map(({ channelId, ...rest }) => rest);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ options });
+    });
+
+    this.app.post('/api/privacy/data-deletion/captcha', (_req, res) => {
+      const options = this.getPrivacyDeletionOptions();
+      if (options.length === 0) {
+        res.status(503).json({
+          error: 'PRIVACY_REQUEST_UNAVAILABLE',
+          message: 'Aucun canal de contact n’est configuré pour demander la suppression immédiate.',
+        });
+        return;
+      }
+
+      const challenge = this.createMessageCaptchaChallenge();
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ challenge });
+    });
+
+    this.app.post('/api/privacy/data-deletion', async (req, res) => {
+      const options = this.getPrivacyDeletionOptions();
+      if (options.length === 0) {
+        res.status(503).json({
+          error: 'PRIVACY_REQUEST_UNAVAILABLE',
+          message: 'La suppression immédiate n’est pas disponible pour le moment.',
+        });
+        return;
+      }
+
+      const rawMethod = typeof req.body?.contactMethod === 'string' ? req.body.contactMethod.trim().toLowerCase() : '';
+      const selected = options.find((option) => option.id === rawMethod);
+      if (!selected) {
+        res.status(400).json({
+          error: 'CONTACT_METHOD_INVALID',
+          message: 'Choisis un canal de contact valide pour envoyer la demande.',
+        });
+        return;
+      }
+
+      const messageRaw = typeof req.body?.message === 'string' ? req.body.message : '';
+      const message = messageRaw.trim();
+      if (!message) {
+        res.status(400).json({
+          error: 'MESSAGE_REQUIRED',
+          message: 'Explique brièvement ta demande de suppression.',
+        });
+        return;
+      }
+
+      const contactHandleRaw = typeof req.body?.contactHandle === 'string' ? req.body.contactHandle : '';
+      const contactHandle = contactHandleRaw.trim();
+
+      const profileIdRaw = typeof req.body?.profileId === 'string' ? req.body.profileId : '';
+      const profileId = profileIdRaw.trim();
+      const profileNameRaw = typeof req.body?.profileName === 'string' ? req.body.profileName : '';
+      const profileName = profileNameRaw.trim();
+
+      const captchaId = typeof req.body?.captchaId === 'string' ? req.body.captchaId.trim() : '';
+      const captchaAnswer = req.body?.captchaAnswer ?? null;
+
+      if (!captchaId || captchaAnswer === null || captchaAnswer === undefined) {
+        res.status(400).json({
+          error: 'CAPTCHA_REQUIRED',
+          message: 'Le captcha est requis pour envoyer la demande.',
+        });
+        return;
+      }
+
+      const now = Date.now();
+      this.cleanupExpiredPrivacyRequests(now);
+
+      const clientKey = `${this.getClientIp(req)}:privacy-deletion`;
+      const lastSubmissionAt = this.privacyRequestLog.get(clientKey) ?? 0;
+      const nextAllowedAtMs = lastSubmissionAt + MESSAGE_COOLDOWN_MS;
+
+      if (nextAllowedAtMs > now) {
+        const retryAtIso = new Date(nextAllowedAtMs).toISOString();
+        const waitLabel = this.formatDuration(nextAllowedAtMs - now);
+        res.status(429).json({
+          error: 'PRIVACY_REQUEST_RATE_LIMITED',
+          message: `Une demande a déjà été envoyée récemment. Réessaie dans ${waitLabel}.`,
+          retryAt: retryAtIso,
+        });
+        return;
+      }
+
+      const captchaValid = this.verifyMessageCaptcha(captchaId, captchaAnswer);
+      if (!captchaValid) {
+        res.status(400).json({
+          error: 'CAPTCHA_INVALID',
+          message: 'La réponse au captcha est incorrecte. Génère un nouveau défi et réessaie.',
+        });
+        return;
+      }
+
+      const methodLabel = selected.label;
+      const lines: string[] = ['🔐 **Demande de suppression immédiate des données**'];
+      lines.push(`• Canal sélectionné : ${methodLabel}`);
+      if (profileName) {
+        lines.push(`• Profil indiqué : ${profileName}`);
+      }
+      if (profileId) {
+        lines.push(`• Identifiant Discord : ${profileId}`);
+        lines.push(`• Fiche publique : ${this.toAbsoluteUrl(`/profil/${encodeURIComponent(profileId)}`)}`);
+      }
+      if (contactHandle) {
+        lines.push(`• Contact fourni : ${contactHandle}`);
+      }
+      if (message) {
+        lines.push('• Message :');
+        lines.push(message);
+      }
+      lines.push(`• Reçu via le site (${new Date().toISOString()})`);
+
+      const content = lines.join('\n');
+
+      if (content.length > MESSAGE_MAX_LENGTH) {
+        res.status(400).json({
+          error: 'MESSAGE_TOO_LONG',
+          message: `Le message généré est trop long. Raccourcis ta demande (limite ${MESSAGE_MAX_LENGTH} caractères).`,
+        });
+        return;
+      }
+
+      try {
+        await this.discordBridge.sendTextChannelMessage(selected.channelId, content);
+        const recordedAt = Date.now();
+        this.privacyRequestLog.set(clientKey, recordedAt);
+        const nextAllowedAt = new Date(recordedAt + MESSAGE_COOLDOWN_MS).toISOString();
+        res.setHeader('Cache-Control', 'no-store');
+        res.status(201).json({
+          status: 'SUBMITTED',
+          message: 'Ta demande a été transmise à l’équipe. Nous revenons vers toi rapidement.',
+          nextAllowedAt,
+        });
+      } catch (error) {
+        const name = (error as Error)?.name;
+        if (name === 'GUILD_NOT_CONFIGURED') {
+          res.status(503).json({
+            error: 'GUILD_NOT_CONFIGURED',
+            message: 'La configuration du serveur Discord est incomplète.',
+          });
+          return;
+        }
+        if (name === 'CHANNEL_NOT_FOUND') {
+          res.status(404).json({
+            error: 'CHANNEL_NOT_FOUND',
+            message: 'Impossible de trouver le canal configuré pour cette demande.',
+          });
+          return;
+        }
+        if (name === 'CHANNEL_NOT_ACCESSIBLE') {
+          res.status(403).json({
+            error: 'CHANNEL_NOT_ACCESSIBLE',
+            message: 'Le canal configuré est inaccessible pour le moment.',
+          });
+          return;
+        }
+
+        console.error('Failed to submit privacy deletion request', error);
+        res.status(500).json({
+          error: 'PRIVACY_REQUEST_FAILED',
+          message: 'Impossible de transmettre la demande pour le moment.',
         });
       }
     });

@@ -117,6 +117,15 @@ export interface SecretArticleTriggerConfig {
   password: string | null;
 }
 
+export interface PrivacyDeletionChannelsConfig {
+  privateChannelId?: string;
+  radioChannelId?: string;
+}
+
+export interface PrivacyConfig {
+  deletionRequest: PrivacyDeletionChannelsConfig;
+}
+
 export interface VectorIngestionConfig {
   lookbackWeeks: number;
 }
@@ -154,6 +163,7 @@ export interface Config {
   kaldi: KaldiConfig;
   admin: AdminConfig;
   secretArticleTrigger: SecretArticleTriggerConfig;
+  privacy: PrivacyConfig;
 }
 
 const config: Config = {
@@ -298,6 +308,20 @@ const config: Config = {
       const value = process.env.SECRET_ARTICLE_PASSWORD ?? '';
       return value.length > 0 ? value : null;
     })(),
+  },
+  privacy: {
+    deletionRequest: {
+      privateChannelId: (() => {
+        const value = process.env.PRIVACY_PRIVATE_CHANNEL_ID ?? '';
+        const trimmed = value.trim();
+        return trimmed.length > 0 ? trimmed : undefined;
+      })(),
+      radioChannelId: (() => {
+        const value = process.env.PRIVACY_RADIO_CHANNEL_ID ?? '';
+        const trimmed = value.trim();
+        return trimmed.length > 0 ? trimmed : undefined;
+      })(),
+    },
   },
 };
 
