@@ -3891,7 +3891,7 @@ export default class AppServer {
     ];
     const contacts = [
       'Salon #support sur Discord pour les demandes rapides liées au direct.',
-      'Adresse dédiée : privacy@libre-antenne.com pour toute question relative aux données ou à la modération.',
+      'Adresse dédiée : axiocontactezmoi@protonmail.com pour toute question relative aux données ou à la modération.',
       'Courrier postal sur demande pour les requêtes nécessitant une identification renforcée.',
     ];
 
