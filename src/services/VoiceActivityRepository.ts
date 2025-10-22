@@ -2384,10 +2384,12 @@ export default class VoiceActivityRepository {
     since = null,
     until = null,
     limit = null,
+    order = 'asc',
   }: {
     since?: Date | null;
     until?: Date | null;
     limit?: number | null;
+    order?: 'asc' | 'desc';
   }): Promise<VoiceTranscriptionRecord[]> {
     const pool = this.ensurePool();
     if (!pool) {
@@ -2422,11 +2424,13 @@ export default class VoiceActivityRepository {
         limitClause = `LIMIT $${params.length}`;
       }
 
+      const sortDirection = order === 'desc' ? 'DESC' : 'ASC';
+
       const query = `
         SELECT id, user_id, channel_id, guild_id, content, timestamp
         FROM voice_transcriptions
         ${whereClause}
-        ORDER BY timestamp ASC
+        ORDER BY timestamp ${sortDirection}
         ${limitClause}
       `;
 
