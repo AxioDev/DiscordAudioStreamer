@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import config from '../config';
 import { SHOP_CONTENT } from '../content/shop';
 import { getEmbedding } from '../lib/openai';
+import { aboutPageContent } from '../content/about';
 import {
   buildVectorLiteral,
   deleteDiscordVectorsByIds,
@@ -210,6 +211,11 @@ export default class DiscordVectorIngestionService {
     const documents: DiscordVectorDocument[] = [];
 
     const range = this.getIngestionRange();
+
+    const aboutDocument = this.collectAboutPageDocument();
+    if (aboutDocument) {
+      documents.push(aboutDocument);
+    }
 
     const blogDocuments = await this.collectBlogDocuments();
     documents.push(...blogDocuments);
