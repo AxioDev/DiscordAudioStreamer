@@ -208,6 +208,7 @@ export interface KnownUserRecord {
   firstSeenAt: Date | null;
   lastSeenAt: Date | null;
   metadata: Record<string, unknown> | null;
+  departedAt: Date | null;
 }
 
 export type MemberEngagementSort = 'voice' | 'messages';
@@ -461,6 +462,7 @@ export interface UserSyncRecord {
   firstSeenAt?: Date | null;
   lastSeenAt?: Date | null;
   metadata?: Record<string, unknown> | null;
+  departedAt?: Date | null;
 }
 
 interface SchemaColumnInfo {
@@ -721,6 +723,32 @@ export default class VoiceActivityRepository {
     if (usersColumnTypes && usersColumnTypes.size > 0) {
       await this.upgradeSnowflakeColumn(pool, 'users', 'user_id', usersColumnTypes);
       await this.upgradeSnowflakeColumn(pool, 'users', 'guild_id', usersColumnTypes);
+
+      if (!this.usersColumns?.has('departed_at')) {
+        try {
+          await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS departed_at timestamptz');
+        } catch (error) {
+          if (!this.schemaPatchWarnings.has('users.departed_at')) {
+            this.schemaPatchWarnings.add('users.departed_at');
+            console.error('Failed to add departed_at column to users table', error);
+          }
+        }
+
+        this.usersColumns?.add('departed_at');
+        this.usersColumnTypes?.set('departed_at', {
+          dataType: 'timestamp with time zone',
+          udtName: 'timestamptz',
+        });
+      }
+
+      try {
+        await pool.query('CREATE INDEX IF NOT EXISTS users_departed_at_idx ON users (departed_at)');
+      } catch (error) {
+        if (!this.schemaPatchWarnings.has('users.departed_at_idx')) {
+          this.schemaPatchWarnings.add('users.departed_at_idx');
+          console.error('Failed to ensure departed_at index on users table', error);
+        }
+      }
     }
   }
 
@@ -1185,6 +1213,8 @@ export default class VoiceActivityRepository {
       firstSeenAt: Date | null;
       lastSeenAt: Date | null;
       metadata: Record<string, unknown> | null;
+      departedAt: Date | null;
+      departedAtProvided: boolean;
     };
 
     const deduped = new Map<string, NormalizedUserRecord>();
@@ -1224,6 +1254,20 @@ export default class VoiceActivityRepository {
         continue;
       }
 
+      const hasDepartedAt = Object.prototype.hasOwnProperty.call(record, 'departedAt');
+      const departedAt = hasDepartedAt ? normalizeDate(record.departedAt ?? null) : null;
+
+      let metadata = sanitizeMetadata(record.metadata ?? null);
+      if (hasDepartedAt) {
+        const enriched: Record<string, unknown> = { ...(metadata ?? {}) };
+        if (departedAt) {
+          enriched.departedAt = departedAt.toISOString();
+        } else {
+          delete enriched.departedAt;
+        }
+        metadata = Object.keys(enriched).length > 0 ? enriched : null;
+      }
+
       const normalized: NormalizedUserRecord = {
         guildId,
         userId,
@@ -1232,7 +1276,9 @@ export default class VoiceActivityRepository {
         displayName: this.normalizeString(record.displayName ?? null),
         firstSeenAt: normalizeDate(record.firstSeenAt ?? null),
         lastSeenAt: normalizeDate(record.lastSeenAt ?? null),
-        metadata: sanitizeMetadata(record.metadata ?? null),
+        metadata,
+        departedAt,
+        departedAtProvided: hasDepartedAt,
       };
 
       const key = `${guildId}:${userId}`;
@@ -1251,6 +1297,10 @@ export default class VoiceActivityRepository {
         existing.firstSeenAt = mergeEarliest(existing.firstSeenAt, normalized.firstSeenAt);
         existing.lastSeenAt = mergeLatest(existing.lastSeenAt, normalized.lastSeenAt);
         existing.metadata = mergeMetadata(existing.metadata, normalized.metadata);
+        if (normalized.departedAtProvided) {
+          existing.departedAt = normalized.departedAt;
+          existing.departedAtProvided = true;
+        }
       } else {
         deduped.set(key, normalized);
       }
@@ -1274,116 +1324,138 @@ export default class VoiceActivityRepository {
 
       const includeColumn = (column: string): boolean => usersColumns.has(column);
 
-      const columns = ['guild_id', 'user_id'];
-      if (includeColumn('username')) {
-        columns.push('username');
-      }
-      if (includeColumn('nickname')) {
-        columns.push('nickname');
-      }
-      if (includeColumn('pseudo')) {
-        columns.push('pseudo');
-      }
-      if (includeColumn('first_seen')) {
-        columns.push('first_seen');
-      }
-      if (includeColumn('last_seen')) {
-        columns.push('last_seen');
-      }
-      if (includeColumn('metadata')) {
-        columns.push('metadata');
-      }
-
-      const values: unknown[] = [];
-      const rowPlaceholders: string[] = [];
-
-      normalizedRecords.forEach((record) => {
-        const placeholders: string[] = [];
-
-        for (let columnIndex = 0; columnIndex < columns.length; columnIndex += 1) {
-          placeholders.push(`$${values.length + columnIndex + 1}`);
+      const persistRecords = async (
+        recordsToPersist: NormalizedUserRecord[],
+        includeDepartedAt: boolean,
+      ): Promise<void> => {
+        if (!recordsToPersist.length) {
+          return;
         }
 
-        rowPlaceholders.push(`(${placeholders.join(', ')})`);
+        const columns = ['guild_id', 'user_id'];
+        if (includeColumn('username')) {
+          columns.push('username');
+        }
+        if (includeColumn('nickname')) {
+          columns.push('nickname');
+        }
+        if (includeColumn('pseudo')) {
+          columns.push('pseudo');
+        }
+        if (includeColumn('first_seen')) {
+          columns.push('first_seen');
+        }
+        if (includeColumn('last_seen')) {
+          columns.push('last_seen');
+        }
+        if (includeColumn('metadata')) {
+          columns.push('metadata');
+        }
+        if (includeDepartedAt && includeColumn('departed_at')) {
+          columns.push('departed_at');
+        }
 
-        for (const column of columns) {
-          switch (column) {
-            case 'guild_id':
-              values.push(record.guildId);
-              break;
-            case 'user_id':
-              values.push(record.userId);
-              break;
-            case 'username':
-              values.push(record.username);
-              break;
-            case 'nickname':
-              values.push(record.nickname);
-              break;
-            case 'pseudo':
-              values.push(record.displayName);
-              break;
-            case 'first_seen':
-              values.push(record.firstSeenAt);
-              break;
-            case 'last_seen':
-              values.push(record.lastSeenAt);
-              break;
-            case 'metadata':
-              values.push(record.metadata);
-              break;
-            default:
-              values.push(null);
-              break;
+        const values: unknown[] = [];
+        const rowPlaceholders: string[] = [];
+
+        recordsToPersist.forEach((record) => {
+          const placeholders: string[] = [];
+          for (let columnIndex = 0; columnIndex < columns.length; columnIndex += 1) {
+            placeholders.push(`$${values.length + columnIndex + 1}`);
           }
+          rowPlaceholders.push(`(${placeholders.join(', ')})`);
+
+          for (const column of columns) {
+            switch (column) {
+              case 'guild_id':
+                values.push(record.guildId);
+                break;
+              case 'user_id':
+                values.push(record.userId);
+                break;
+              case 'username':
+                values.push(record.username);
+                break;
+              case 'nickname':
+                values.push(record.nickname);
+                break;
+              case 'pseudo':
+                values.push(record.displayName);
+                break;
+              case 'first_seen':
+                values.push(record.firstSeenAt);
+                break;
+              case 'last_seen':
+                values.push(record.lastSeenAt);
+                break;
+              case 'metadata':
+                values.push(record.metadata);
+                break;
+              case 'departed_at':
+                values.push(record.departedAt);
+                break;
+              default:
+                values.push(null);
+                break;
+            }
+          }
+        });
+
+        if (rowPlaceholders.length === 0) {
+          return;
         }
-      });
 
-      if (rowPlaceholders.length === 0) {
-        return;
-      }
+        const updateClauses: string[] = [];
 
-      const updateClauses: string[] = [];
+        if (includeColumn('username')) {
+          updateClauses.push('username = COALESCE(EXCLUDED.username, users.username)');
+        }
+        if (includeColumn('nickname')) {
+          updateClauses.push('nickname = COALESCE(EXCLUDED.nickname, users.nickname)');
+        }
+        if (includeColumn('pseudo')) {
+          updateClauses.push('pseudo = COALESCE(EXCLUDED.pseudo, users.pseudo)');
+        }
+        if (includeColumn('first_seen')) {
+          updateClauses.push('first_seen = COALESCE(users.first_seen, EXCLUDED.first_seen)');
+        }
+        if (includeColumn('last_seen')) {
+          updateClauses.push(
+            'last_seen = CASE'
+              + ' WHEN EXCLUDED.last_seen IS NULL THEN users.last_seen'
+              + ' WHEN users.last_seen IS NULL THEN EXCLUDED.last_seen'
+              + ' ELSE GREATEST(users.last_seen, EXCLUDED.last_seen)'
+              + ' END',
+          );
+        }
+        if (includeColumn('metadata')) {
+          updateClauses.push(
+            'metadata = CASE'
+              + ' WHEN EXCLUDED.metadata IS NULL THEN users.metadata'
+              + ' WHEN users.metadata IS NULL THEN EXCLUDED.metadata'
+              + ' ELSE users.metadata || EXCLUDED.metadata'
+              + ' END',
+          );
+        }
+        if (includeDepartedAt && includeColumn('departed_at')) {
+          updateClauses.push('departed_at = EXCLUDED.departed_at');
+        }
 
-      if (includeColumn('username')) {
-        updateClauses.push('username = COALESCE(EXCLUDED.username, users.username)');
-      }
-      if (includeColumn('nickname')) {
-        updateClauses.push('nickname = COALESCE(EXCLUDED.nickname, users.nickname)');
-      }
-      if (includeColumn('pseudo')) {
-        updateClauses.push('pseudo = COALESCE(EXCLUDED.pseudo, users.pseudo)');
-      }
-      if (includeColumn('first_seen')) {
-        updateClauses.push('first_seen = COALESCE(users.first_seen, EXCLUDED.first_seen)');
-      }
-      if (includeColumn('last_seen')) {
-        updateClauses.push(
-          'last_seen = CASE'
-            + ' WHEN EXCLUDED.last_seen IS NULL THEN users.last_seen'
-            + ' WHEN users.last_seen IS NULL THEN EXCLUDED.last_seen'
-            + ' ELSE GREATEST(users.last_seen, EXCLUDED.last_seen)'
-            + ' END',
+        const conflictClause = updateClauses.length > 0
+          ? ` ON CONFLICT (guild_id, user_id) DO UPDATE SET ${updateClauses.join(', ')}`
+          : ' ON CONFLICT (guild_id, user_id) DO NOTHING';
+
+        await pool.query(
+          `INSERT INTO users (${columns.join(', ')}) VALUES ${rowPlaceholders.join(', ')}` + conflictClause,
+          values,
         );
-      }
-      if (includeColumn('metadata')) {
-        updateClauses.push(
-          'metadata = CASE'
-            + ' WHEN EXCLUDED.metadata IS NULL THEN users.metadata'
-            + ' WHEN users.metadata IS NULL THEN EXCLUDED.metadata'
-            + ' ELSE users.metadata || EXCLUDED.metadata'
-            + ' END',
-        );
-      }
+      };
 
-      const conflictClause = updateClauses.length > 0
-        ? ` ON CONFLICT (guild_id, user_id) DO UPDATE SET ${updateClauses.join(', ')}`
-        : ' ON CONFLICT (guild_id, user_id) DO NOTHING';
+      const withoutDepartureInfo = normalizedRecords.filter((record) => !record.departedAtProvided);
+      const withDepartureInfo = normalizedRecords.filter((record) => record.departedAtProvided);
 
-      await pool.query(
-        `INSERT INTO users (${columns.join(', ')}) VALUES ${rowPlaceholders.join(', ')}` + conflictClause,
-        values,
-      );
+      await persistRecords(withoutDepartureInfo, false);
+      await persistRecords(withDepartureInfo, true);
     } catch (error) {
       console.error('Failed to synchronize users table', error);
     }
@@ -2083,6 +2155,7 @@ export default class VoiceActivityRepository {
         includeColumn('first_seen') ? 'first_seen AS first_seen' : 'NULL::timestamptz AS first_seen',
         includeColumn('last_seen') ? 'last_seen AS last_seen' : 'NULL::timestamptz AS last_seen',
         includeColumn('metadata') ? 'metadata AS metadata' : 'NULL::jsonb AS metadata',
+        includeColumn('departed_at') ? 'departed_at AS departed_at' : 'NULL::timestamptz AS departed_at',
       ];
 
       const conditions: string[] = [];
@@ -2143,6 +2216,7 @@ export default class VoiceActivityRepository {
           const firstSeenAt = normalizeDate(row?.first_seen);
           const lastSeenAt = normalizeDate(row?.last_seen);
           const metadata = normalizeMetadata(row?.metadata);
+          const departedAt = normalizeDate(row?.departed_at);
 
           return {
             userId,
@@ -2154,6 +2228,7 @@ export default class VoiceActivityRepository {
             firstSeenAt,
             lastSeenAt,
             metadata,
+            departedAt,
           } satisfies KnownUserRecord;
         })
         .filter((record): record is KnownUserRecord => record !== null);
@@ -2164,6 +2239,119 @@ export default class VoiceActivityRepository {
       }
       console.error('Failed to list known users', error);
       return [];
+    }
+  }
+
+  public async purgeDepartedUsers({
+    cutoff,
+    limit = 25,
+  }: {
+    cutoff: Date;
+    limit?: number | null;
+  }): Promise<number> {
+    const pool = this.ensurePool();
+    if (!pool) {
+      return 0;
+    }
+
+    const cutoffDate = cutoff instanceof Date && !Number.isNaN(cutoff.getTime()) ? cutoff : null;
+    if (!cutoffDate) {
+      return 0;
+    }
+
+    const boundedLimit = (() => {
+      const numeric = Number(limit);
+      if (!Number.isFinite(numeric)) {
+        return 25;
+      }
+      return Math.min(Math.max(Math.floor(numeric), 1), 200);
+    })();
+
+    try {
+      await this.ensureSchemaIntrospection(pool);
+      await this.ensureSchemaPatches(pool);
+
+      if (!this.usersColumns?.has('departed_at')) {
+        return 0;
+      }
+
+      const selectGuild = this.usersColumns.has('guild_id');
+      const query = `
+        SELECT user_id::text AS user_id,
+               ${selectGuild ? 'guild_id::text AS guild_id,' : 'NULL::text AS guild_id,'}
+               departed_at
+          FROM users
+         WHERE departed_at IS NOT NULL
+           AND departed_at <= $1::timestamptz
+         ORDER BY departed_at ASC
+         LIMIT $2
+      `;
+
+      const result = await pool.query(query, [cutoffDate.toISOString(), boundedLimit]);
+      const rows = result.rows ?? [];
+
+      let purged = 0;
+
+      for (const row of rows) {
+        const userId = this.normalizeString(row?.user_id);
+        if (!userId) {
+          continue;
+        }
+
+        const guildId = selectGuild ? this.normalizeString(row?.guild_id) : null;
+
+        try {
+          await this.deleteUserDataForUser(pool, userId, guildId);
+          purged += 1;
+        } catch (error) {
+          console.error('Failed to purge data for departed user', { userId, error });
+        }
+      }
+
+      return purged;
+    } catch (error) {
+      console.error('Failed to purge departed users', error);
+      return 0;
+    }
+  }
+
+  private async deleteUserDataForUser(pool: Pool, userId: string, guildId: string | null): Promise<void> {
+    const tables = [
+      'voice_activity',
+      'voice_presence',
+      'voice_interrupts',
+      'voice_mute_events',
+      'voice_cam',
+      'voice_transcriptions',
+      'text_messages',
+      'user_personas',
+    ];
+
+    const executeDelete = async (sql: string, params: Array<string | null>): Promise<void> => {
+      try {
+        await pool.query(sql, params);
+      } catch (error) {
+        if ((error as { code?: string })?.code === '42P01') {
+          return;
+        }
+        throw error;
+      }
+    };
+
+    await pool.query('BEGIN');
+    try {
+      for (const table of tables) {
+        await executeDelete(`DELETE FROM ${table} WHERE user_id::text = $1`, [userId]);
+      }
+
+      const userParams = typeof guildId === 'string' && guildId.length > 0 ? [userId, guildId] : [userId];
+      const userClause = userParams.length === 2 ? ' WHERE user_id::text = $1 AND guild_id::text = $2' : ' WHERE user_id::text = $1';
+      await executeDelete(`DELETE FROM users${userClause}`, userParams);
+
+      await pool.query('COMMIT');
+    } catch (error) {
+      await pool.query('ROLLBACK');
+      throw error;
     }
   }
 

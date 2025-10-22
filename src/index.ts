@@ -21,6 +21,7 @@ import StatisticsService from './services/StatisticsService';
 import UserAudioRecorder from './services/UserAudioRecorder';
 import AudioStreamHealthService from './services/AudioStreamHealthService';
 import DiscordVectorIngestionService from './services/DiscordVectorIngestionService';
+import UserDataRetentionService from './services/UserDataRetentionService';
 
 const consoleNoop = (..._args: unknown[]): void => {
   // Intentionally left blank to silence non-error console output.
@@ -76,6 +77,8 @@ const statisticsService = new StatisticsService({
 let userAudioRecorder: UserAudioRecorder | null = null;
 
 let audioStreamHealthService: AudioStreamHealthService | null = null;
+
+let userDataRetentionService: UserDataRetentionService | null = null;
 
 try {
   userAudioRecorder = new UserAudioRecorder({
@@ -146,6 +149,11 @@ const discordVectorIngestionService = new DiscordVectorIngestionService({
 });
 
 discordVectorIngestionService.startScheduledSynchronization();
+
+userDataRetentionService = new UserDataRetentionService({
+  voiceActivityRepository,
+});
+userDataRetentionService.start();
 
 const dailyArticleService = new DailyArticleService({
   config,
@@ -256,6 +264,12 @@ function shutdown(): void {
     listenerStatsService.stop();
   } catch (error) {
     console.error('Error while stopping listener stats service', error);
+  }
+
+  try {
+    userDataRetentionService?.stop();
+  } catch (error) {
+    console.error('Error while stopping user data retention service', error);
   }
 
   try {
