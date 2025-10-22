@@ -1229,6 +1229,7 @@ export default class AppServer {
       { path: '/blog/publier', changeFreq: 'monthly', priority: 0.5 },
       { path: '/about', changeFreq: 'monthly', priority: 0.5 },
       { path: '/cgu', changeFreq: 'yearly', priority: 0.4 },
+      { path: '/mentions-legales', changeFreq: 'yearly', priority: 0.3 },
       { path: '/salons', changeFreq: 'hourly', priority: 0.65 },
     ];
   }
@@ -1372,6 +1373,7 @@ export default class AppServer {
           return [context.latestProfileActivityAt];
         case '/about':
         case '/cgu':
+        case '/mentions-legales':
         default:
           return [];
       }
@@ -3810,6 +3812,120 @@ export default class AppServer {
     parts.push(
       `<script type="application/json" id="about-page-content">${this.escapeHtml(JSON.stringify(aboutPageContent))}</script>`,
     );
+    parts.push('</div>');
+
+    return parts.join('');
+  }
+
+  private buildLegalMentionsPageHtml(): string {
+    const siteLabel = 'Libre Antenne';
+    const publisher = 'Axiome D. – coordination éditoriale';
+    const legalStatus = 'Projet communautaire associatif (déclaration loi 1901 en cours)';
+    const postalAddress = '38 rue des Studios, 75011 Paris, France';
+    const contactEmail = 'contact@libre-antenne.fm';
+    const contactDiscord = 'Salon #support sur le serveur Discord Libre Antenne';
+    const contactDelay = 'Réponse sous 72 heures ouvrées pour les demandes légales';
+    const hostingCommercialName = 'OVHcloud';
+    const hostingLegalName = 'OVH SAS';
+    const hostingAddress = '2 rue Kellermann, 59100 Roubaix, France';
+    const hostingWebsite = 'https://www.ovhcloud.com/';
+    const hostingPhone = '+33 (0)9 72 10 10 07';
+    const identificationNotes = [
+      'Numéro RNA : en cours d’attribution par la préfecture de Paris (dossier déposé).',
+      'Responsable de la publication : Axiome D., au nom de la coordination Libre Antenne.',
+      'Le projet est actuellement opéré par une équipe bénévole sans structure commerciale déclarée.',
+    ];
+
+    const parts: string[] = [];
+    parts.push('<div class="mentions-legales-page flex flex-col gap-10">');
+    parts.push(
+      '<article class="space-y-6 rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/40 backdrop-blur-xl">',
+    );
+    parts.push(
+      `<p class="text-xs uppercase tracking-[0.35em] text-slate-300">${this.escapeHtml(siteLabel)}</p>`,
+    );
+    parts.push(
+      '<h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">Mentions légales & informations de contact</h1>',
+    );
+    parts.push(
+      '<p class="text-base leading-relaxed text-slate-200">Cette page présente l’éditeur responsable du service Libre Antenne, les moyens de contact officiels ainsi que les informations relatives à l’hébergement et à l’identification administrative du projet.</p>',
+    );
+    parts.push('<dl class="grid gap-4 sm:grid-cols-2">');
+    parts.push('<div class="rounded-2xl border border-white/10 bg-slate-950/60 p-5">');
+    parts.push('<dt class="text-sm uppercase tracking-[0.25em] text-slate-400">Éditeur</dt>');
+    parts.push(`<dd class="mt-2 text-base font-semibold text-white">${this.escapeHtml(publisher)}</dd>`);
+    parts.push(`<p class="mt-3 text-sm text-slate-300">${this.escapeHtml(legalStatus)}</p>`);
+    parts.push('</div>');
+    parts.push('<div class="rounded-2xl border border-white/10 bg-slate-950/60 p-5">');
+    parts.push('<dt class="text-sm uppercase tracking-[0.25em] text-slate-400">Adresse postale</dt>');
+    parts.push(`<dd class="mt-2 text-base font-semibold text-white">${this.escapeHtml(postalAddress)}</dd>`);
+    parts.push('<p class="mt-3 text-sm text-slate-300">Accueil sur rendez-vous uniquement.</p>');
+    parts.push('</div>');
+    parts.push('</dl>');
+    parts.push('</article>');
+
+    parts.push('<section class="grid gap-6 lg:grid-cols-2">');
+    parts.push(
+      '<article class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">',
+    );
+    parts.push('<h2 class="text-lg font-semibold text-white">Nous contacter</h2>');
+    parts.push('<ul class="mt-3 space-y-2 text-sm text-slate-300">');
+    parts.push(
+      `<li><span class="font-semibold text-slate-200">Courriel :</span> ${this.escapeHtml(contactEmail)}</li>`,
+    );
+    parts.push(
+      `<li><span class="font-semibold text-slate-200">Discord :</span> ${this.escapeHtml(contactDiscord)}</li>`,
+    );
+    parts.push(
+      `<li><span class="font-semibold text-slate-200">Délai de réponse :</span> ${this.escapeHtml(contactDelay)}</li>`,
+    );
+    parts.push('</ul>');
+    parts.push(
+      '<p class="mt-4 text-xs text-slate-400">Merci de préciser ton identifiant Discord ou toute référence utile pour faciliter le traitement de ta demande.</p>',
+    );
+    parts.push('</article>');
+    parts.push(
+      '<article class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">',
+    );
+    parts.push('<h2 class="text-lg font-semibold text-white">Hébergeur du service</h2>');
+    parts.push('<ul class="mt-3 space-y-2 text-sm text-slate-300">');
+    parts.push(
+      `<li><span class="font-semibold text-slate-200">Nom commercial :</span> ${this.escapeHtml(hostingCommercialName)}</li>`,
+    );
+    parts.push(
+      `<li><span class="font-semibold text-slate-200">Raison sociale :</span> ${this.escapeHtml(hostingLegalName)}</li>`,
+    );
+    parts.push(
+      `<li><span class="font-semibold text-slate-200">Adresse :</span> ${this.escapeHtml(hostingAddress)}</li>`,
+    );
+    parts.push(
+      `<li><span class="font-semibold text-slate-200">Site web :</span> <a class="text-indigo-300 underline hover:text-indigo-200" href="${this.escapeHtml(hostingWebsite)}" target="_blank" rel="noreferrer">${this.escapeHtml(hostingWebsite)}</a></li>`,
+    );
+    parts.push(
+      `<li><span class="font-semibold text-slate-200">Téléphone :</span> ${this.escapeHtml(hostingPhone)}</li>`,
+    );
+    parts.push('</ul>');
+    parts.push(
+      '<p class="mt-4 text-xs text-slate-400">L’infrastructure d’hébergement garantit la conformité aux standards européens (UE) en matière de disponibilité et de sécurité des données.</p>',
+    );
+    parts.push('</article>');
+    parts.push('</section>');
+
+    parts.push(
+      '<section class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/30 backdrop-blur">',
+    );
+    parts.push('<h2 class="text-lg font-semibold text-white">Identification & responsabilités</h2>');
+    parts.push('<ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-300">');
+    for (const note of identificationNotes) {
+      parts.push(`<li>${this.escapeHtml(note)}</li>`);
+    }
+    parts.push('</ul>');
+    parts.push(
+      '<p class="mt-4 text-xs text-slate-400">Pour toute demande officielle (droit de réponse, signalement juridique), merci d’adresser un courriel en précisant l’objet, les URLs concernées et les éléments justificatifs.</p>',
+    );
+    parts.push('</section>');
+
+    parts.push('<p class="text-xs uppercase tracking-[0.25em] text-slate-500">Dernière mise à jour : 10 mars 2025</p>');
     parts.push('</div>');
 
     return parts.join('');
@@ -6882,6 +6998,64 @@ export default class AppServer {
       const appHtml = this.buildCguPageHtml();
       const preloadState: AppPreloadState = {
         route: { name: 'cgu', params: {} },
+      };
+      this.respondWithAppShell(res, metadata, { appHtml, preloadState });
+    });
+
+    this.app.get('/mentions-legales', (_req, res) => {
+      const path = '/mentions-legales';
+      const metadata: SeoPageMetadata = {
+        title: `${this.config.siteName} · Mentions légales & éditeur`,
+        description:
+          `Mentions légales de ${this.config.siteName} : éditeur, coordonnées officielles, hébergeur et informations d’identification du projet communautaire.`,
+        path,
+        canonicalUrl: this.toAbsoluteUrl(path),
+        keywords: this.combineKeywords(
+          this.config.siteName,
+          'mentions légales',
+          'éditeur de publication',
+          'hébergeur OVH',
+          'contact Libre Antenne',
+        ),
+        openGraphType: 'website',
+        breadcrumbs: [
+          { name: 'Accueil', path: '/' },
+          { name: 'Mentions légales', path },
+        ],
+        structuredData: [
+          {
+            '@context': 'https://schema.org',
+            '@type': 'WebPage',
+            name: `Mentions légales – ${this.config.siteName}`,
+            description:
+              'Mentions légales, éditeur responsable, contacts officiels et informations d’hébergement du service Libre Antenne.',
+            url: this.toAbsoluteUrl(path),
+            inLanguage: this.config.siteLanguage,
+            isPartOf: {
+              '@type': 'WebSite',
+              name: this.config.siteName,
+              url: this.config.publicBaseUrl,
+            },
+            publisher: {
+              '@type': 'Organization',
+              name: this.config.siteName,
+              url: this.config.publicBaseUrl,
+            },
+            contactPoint: [
+              {
+                '@type': 'ContactPoint',
+                contactType: 'Support & questions légales',
+                email: 'contact@libre-antenne.fm',
+                availableLanguage: [this.config.siteLanguage || 'fr'],
+              },
+            ],
+          },
+        ],
+      };
+
+      const appHtml = this.buildLegalMentionsPageHtml();
+      const preloadState: AppPreloadState = {
+        route: { name: 'mentions-legales', params: {} },
       };
       this.respondWithAppShell(res, metadata, { appHtml, preloadState });
     });
