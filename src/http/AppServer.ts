@@ -277,6 +277,37 @@ interface SalonsPageBootstrap {
   refreshedAt: string | null;
 }
 
+interface MembersApiRecentMessage {
+  messageId: string;
+  channelId: string | null;
+  guildId: string | null;
+  content: string | null;
+  timestamp: string;
+  timestampMs: number;
+}
+
+interface MembersApiEntry {
+  id: string;
+  displayName: string;
+  username: string | null;
+  nickname: string | null;
+  avatarUrl: string | null;
+  joinedAt: string | null;
+  lastSeenAt: string | null;
+  lastActivityAt: string | null;
+  roles: Array<{ id: string; name: string }>;
+  isBot: boolean;
+  voiceMinutes: number;
+  messageCount: number;
+  recentMessages: MembersApiRecentMessage[];
+}
+
+interface MembersApiResponse {
+  members: MembersApiEntry[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
 interface AppPreloadState {
   route?: AppRouteDescriptor;
   participants?: Participant[];
@@ -296,6 +327,11 @@ export default class AppServer {
   private static readonly hypeLeaderboardCacheTtlMs = 24 * 60 * 60 * 1000;
 
   private static readonly textChannelCacheTtlMs = 7 * 24 * 60 * 60 * 1000;
+
+  private static readonly memberListCacheTtlMs = 24 * 60 * 60 * 1000;
+
+  private static readonly memberListCacheControlHeaderValue =
+    'public, max-age=86400, s-maxage=86400, immutable';
 
   private static readonly sitemapQueryTimeoutMs = 5000;
 
@@ -358,6 +394,8 @@ export default class AppServer {
   private readonly streamListenersByIp = new Map<string, number>();
 
   private readonly unsubscribeListenerStats: (() => void) | null;
+
+  private readonly memberListCache = new Map<string, { payload: MembersApiResponse; expiresAt: number }>();
 
   private readonly messageCaptchaStore = new Map<string, StoredCaptchaChallenge>();
 
@@ -6157,34 +6195,36 @@ export default class AppServer {
         }
       };
 
+      const cacheKey = JSON.stringify({ limit, after, search, sort });
+      const now = Date.now();
+      const cachedMemberList = this.memberListCache.get(cacheKey);
+      if (cachedMemberList) {
+        if (cachedMemberList.expiresAt > now) {
+          res.setHeader('Cache-Control', AppServer.memberListCacheControlHeaderValue);
+          res.json(cachedMemberList.payload);
+          return;
+        }
+
+        this.memberListCache.delete(cacheKey);
+      }
+
+      const respondWithMembers = (payload: MembersApiResponse | null) => {
+        if (!payload) {
+          return;
+        }
+
+        this.memberListCache.set(cacheKey, {
+          payload,
+          expiresAt: Date.now() + AppServer.memberListCacheTtlMs,
+        });
+
+        res.setHeader('Cache-Control', AppServer.memberListCacheControlHeaderValue);
+        res.json(payload);
+      };
+
       const hiddenMemberIds = await this.adminService.getHiddenMemberIds();
 
-      type ApiMemberRecentMessage = {
-        messageId: string;
-        channelId: string | null;
-        guildId: string | null;
-        content: string | null;
-        timestamp: string;
-        timestampMs: number;
-      };
-
-      type ApiMemberEntry = {
-        id: string;
-        displayName: string;
-        username: string | null;
-        nickname: string | null;
-        avatarUrl: string | null;
-        joinedAt: string | null;
-        lastSeenAt: string | null;
-        lastActivityAt: string | null;
-        roles: Array<{ id: string; name: string }>;
-        isBot: boolean;
-        voiceMinutes: number;
-        messageCount: number;
-        recentMessages: ApiMemberRecentMessage[];
-      };
-
-      let aggregatedPayload: { members: ApiMemberEntry[]; nextCursor: string | null; hasMore: boolean } | null = null;
+      let aggregatedPayload: MembersApiResponse | null = null;
 
       if (this.voiceActivityRepository) {
         try {
@@ -6214,11 +6254,11 @@ export default class AppServer {
             }
           }
 
-          const members = aggregated.members.map<ApiMemberEntry>((member) => {
+          const members = aggregated.members.map<MembersApiEntry>((member) => {
             const joinedAt = member.firstSeenAt instanceof Date ? member.firstSeenAt.toISOString() : null;
             const lastSeenAt = member.lastSeenAt instanceof Date ? member.lastSeenAt.toISOString() : null;
             const lastActivityAt = member.lastActivityAt instanceof Date ? member.lastActivityAt.toISOString() : null;
-            const recentMessages = (recentMessagesByUser[member.userId] ?? []).map<ApiMemberRecentMessage>((entry) => ({
+            const recentMessages = (recentMessagesByUser[member.userId] ?? []).map<MembersApiRecentMessage>((entry) => ({
               messageId: entry.messageId,
               channelId: entry.channelId,
               guildId: entry.guildId,
@@ -6257,7 +6297,7 @@ export default class AppServer {
           };
 
           if (!hasNormalizedSearch || members.length > 0) {
-            res.json(aggregatedPayload);
+            respondWithMembers(aggregatedPayload);
             return;
           }
         } catch (error) {
@@ -6292,7 +6332,7 @@ export default class AppServer {
           }
         }
 
-        const membersWithMessages = visibleMembers.map<ApiMemberEntry>((member) => {
+        const membersWithMessages = visibleMembers.map<MembersApiEntry>((member) => {
           const rawDisplayName = typeof member.displayName === 'string' ? member.displayName : '';
           const normalizedDisplayName = rawDisplayName.trim().length > 0
             ? rawDisplayName.trim()
@@ -6329,7 +6369,7 @@ export default class AppServer {
             isBot: Boolean(member.isBot),
             voiceMinutes: 0,
             messageCount: 0,
-            recentMessages: (recentMessagesByUser[member.id] ?? []).map<ApiMemberRecentMessage>((entry) => ({
+            recentMessages: (recentMessagesByUser[member.id] ?? []).map<MembersApiRecentMessage>((entry) => ({
               messageId: entry.messageId,
               channelId: entry.channelId,
               guildId: entry.guildId,
@@ -6340,7 +6380,7 @@ export default class AppServer {
           };
         });
 
-        res.json({
+        respondWithMembers({
           members: membersWithMessages,
           nextCursor: result.nextCursor,
           hasMore: result.hasMore,
@@ -6348,7 +6388,7 @@ export default class AppServer {
         return;
       } catch (error) {
         if (aggregatedPayload) {
-          res.json(aggregatedPayload);
+          respondWithMembers(aggregatedPayload);
           return;
         }
 
