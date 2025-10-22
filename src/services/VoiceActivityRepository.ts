@@ -6,6 +6,7 @@ export interface VoiceActivityRepositoryOptions {
   ssl?: boolean;
   poolConfig?: Omit<PoolConfig, 'connectionString'>;
   debug?: boolean;
+  pool?: Pool;
 }
 
 export interface VoiceActivityRecord {
@@ -479,7 +480,11 @@ export default class VoiceActivityRepository {
 
   private readonly debugQueries: boolean;
 
+  private readonly externalPool: Pool | null;
+
   private pool: Pool | null;
+
+  private poolConfigured: boolean;
 
   private warnedAboutMissingConnection: boolean;
 
@@ -510,12 +515,14 @@ export default class VoiceActivityRepository {
 
   private userPersonasEnsured: boolean;
 
-  constructor({ url, ssl, poolConfig, debug }: VoiceActivityRepositoryOptions) {
+  constructor({ url, ssl, poolConfig, debug, pool }: VoiceActivityRepositoryOptions) {
     this.connectionString = url;
     this.ssl = Boolean(ssl);
     this.poolConfig = poolConfig;
     this.debugQueries = Boolean(debug);
-    this.pool = null;
+    this.externalPool = pool ?? null;
+    this.pool = this.externalPool;
+    this.poolConfigured = false;
     this.warnedAboutMissingConnection = false;
     this.schemaIntrospectionPromise = null;
     this.voiceInterruptsColumns = null;
@@ -535,7 +542,7 @@ export default class VoiceActivityRepository {
   }
 
   private ensurePool(): Pool | null {
-    if (!this.connectionString) {
+    if (!this.connectionString && !this.pool) {
       if (!this.warnedAboutMissingConnection) {
         console.warn('DATABASE_URL is not configured. Voice activity persistence is disabled.');
         this.warnedAboutMissingConnection = true;
@@ -550,10 +557,14 @@ export default class VoiceActivityRepository {
         ssl: sslConfig,
         ...this.poolConfig,
       });
+    }
 
-      this.pool.on('error', (error: unknown) => {
-        console.error('Unexpected error from PostgreSQL connection pool', error);
-      });
+    if (!this.poolConfigured && this.pool) {
+      if (!this.externalPool) {
+        this.pool.on('error', (error: unknown) => {
+          console.error('Unexpected error from PostgreSQL connection pool', error);
+        });
+      }
 
       attachPostgresQueryLogger(this.pool, {
         context: 'VoiceActivityRepository',
@@ -561,6 +572,8 @@ export default class VoiceActivityRepository {
         connectionString: this.connectionString,
         ssl: this.ssl,
       });
+
+      this.poolConfigured = true;
     }
 
     return this.pool;
@@ -4571,12 +4584,13 @@ ${limitClause}`;
   }
 
   public async close(): Promise<void> {
-    if (!this.pool) {
+    if (!this.pool || this.pool === this.externalPool) {
       return;
     }
 
     const pool = this.pool;
     this.pool = null;
+    this.poolConfigured = false;
 
     try {
       await pool.end();

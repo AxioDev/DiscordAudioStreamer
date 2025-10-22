@@ -64,6 +64,7 @@ import StatisticsService, {
 } from '../services/StatisticsService';
 import type UserAudioRecorder from '../services/UserAudioRecorder';
 import { registerChatRoute } from './routes/chat';
+import { getDatabasePool } from '../lib/db';
 
 const MESSAGE_CAPTCHA_TTL_MS = 10 * 60 * 1000;
 const MESSAGE_COOLDOWN_MS = 60 * 60 * 1000;
@@ -519,6 +520,7 @@ export default class AppServer {
             url: config.database.url,
             ssl: config.database.ssl,
             debug: config.database.logQueries,
+            pool: getDatabasePool(),
           })
         : null);
 
