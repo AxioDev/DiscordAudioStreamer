@@ -90,6 +90,8 @@ export interface OpenAIConfig {
   personaIntervalMinutes: number;
   personaMaxUsersPerRun: number;
   personaLookbackDays: number;
+  dailyArticleDisabled: boolean;
+  personaDisabled: boolean;
 }
 
 export interface KaldiConfig {
@@ -181,7 +183,7 @@ const config: Config = {
     const raw = process.env.RECORDINGS_DIR || 'recordings';
     return path.isAbsolute(raw) ? raw : path.resolve(process.cwd(), raw);
   })(),
-  recordingsRetentionDays: Math.max(parseInteger(process.env.RECORDINGS_RETENTION_DAYS, 7), 0),
+  recordingsRetentionDays: Math.max(parseInteger(process.env.RECORDINGS_RETENTION_DAYS, 0), 0),
   outputFormat,
   opusBitrate: process.env.OPUS_BITRATE || '64000',
   mp3Bitrate: process.env.MP3_BITRATE || '96000',
@@ -268,6 +270,8 @@ const config: Config = {
       Math.max(parseInteger(process.env.OPENAI_PERSONA_LOOKBACK_DAYS, 45), 1),
       365,
     ),
+    dailyArticleDisabled: parseBoolean(process.env.OPENAI_DAILY_ARTICLE_DISABLED),
+    personaDisabled: parseBoolean(process.env.OPENAI_PERSONA_DISABLED),
   },
   vectorIngestion: {
     lookbackWeeks: Math.max(parseInteger(process.env.DISCORD_VECTOR_LOOKBACK_WEEKS, 8), 1),

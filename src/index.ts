@@ -80,16 +80,18 @@ let audioStreamHealthService: AudioStreamHealthService | null = null;
 
 let userDataRetentionService: UserDataRetentionService | null = null;
 
-try {
-  userAudioRecorder = new UserAudioRecorder({
-    baseDirectory: config.recordingsDirectory,
-    sampleRate: config.audio.sampleRate,
-    channels: config.audio.channels,
-    bytesPerSample: config.audio.bytesPerSample,
-    retentionPeriodMs: config.recordingsRetentionDays * 24 * 60 * 60 * 1000,
-  });
-} catch (error) {
-  console.error('Failed to initialize user audio recorder', error);
+if (config.recordingsRetentionDays > 0) {
+  try {
+    userAudioRecorder = new UserAudioRecorder({
+      baseDirectory: config.recordingsDirectory,
+      sampleRate: config.audio.sampleRate,
+      channels: config.audio.channels,
+      bytesPerSample: config.audio.bytesPerSample,
+      retentionPeriodMs: config.recordingsRetentionDays * 24 * 60 * 60 * 1000,
+    });
+  } catch (error) {
+    console.error('Failed to initialize user audio recorder', error);
+  }
 }
 
 const kaldiTranscriptionService =
