@@ -2315,6 +2315,27 @@ const ProfileIdentityCard = ({ profile, userId }) => {
   const [captchaError, setCaptchaError] = useState('');
   const [captchaLoading, setCaptchaLoading] = useState(false);
   const [isSubmittingDeletion, setIsSubmittingDeletion] = useState(false);
+  const [deletionButtonChaos, setDeletionButtonChaos] = useState({
+    translateX: 0,
+    translateY: 0,
+    scale: 1,
+    rotation: 0,
+  });
+  const deletionModalOpenTimeoutRef = useRef(null);
+
+  const triggerDeletionButtonChaos = useCallback(() => {
+    const translateX = (Math.random() - 0.5) * 280;
+    const translateY = (Math.random() - 0.5) * 140;
+    const scale = 0.75 + Math.random() * 1.1;
+    const rotation = (Math.random() - 0.5) * 24;
+
+    setDeletionButtonChaos({
+      translateX,
+      translateY,
+      scale,
+      rotation,
+    });
+  }, []);
 
   useEffect(() => {
     if (!(isAvatarOpen || isHideModalOpen || isDeletionModalOpen) || typeof document === 'undefined') {
@@ -2451,7 +2472,10 @@ const ProfileIdentityCard = ({ profile, userId }) => {
   }, []);
 
   const handleOpenDeletionModal = useCallback(() => {
-    setIsDeletionModalOpen(true);
+    triggerDeletionButtonChaos();
+    if (deletionModalOpenTimeoutRef.current) {
+      clearTimeout(deletionModalOpenTimeoutRef.current);
+    }
     setDeletionError('');
     setDeletionSuccess('');
     setDeletionNextAllowedAt(null);
@@ -2460,9 +2484,18 @@ const ProfileIdentityCard = ({ profile, userId }) => {
     setCaptchaAnswer('');
     setCaptchaChallenge(null);
     setCaptchaError('');
-  }, []);
+
+    deletionModalOpenTimeoutRef.current = setTimeout(() => {
+      setIsDeletionModalOpen(true);
+      deletionModalOpenTimeoutRef.current = null;
+    }, 450);
+  }, [triggerDeletionButtonChaos]);
 
   const handleCloseDeletionModal = useCallback(() => {
+    if (deletionModalOpenTimeoutRef.current) {
+      clearTimeout(deletionModalOpenTimeoutRef.current);
+      deletionModalOpenTimeoutRef.current = null;
+    }
     setIsDeletionModalOpen(false);
     setDeletionError('');
     setDeletionSuccess('');
@@ -2471,6 +2504,16 @@ const ProfileIdentityCard = ({ profile, userId }) => {
     setCaptchaChallenge(null);
     setCaptchaError('');
     setIsSubmittingDeletion(false);
+    setDeletionButtonChaos({ translateX: 0, translateY: 0, scale: 1, rotation: 0 });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (deletionModalOpenTimeoutRef.current) {
+        clearTimeout(deletionModalOpenTimeoutRef.current);
+        deletionModalOpenTimeoutRef.current = null;
+      }
+    };
   }, []);
 
   const handleRequestNewCaptcha = useCallback(() => {
@@ -2600,6 +2643,15 @@ const ProfileIdentityCard = ({ profile, userId }) => {
   ]);
 
   const messageCharacters = deletionMessage.length;
+  const deletionButtonStyle = useMemo(
+    () => ({
+      transform: `translate3d(${deletionButtonChaos.translateX}px, ${deletionButtonChaos.translateY}px, 0) scale(${deletionButtonChaos.scale}) rotate(${deletionButtonChaos.rotation}deg)`,
+      transition: 'transform 0.45s cubic-bezier(0.22, 1, 0.36, 1)',
+      willChange: 'transform',
+    }),
+    [deletionButtonChaos],
+  );
+
   const formattedNextAllowed = useMemo(() => {
     if (!deletionNextAllowedAt) {
       return null;
@@ -2652,6 +2704,7 @@ const ProfileIdentityCard = ({ profile, userId }) => {
             type="button"
             onClick=${handleOpenDeletionModal}
             class="inline-flex w-full items-center justify-center gap-2 rounded-full border border-rose-400/60 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-500/20 hover:text-white sm:w-auto"
+            style=${deletionButtonStyle}
           >
             <${ShieldCheck} class="h-4 w-4" aria-hidden="true" />
             Demander la suppression des données
