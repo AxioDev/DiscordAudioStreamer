@@ -10,6 +10,7 @@ import {
   Menu,
   X,
   Download,
+  RefreshCcw,
   AudioLines,
   Users,
   BadgeCheck,
@@ -526,6 +527,9 @@ const App = () => {
   const [pwaPromptContext, setPwaPromptContext] = useState(null);
   const [isPwaSheetVisible, setIsPwaSheetVisible] = useState(false);
   const deferredInstallPromptRef = useRef(null);
+  const [serviceWorkerUpdate, setServiceWorkerUpdate] = useState(null);
+  const [isUpdateDialogVisible, setIsUpdateDialogVisible] = useState(false);
+  const isReloadingAfterUpdateRef = useRef(false);
 
   const persistPromptState = useCallback((value) => {
     if (typeof window === 'undefined') {
@@ -576,6 +580,176 @@ const App = () => {
   useEffect(() => {
     asyncPagesRef.current = asyncPages;
   }, [asyncPages]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+      return undefined;
+    }
+
+    let isActive = true;
+    let updateIntervalId = null;
+    let beforeUnloadListener = null;
+
+    const handleControllerChange = () => {
+      if (isReloadingAfterUpdateRef.current) {
+        return;
+      }
+
+      isReloadingAfterUpdateRef.current = true;
+      window.location.reload();
+    };
+
+    navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
+
+    const detectWaitingWorker = (registration) => {
+      if (!isActive || !registration) {
+        return;
+      }
+
+      const waiting = registration.waiting;
+      if (!waiting || !navigator.serviceWorker.controller) {
+        return;
+      }
+
+      let didUpdateState = false;
+      setServiceWorkerUpdate((previous) => {
+        if (previous?.waiting === waiting) {
+          return previous;
+        }
+        didUpdateState = true;
+        return { registration, waiting };
+      });
+
+      if (didUpdateState) {
+        setIsUpdateDialogVisible(true);
+      }
+    };
+
+    const monitorInstallingWorker = (registration) => {
+      if (!registration) {
+        return;
+      }
+
+      const installing = registration.installing;
+      if (!installing) {
+        return;
+      }
+
+      installing.addEventListener('statechange', () => {
+        if (installing.state === 'installed') {
+          detectWaitingWorker(registration);
+        }
+      });
+    };
+
+    const handleRegistration = (registration) => {
+      if (!isActive || !registration) {
+        return;
+      }
+
+      if (registration.waiting) {
+        detectWaitingWorker(registration);
+      }
+
+      monitorInstallingWorker(registration);
+
+      registration.addEventListener('updatefound', () => {
+        monitorInstallingWorker(registration);
+      });
+
+      const requestServiceWorkerUpdate = () => {
+        registration.update().catch((error) => {
+          console.warn('Impossible de vérifier la mise à jour du service worker', error);
+        });
+      };
+
+      requestServiceWorkerUpdate();
+
+      updateIntervalId = window.setInterval(requestServiceWorkerUpdate, 60 * 60 * 1000);
+
+      beforeUnloadListener = () => {
+        if (updateIntervalId) {
+          window.clearInterval(updateIntervalId);
+        }
+      };
+
+      window.addEventListener('beforeunload', beforeUnloadListener, { once: true });
+    };
+
+    const registerServiceWorker = () => {
+      navigator.serviceWorker
+        .register('/sw.js')
+        .then((registration) => {
+          handleRegistration(registration);
+        })
+        .catch((error) => {
+          console.warn('Service worker introuvable', error);
+        });
+    };
+
+    if (document.readyState === 'complete') {
+      registerServiceWorker();
+    } else {
+      window.addEventListener('load', registerServiceWorker, { once: true });
+    }
+
+    return () => {
+      isActive = false;
+      navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
+      if (updateIntervalId) {
+        window.clearInterval(updateIntervalId);
+      }
+      if (beforeUnloadListener) {
+        window.removeEventListener('beforeunload', beforeUnloadListener);
+      }
+      window.removeEventListener('load', registerServiceWorker);
+    };
+  }, []);
+
+  useEffect(() => {
+    const waitingWorker = serviceWorkerUpdate?.waiting;
+    if (!waitingWorker) {
+      return undefined;
+    }
+
+    const handleStateChange = () => {
+      if (waitingWorker.state === 'redundant' || waitingWorker.state === 'activated') {
+        setServiceWorkerUpdate(null);
+        setIsUpdateDialogVisible(false);
+      }
+    };
+
+    waitingWorker.addEventListener('statechange', handleStateChange);
+
+    return () => {
+      waitingWorker.removeEventListener('statechange', handleStateChange);
+    };
+  }, [serviceWorkerUpdate]);
+
+  const handleServiceWorkerUpdateInstall = useCallback(() => {
+    const waitingWorker = serviceWorkerUpdate?.waiting;
+    if (!waitingWorker) {
+      return;
+    }
+
+    try {
+      waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+    } catch (error) {
+      console.warn('Impossible de lancer la mise à jour', error);
+    }
+
+    setIsUpdateDialogVisible(false);
+  }, [serviceWorkerUpdate]);
+
+  const handleServiceWorkerUpdateLater = useCallback(() => {
+    setIsUpdateDialogVisible(false);
+  }, []);
+
+  const handleServiceWorkerUpdateReminderClick = useCallback(() => {
+    if (serviceWorkerUpdate?.waiting) {
+      setIsUpdateDialogVisible(true);
+    }
+  }, [serviceWorkerUpdate]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -1517,6 +1691,10 @@ const App = () => {
   const showPwaSheet = Boolean(isPwaSheetVisible && pwaGuide);
   const pwaDialogTitleId = 'pwa-install-bottom-sheet-title';
   const pwaDialogDescriptionId = 'pwa-install-bottom-sheet-description';
+  const updateDialogTitleId = 'service-worker-update-title';
+  const updateDialogDescriptionId = 'service-worker-update-description';
+  const showUpdatePrompt = Boolean(serviceWorkerUpdate && isUpdateDialogVisible);
+  const showUpdateReminderButton = Boolean(serviceWorkerUpdate && !isUpdateDialogVisible);
 
   return html`
     <div class="flex min-h-screen flex-col bg-slate-950 text-slate-100" data-app-shell="true">
@@ -1791,6 +1969,69 @@ const App = () => {
         </div>
       </footer>
       ${
+        showUpdatePrompt
+          ? html`
+              <section
+                class="fixed inset-x-0 bottom-4 z-40 flex justify-center px-4"
+                role="alert"
+                aria-live="assertive"
+                aria-labelledby=${updateDialogTitleId}
+                aria-describedby=${updateDialogDescriptionId}
+              >
+                <div class="w-full max-w-md rounded-3xl border border-amber-400/30 bg-slate-900/95 p-5 shadow-xl shadow-amber-500/25">
+                  <div class="flex items-start gap-4">
+                    <span class="flex h-11 w-11 flex-none items-center justify-center rounded-2xl bg-amber-500/15 text-amber-200">
+                      <${RefreshCcw} class="h-5 w-5" aria-hidden="true" />
+                    </span>
+                    <div class="space-y-4">
+                      <div>
+                        <h2 id=${updateDialogTitleId} class="text-base font-semibold text-white">
+                          Nouvelle version disponible
+                        </h2>
+                        <p id=${updateDialogDescriptionId} class="mt-1 text-sm text-slate-300">
+                          Installe la mise à jour pour profiter des dernières améliorations de Libre Antenne.
+                        </p>
+                      </div>
+                      <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <button
+                          type="button"
+                          class="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-amber-400/40 bg-amber-500/15 px-4 py-2.5 text-sm font-semibold text-amber-100 transition hover:border-amber-300 hover:bg-amber-500/25 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                          onClick=${handleServiceWorkerUpdateInstall}
+                        >
+                          <${RefreshCcw} class="h-4 w-4" aria-hidden="true" />
+                          Installer la mise à jour
+                        </button>
+                        <button
+                          type="button"
+                          class="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:border-white/20 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                          onClick=${handleServiceWorkerUpdateLater}
+                        >
+                          Plus tard
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            `
+          : null
+      }
+      ${
+        showUpdateReminderButton
+          ? html`
+              <button
+                type="button"
+                class="fixed bottom-4 right-4 z-30 inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-slate-900/90 px-4 py-2 text-xs font-semibold text-amber-100 shadow-lg shadow-amber-500/20 transition hover:border-amber-300 hover:bg-slate-900/95 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                onClick=${handleServiceWorkerUpdateReminderClick}
+                aria-label="Afficher la mise à jour disponible"
+              >
+                <${RefreshCcw} class="h-4 w-4" aria-hidden="true" />
+                Mise à jour disponible
+              </button>
+            `
+          : null
+      }
+      ${
         showPwaSheet && pwaGuide
           ? html`
               <div class="fixed inset-0 z-50 flex flex-col justify-end px-4 pb-6 sm:pb-10">
@@ -1881,82 +2122,4 @@ if (mountNode) {
     }
     render(html`<${App} />`, mountNode);
   }
-}
-if ('serviceWorker' in navigator) {
-  let isReloadingAfterUpdate = false;
-
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (isReloadingAfterUpdate) {
-      return;
-    }
-
-    isReloadingAfterUpdate = true;
-    window.location.reload();
-  });
-
-  window.addEventListener('load', () => {
-    navigator.serviceWorker
-      .register('/sw.js')
-      .then((registration) => {
-
-        const activateWaitingServiceWorker = (reg) => {
-          if (!reg || !navigator.serviceWorker.controller) {
-            return;
-          }
-
-          const waitingWorker = reg.waiting;
-          if (waitingWorker) {
-            waitingWorker.postMessage({ type: 'SKIP_WAITING' });
-          }
-        };
-
-        const monitorInstallingWorker = (reg) => {
-          if (!reg) {
-            return;
-          }
-
-          const installingWorker = reg.installing;
-          if (!installingWorker) {
-            return;
-          }
-
-          installingWorker.addEventListener('statechange', () => {
-            if (installingWorker.state === 'installed') {
-              activateWaitingServiceWorker(reg);
-            }
-          });
-        };
-
-        if (registration.waiting) {
-          activateWaitingServiceWorker(registration);
-        }
-
-        monitorInstallingWorker(registration);
-
-        registration.addEventListener('updatefound', () => {
-          monitorInstallingWorker(registration);
-        });
-
-        const requestServiceWorkerUpdate = () => {
-          registration.update().catch((error) => {
-            console.warn('Impossible de vérifier la mise à jour du service worker', error);
-          });
-        };
-
-        requestServiceWorkerUpdate();
-
-        const updateInterval = window.setInterval(requestServiceWorkerUpdate, 60 * 60 * 1000);
-
-        window.addEventListener(
-          'beforeunload',
-          () => {
-            window.clearInterval(updateInterval);
-          },
-          { once: true }
-        );
-      })
-      .catch((error) => {
-        console.warn('Service worker introuvable', error);
-      });
-  });
 }
