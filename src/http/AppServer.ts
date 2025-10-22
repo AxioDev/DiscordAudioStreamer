@@ -5668,12 +5668,7 @@ export default class AppServer {
         });
       } catch (error) {
         console.error('Failed to retrieve voice activity history', error);
-        res
-          .status(500)
-          .json({
-            error: 'VOICE_ACTIVITY_FETCH_FAILED',
-            message: "Impossible de récupérer l'historique vocal.",
-          });
+        res.json({ segments: [] });
       }
     });
 
@@ -6495,7 +6490,7 @@ export default class AppServer {
             hasMore: Boolean(nextCursor),
           };
 
-          if (!hasNormalizedSearch || members.length > 0) {
+          if (members.length > 0) {
             respondWithMembers(aggregatedPayload);
             return;
           }
