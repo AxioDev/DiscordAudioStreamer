@@ -59,6 +59,7 @@ export interface CheckoutRequestOptions {
 export interface CheckoutSession {
   provider: ShopProvider;
   url: string;
+  termsUrl?: string;
 }
 
 export class ShopError extends Error {

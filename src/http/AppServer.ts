@@ -1230,6 +1230,7 @@ export default class AppServer {
       { path: '/blog/publier', changeFreq: 'monthly', priority: 0.5 },
       { path: '/about', changeFreq: 'monthly', priority: 0.5 },
       { path: '/cgu', changeFreq: 'yearly', priority: 0.4 },
+      { path: '/cgv-vente', changeFreq: 'yearly', priority: 0.4 },
       { path: '/mentions-legales', changeFreq: 'yearly', priority: 0.3 },
       { path: '/salons', changeFreq: 'hourly', priority: 0.65 },
     ];
@@ -1374,6 +1375,7 @@ export default class AppServer {
           return [context.latestProfileActivityAt];
         case '/about':
         case '/cgu':
+        case '/cgv-vente':
         case '/mentions-legales':
         default:
           return [];
@@ -3502,6 +3504,7 @@ export default class AppServer {
           availability: 'https://schema.org/InStock',
           itemCondition: 'https://schema.org/NewCondition',
           seller,
+          termsOfService: this.toAbsoluteUrl('/cgv-vente'),
         };
 
         const priceAmount = Number(product.price?.amount);
@@ -3681,6 +3684,10 @@ export default class AppServer {
     );
     parts.push('</div>');
     parts.push('</section>');
+
+    parts.push(
+      '<p class="text-xs leading-relaxed text-slate-400">En validant ta commande, tu confirmes avoir lu et accepté nos <a class="text-slate-200 underline transition hover:text-white" href="/cgv-vente">Conditions générales de vente</a> (prix TTC, paiements, livraison et rétractation).</p>',
+    );
     parts.push('</div>');
 
     return parts.join('');
@@ -4175,6 +4182,149 @@ export default class AppServer {
     parts.push('<ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-300">');
     for (const note of internationalTransferNotes) {
       parts.push(`<li>${this.escapeHtml(note)}</li>`);
+    }
+    parts.push('</ul>');
+    parts.push('</article>');
+    parts.push('</section>');
+
+    parts.push('<p class="text-xs uppercase tracking-[0.25em] text-slate-500">Dernière mise à jour : 10 mars 2025</p>');
+    parts.push('</div>');
+
+    return parts.join('');
+  }
+
+  private buildCgvVentePageHtml(): string {
+    const pricingPoints = [
+      'Tous les tarifs sont indiqués en euros toutes taxes comprises (TVA non applicable, art. 293 B du CGI) et incluent les frais de préparation.',
+      "Les frais de livraison sont calculés lors du passage de commande en fonction de l'adresse et du transporteur sélectionné.",
+      'Les prix peuvent évoluer à tout moment mais les produits sont facturés sur la base du tarif affiché au moment de la validation du paiement.',
+      "Une facture numérique récapitulative est envoyée automatiquement à l'adresse e-mail communiquée lors du paiement.",
+    ];
+    const paymentProviders = [
+      {
+        title: 'Paiement sécurisé Stripe',
+        description:
+          'Règlement par carte bancaire, Apple Pay ou Google Pay via Stripe. Les données de carte ne transitent jamais par nos serveurs et les transactions sont chiffrées (TLS 1.2+).',
+      },
+      {
+        title: 'Compte PayPal',
+        description:
+          'Connexion à ton compte PayPal pour régler en une étape. PayPal peut proposer un paiement en plusieurs fois selon ton éligibilité. Les éventuels frais PayPal sont affichés avant confirmation.',
+      },
+      {
+        title: 'Crypto via CoinGate',
+        description:
+          'Paiement en Bitcoin, Lightning ou plus de 70 crypto-actifs via CoinGate. La conversion en euros est instantanée ; les frais de réseau sont indiqués avant validation.',
+      },
+    ];
+    const paymentCommitments = [
+      'Le débit intervient au moment de la confirmation par le prestataire de paiement.',
+      "Les tentatives frauduleuses entraînent l'annulation immédiate de la commande et la suspension de l'accès à la boutique.",
+      "Pour toute demande de justificatif comptable complémentaire, contacte-nous dans les 14 jours suivant l'achat.",
+    ];
+    const deliveryClauses = [
+      'Les produits physiques sont fabriqués à la demande puis expédiés sous 5 à 7 jours ouvrés. Le délai de livraison dépend ensuite du transporteur (généralement 2 à 5 jours ouvrés en France métropolitaine).',
+      'Un e-mail de suivi est envoyé dès que le colis est pris en charge. Il contient le numéro de suivi et le lien vers le transporteur.',
+      "Assure-toi que l'adresse fournie est exacte ; un second envoi lié à une erreur d'adresse pourra être facturé au tarif réel du transporteur.",
+      'Les produits numériques ou services immatériels sont livrés par e-mail immédiatement après la confirmation du paiement.',
+    ];
+    const withdrawalSteps = [
+      "Tu disposes d'un délai de rétractation de 14 jours calendaires à compter de la réception du colis (ou de la confirmation pour un service immatériel non entamé).",
+      'Envoie ta demande à axiocontactezmoi@protonmail.com ou via le salon Discord #support en précisant ton numéro de commande et le produit concerné.',
+      "Les articles doivent être renvoyés dans leur emballage d'origine, non utilisés et accompagnés de la preuve d'achat. Les frais de retour restent à ta charge sauf erreur de notre part.",
+      "Les produits personnalisés ou scellés qui ont été ouverts après livraison ne peuvent pas faire l'objet d'un droit de rétractation, conformément à l'article L221-28 du Code de la consommation.",
+    ];
+    const serviceChannels = [
+      'Salon #support sur Discord pour un échange quasi instantané avec la coordination.',
+      'Courriel dédié : axiocontactezmoi@protonmail.com (réponse sous 72 heures ouvrées).',
+      'Suivi de commande renforcé possible par téléphone sur rendez-vous (coordonnées communiquées après prise de contact).',
+    ];
+    const disputeNotes = [
+      'En cas de colis endommagé, formule des réserves précises auprès du transporteur dans les 48 heures et préviens-nous pour ouvrir une enquête.',
+      'Les litiges peuvent être soumis au service de médiation de la consommation dont les coordonnées seront communiquées sur demande.',
+      'La plateforme européenne de règlement en ligne des litiges est accessible sur https://ec.europa.eu/consumers/odr/.',
+    ];
+
+    const parts: string[] = [];
+    parts.push('<div class="cgv-vente-page flex flex-col gap-10">');
+    parts.push(
+      '<article class="space-y-6 rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/40 backdrop-blur-xl">',
+    );
+    parts.push('<p class="text-xs uppercase tracking-[0.35em] text-slate-300">Libre Antenne</p>');
+    parts.push('<h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">Conditions générales de vente</h1>');
+    parts.push(
+      '<p class="text-base leading-relaxed text-slate-200">Ces conditions encadrent toute commande passée sur la boutique Libre Antenne. Elles détaillent les prix TTC, les moyens de paiement acceptés, les modalités de livraison, ton droit de rétractation et la façon de joindre notre service client. En validant un achat, tu reconnais les avoir lues et acceptées.</p>',
+    );
+    parts.push('</article>');
+
+    parts.push('<section class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/30 backdrop-blur">');
+    parts.push('<h2 class="text-lg font-semibold text-white">1. Prix & facturation TTC</h2>');
+    parts.push('<ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-300">');
+    for (const item of pricingPoints) {
+      parts.push(`<li>${this.escapeHtml(item)}</li>`);
+    }
+    parts.push('</ul>');
+    parts.push('</section>');
+
+    parts.push('<section class="grid gap-6 lg:grid-cols-3">');
+    for (const method of paymentProviders) {
+      parts.push(
+        '<article class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">',
+      );
+      parts.push(`<h3 class="text-base font-semibold text-white">${this.escapeHtml(method.title)}</h3>`);
+      parts.push(`<p class="mt-3 text-sm leading-relaxed text-slate-300">${this.escapeHtml(method.description)}</p>`);
+      parts.push('</article>');
+    }
+    parts.push('</section>');
+
+    parts.push('<section class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/30 backdrop-blur">');
+    parts.push('<h2 class="text-lg font-semibold text-white">2. Modalités de paiement</h2>');
+    parts.push('<ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-300">');
+    for (const item of paymentCommitments) {
+      parts.push(`<li>${this.escapeHtml(item)}</li>`);
+    }
+    parts.push('</ul>');
+    parts.push('</section>');
+
+    parts.push('<section class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/30 backdrop-blur">');
+    parts.push('<h2 class="text-lg font-semibold text-white">3. Livraison & disponibilité</h2>');
+    parts.push('<ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-300">');
+    for (const item of deliveryClauses) {
+      parts.push(`<li>${this.escapeHtml(item)}</li>`);
+    }
+    parts.push('</ul>');
+    parts.push('</section>');
+
+    parts.push('<section class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/30 backdrop-blur">');
+    parts.push('<h2 class="text-lg font-semibold text-white">4. Droit de rétractation</h2>');
+    parts.push('<ol class="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-300">');
+    for (const item of withdrawalSteps) {
+      parts.push(`<li>${this.escapeHtml(item)}</li>`);
+    }
+    parts.push('</ol>');
+    parts.push('</section>');
+
+    parts.push('<section class="grid gap-6 lg:grid-cols-2">');
+    parts.push(
+      '<article class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">',
+    );
+    parts.push('<h2 class="text-lg font-semibold text-white">5. Service client & suivi</h2>');
+    parts.push(
+      '<p class="text-sm leading-relaxed text-slate-300">Notre équipe bénévole reste disponible pour toute question avant ou après ton achat. Indique ton numéro de commande pour accélérer le traitement de ta demande.</p>',
+    );
+    parts.push('<ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-300">');
+    for (const item of serviceChannels) {
+      parts.push(`<li>${this.escapeHtml(item)}</li>`);
+    }
+    parts.push('</ul>');
+    parts.push('</article>');
+    parts.push(
+      '<article class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">',
+    );
+    parts.push('<h2 class="text-lg font-semibold text-white">6. Litiges & médiation</h2>');
+    parts.push('<ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-300">');
+    for (const item of disputeNotes) {
+      parts.push(`<li>${this.escapeHtml(item)}</li>`);
     }
     parts.push('</ul>');
     parts.push('</article>');
@@ -4975,7 +5125,11 @@ export default class AppServer {
           cancelUrl: typeof cancelUrl === 'string' ? cancelUrl : undefined,
           customerEmail: typeof customerEmail === 'string' ? customerEmail : undefined,
         });
-        res.status(201).json(session);
+        const payload = {
+          ...session,
+          termsUrl: session?.termsUrl ?? this.toAbsoluteUrl('/cgv-vente'),
+        };
+        res.status(201).json(payload);
       } catch (error) {
         this.handleShopError(res, error);
       }
@@ -6939,6 +7093,7 @@ export default class AppServer {
               name: this.config.siteName,
               url: this.config.publicBaseUrl,
             },
+            termsOfService: this.toAbsoluteUrl('/cgv-vente'),
           },
           ...structuredCatalog,
         ],
@@ -7076,6 +7231,56 @@ export default class AppServer {
       const preloadState: AppPreloadState = {
         route: { name: 'cgu', params: {} },
       };
+      this.respondWithAppShell(res, metadata, { appHtml, preloadState });
+    });
+
+    this.app.get('/cgv-vente', (_req, res) => {
+      const path = '/cgv-vente';
+      const metadata: SeoPageMetadata = {
+        title: `${this.config.siteName} · Conditions générales de vente & service client`,
+        description:
+          'Prix TTC, modalités de paiement, délais de livraison, droit de rétractation et contacts du support boutique Libre Antenne.',
+        path,
+        canonicalUrl: this.toAbsoluteUrl(path),
+        keywords: this.combineKeywords(
+          this.config.siteName,
+          'conditions générales de vente',
+          'CGV Libre Antenne',
+          'livraison boutique',
+          'droit de rétractation',
+        ),
+        openGraphType: 'website',
+        breadcrumbs: [
+          { name: 'Accueil', path: '/' },
+          { name: 'Boutique', path: '/boutique' },
+          { name: 'Conditions générales de vente', path },
+        ],
+        structuredData: [
+          {
+            '@context': 'https://schema.org',
+            '@type': 'TermsOfService',
+            name: `Conditions générales de vente – ${this.config.siteName}`,
+            description:
+              'Conditions générales de vente de la boutique Libre Antenne : prix TTC, paiements acceptés, modalités de livraison, droit de rétractation et service client.',
+            url: this.toAbsoluteUrl(path),
+            inLanguage: this.config.siteLanguage,
+            provider: {
+              '@type': 'Organization',
+              name: this.config.siteName,
+              url: this.config.publicBaseUrl,
+            },
+            dateModified: '2025-03-10',
+            isPartOf: {
+              '@type': 'OfferCatalog',
+              name: `${this.config.siteName} – Boutique officielle`,
+              url: this.toAbsoluteUrl('/boutique'),
+            },
+          },
+        ],
+      };
+
+      const appHtml = this.buildCgvVentePageHtml();
+      const preloadState: AppPreloadState = { route: { name: 'cgv-vente', params: {} } };
       this.respondWithAppShell(res, metadata, { appHtml, preloadState });
     });
 

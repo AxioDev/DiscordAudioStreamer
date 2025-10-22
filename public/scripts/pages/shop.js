@@ -294,6 +294,14 @@ export const ShopPage = ({ bootstrap = null }) => {
           </p>
         </div>
       </section>
+
+      <p class="text-xs leading-relaxed text-slate-400">
+        En validant ta commande, tu confirmes avoir lu et accepté nos
+        <a class="text-slate-200 underline transition hover:text-white" href="/cgv-vente">
+          Conditions générales de vente
+        </a>
+        (prix TTC, paiements, livraison et rétractation).
+      </p>
     </${Fragment}>
   `;
 };

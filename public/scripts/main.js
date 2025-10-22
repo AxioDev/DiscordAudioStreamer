@@ -48,6 +48,8 @@ const ROUTE_LOADERS = {
   classements: () =>
     import('./pages/classements.js').then((module) => module?.ClassementsPage ?? null),
   cgu: () => import('./pages/cgu.js').then((module) => module?.CguPage ?? null),
+  'cgv-vente': () =>
+    import('./pages/cgv-vente.js').then((module) => module?.CgvVentePage ?? null),
   chat: () => import('./pages/chat.js').then((module) => module?.ChatPage ?? null),
   'mentions-legales': () =>
     import('./pages/mentions-legales.js').then((module) => module?.MentionsLegalesPage ?? null),
@@ -81,6 +83,7 @@ const PRERENDER_CLASS_TOKENS = [
   'shop-page',
   'about-page',
   'cgu-page',
+  'cgv-vente-page',
   'mentions-legales-page',
 ];
 
@@ -934,6 +937,7 @@ const App = () => {
       'ban',
       'about',
       'cgu',
+      'cgv-vente',
     ];
 
     const startPrefetch = () => {
@@ -1879,6 +1883,8 @@ const App = () => {
           ${
             route.name === 'cgu'
               ? renderAsyncPage('cgu')
+              : route.name === 'cgv-vente'
+              ? renderAsyncPage('cgv-vente')
               : route.name === 'ban'
               ? renderAsyncPage('ban')
               : route.name === 'about'
@@ -1964,6 +1970,17 @@ const App = () => {
             }}
           >
             Conditions générales d’utilisation
+          </a>
+          <span class="hidden sm:inline">•</span>
+          <a
+            class="text-slate-300 transition hover:text-white hover:underline"
+            href="/cgv-vente"
+            onClick=${(event) => {
+              event.preventDefault();
+              navigateToRoute('cgv-vente', {}, { scrollToTop: true });
+            }}
+          >
+            Conditions générales de vente
           </a>
           <span class="hidden sm:inline">•</span>
           <a

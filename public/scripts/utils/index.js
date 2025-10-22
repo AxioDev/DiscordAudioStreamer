@@ -11,6 +11,13 @@ const BAN_ALIASES = new Set(['bannir', 'ban']);
 const PROFILE_ALIASES = new Set(['profil', 'profile']);
 const CHAT_ALIASES = new Set(['chat', 'assistant', 'assistant-ia']);
 const SALONS_ALIASES = new Set(['salons', 'channels', 'text-channels']);
+const CGV_ALIASES = new Set([
+  'cgv',
+  'cgv-vente',
+  'conditions-generales-vente',
+  'conditions-generales-de-vente',
+  'conditions-generales-de-vente-libre-antenne',
+]);
 const CGU_ALIASES = new Set([
   'cgu',
   'conditions-generales',
@@ -90,6 +97,8 @@ export const buildRoutePath = (name, params = {}) => {
       return '/about';
     case 'cgu':
       return '/cgu';
+    case 'cgv-vente':
+      return '/cgv-vente';
     case 'mentions-legales':
       return '/mentions-legales';
     case 'chat':
@@ -159,6 +168,9 @@ export const parseRouteFromLocation = (location) => {
 
   if (CGU_ALIASES.has(head)) {
     return { name: 'cgu', params: {} };
+  }
+  if (CGV_ALIASES.has(head)) {
+    return { name: 'cgv-vente', params: {} };
   }
   if (MENTIONS_ALIASES.has(head)) {
     return { name: 'mentions-legales', params: {} };
