@@ -1,5 +1,6 @@
 import type { Writable } from 'stream';
 import AntiCrackleFilter from './AntiCrackleFilter';
+import VoiceAnonymizer from './VoiceAnonymizer';
 
 interface SourceEntry {
   buffer: Buffer;
@@ -64,6 +65,8 @@ export default class AudioMixer {
 
   private readonly antiCrackleFilter: AntiCrackleFilter;
 
+  private readonly voiceAnonymizer: VoiceAnonymizer;
+
   constructor({ frameBytes, mixFrameMs, bytesPerSample }: AudioMixerOptions) {
     this.frameBytes = frameBytes;
     this.mixFrameMs = mixFrameMs;
@@ -96,6 +99,13 @@ export default class AudioMixer {
       bytesPerSample: this.bytesPerSample,
       sampleCount: this.sampleCount,
     });
+
+    const frameDurationSeconds = this.mixFrameMs / 1000;
+    const sampleRate = frameDurationSeconds > 0 ? Math.round(this.sampleCount / frameDurationSeconds) : 48000;
+    this.voiceAnonymizer = new VoiceAnonymizer({
+      sampleRate,
+      bytesPerSample: this.bytesPerSample,
+    });
   }
 
   public setOutput(writable: Writable | null): void {
@@ -117,6 +127,7 @@ export default class AudioMixer {
     } else {
       this.outputDrainListener = null;
       this.antiCrackleFilter.reset();
+      this.voiceAnonymizer.reset();
     }
 
     this.ensureMixLoop();
@@ -238,7 +249,8 @@ export default class AudioMixer {
     let activeForStats = 0;
 
     if (activeFrames.length === 0) {
-      const processedFrame = this.antiCrackleFilter.process(this.nullFrame);
+      const anonymizedFrame = this.voiceAnonymizer.process(this.nullFrame);
+      const processedFrame = this.antiCrackleFilter.process(anonymizedFrame);
       const ok = this.writeToOutput(processedFrame);
       if (!ok) {
         this.stats.backpressureCount += 1;
@@ -277,7 +289,8 @@ export default class AudioMixer {
 
     this.updateAverageActiveSources(activeForStats);
 
-    const processedFrame = this.antiCrackleFilter.process(outputBuffer);
+    const anonymizedFrame = this.voiceAnonymizer.process(outputBuffer);
+    const processedFrame = this.antiCrackleFilter.process(anonymizedFrame);
     const ok = this.writeToOutput(processedFrame);
     if (!ok) {
       this.stats.backpressureCount += 1;
