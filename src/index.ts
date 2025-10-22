@@ -136,9 +136,12 @@ void blogSubmissionService.initialize().catch((error) => {
   console.error('BlogSubmissionService initialization failed', error);
 });
 
+const shopService = new ShopService({ config });
+
 const discordVectorIngestionService = new DiscordVectorIngestionService({
   blogService,
   projectRoot: path.resolve(__dirname, '..'),
+  shopService,
   voiceActivityRepository,
 });
 
@@ -182,8 +185,6 @@ const anonymousSpeechManager = new AnonymousSpeechManager({
   discordBridge,
   sseService,
 });
-
-const shopService = new ShopService({ config });
 
 const appServer = new AppServer({
   config,

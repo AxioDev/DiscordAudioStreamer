@@ -3,6 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 
 import config from '../config';
+import { SHOP_CONTENT } from '../content/shop';
 import { getEmbedding } from '../lib/openai';
 import { aboutPageContent } from '../content/about';
 import {
@@ -14,6 +15,7 @@ import {
   PgvectorExtensionRequiredError,
 } from './DiscordVectorRepository';
 import type BlogService from './BlogService';
+import type ShopService from './ShopService';
 import VoiceActivityRepository from './VoiceActivityRepository';
 
 interface DiscordVectorDocument {
@@ -59,6 +61,7 @@ interface UserSummary {
 export interface DiscordVectorIngestionServiceOptions {
   blogService: BlogService | null;
   projectRoot: string;
+  shopService: ShopService | null;
   voiceActivityRepository: VoiceActivityRepository | null;
 }
 
@@ -104,6 +107,8 @@ export default class DiscordVectorIngestionService {
 
   private readonly projectRoot: string;
 
+  private readonly shopService: ShopService | null;
+
   private readonly voiceActivityRepository: VoiceActivityRepository | null;
 
   private readonly ingestionLookbackMs: number;
@@ -125,6 +130,7 @@ export default class DiscordVectorIngestionService {
   constructor(options: DiscordVectorIngestionServiceOptions) {
     this.blogService = options.blogService;
     this.projectRoot = options.projectRoot;
+    this.shopService = options.shopService ?? null;
     this.voiceActivityRepository = options.voiceActivityRepository ?? null;
     const lookbackWeeks = Math.max(config.vectorIngestion.lookbackWeeks, 1);
     this.ingestionLookbackMs = lookbackWeeks * 7 * 24 * 60 * 60 * 1000;
@@ -219,6 +225,9 @@ export default class DiscordVectorIngestionService {
 
     const jsonDocuments = await this.collectJsonDocuments();
     documents.push(...jsonDocuments);
+
+    const shopDocuments = this.collectShopDocuments();
+    documents.push(...shopDocuments);
 
     const userSummaries = await this.loadKnownUsers(range);
     const userMap = new Map<string, UserSummary>();
@@ -375,72 +384,115 @@ export default class DiscordVectorIngestionService {
     return documents;
   }
 
-  private collectAboutPageDocument(): DiscordVectorDocument | null {
-    const { hero, highlights } = aboutPageContent;
-    if (!hero?.title) {
-      return null;
-    }
+  private collectShopDocuments(): DiscordVectorDocument[] {
+    const documents: DiscordVectorDocument[] = [];
 
-    const segments: string[] = [];
-    segments.push(`# ${hero.title}`);
+    const heroLines = [
+      SHOP_CONTENT.hero.eyebrow,
+      SHOP_CONTENT.hero.title,
+      '',
+      SHOP_CONTENT.hero.description,
+      '',
+      'Avantages mis en avant :',
+      ...SHOP_CONTENT.hero.highlights.map((entry) => `- ${entry.label}`),
+      '',
+      `${SHOP_CONTENT.hero.support.eyebrow} :`,
+      SHOP_CONTENT.hero.support.body,
+    ];
 
-    if (Array.isArray(hero.paragraphs)) {
-      for (const paragraph of hero.paragraphs) {
-        if (typeof paragraph === 'string') {
-          const trimmed = paragraph.trim();
-          if (trimmed) {
-            segments.push(trimmed);
-          }
-        }
-      }
-    }
-
-    if (hero.cta?.label) {
-      const label = hero.cta.label.trim();
-      if (label) {
-        const href = typeof hero.cta.href === 'string' && hero.cta.href.trim().length > 0 ? hero.cta.href.trim() : null;
-        const ctaLine = href ? `${label} (${href})` : label;
-        segments.push(`Appel à l'action: ${ctaLine}`);
-      }
-    }
-
-    if (Array.isArray(highlights)) {
-      for (const highlight of highlights) {
-        const title = typeof highlight?.title === 'string' ? highlight.title.trim() : '';
-        const body = typeof highlight?.body === 'string' ? highlight.body.trim() : '';
-        if (!title && !body) {
-          continue;
-        }
-        if (title) {
-          segments.push(`## ${title}`);
-        }
-        if (body) {
-          segments.push(body);
-        }
-      }
-    }
-
-    const content = segments.join('\n\n').trim();
-    if (!content) {
-      return null;
-    }
-
-    return {
-      id: 'page:about',
-      title: hero.title,
-      category: 'page',
-      content,
+    documents.push({
+      id: 'shop:hero',
+      title: SHOP_CONTENT.hero.title,
+      category: 'shop',
+      content: heroLines.join('\n'),
       metadata: {
-        source: 'about',
-        type: 'page',
-        slug: 'about',
-        highlights: Array.isArray(highlights)
-          ? highlights
-              .map((highlight) => (typeof highlight?.title === 'string' ? highlight.title.trim() : ''))
-              .filter((title) => title.length > 0)
-          : [],
+        source: 'shop',
+        type: 'content',
+        section: 'hero',
       },
-    };
+    });
+
+    const sectionEntries = [
+      { key: 'verified-payments', section: SHOP_CONTENT.sections.verifiedPayments },
+      { key: 'crypto-friendly', section: SHOP_CONTENT.sections.cryptoFriendly },
+    ] as const;
+
+    for (const entry of sectionEntries) {
+      documents.push({
+        id: `shop:section:${entry.key}`,
+        title: entry.section.title,
+        category: 'shop',
+        content: `${entry.section.title}\n\n${entry.section.description}`,
+        metadata: {
+          source: 'shop',
+          type: 'content',
+          section: entry.key,
+        },
+      });
+    }
+
+    if (this.shopService) {
+      const products = this.shopService.getProducts();
+      for (const product of products) {
+        const providerLabels = product.providers.map((provider) => {
+          switch (provider) {
+            case 'stripe':
+              return 'Stripe';
+            case 'paypal':
+              return 'PayPal';
+            case 'coingate':
+              return 'CoinGate';
+            default:
+              return provider;
+          }
+        });
+
+        const lines = [
+          product.name,
+          '',
+          product.description,
+          '',
+          `Prix public : ${product.price.formatted}`,
+          `Devise : ${product.price.currency}`,
+          `Moyens de paiement : ${providerLabels.length > 0 ? providerLabels.join(', ') : 'Non précisés'}`,
+          `Livraison : ${product.shippingEstimate || 'Non communiquée'}`,
+        ];
+
+        if (product.includes.length > 0) {
+          lines.push('', 'Contenu du pack :', ...product.includes.map((item) => `- ${item}`));
+        }
+
+        if (product.badges.length > 0) {
+          lines.push('', 'Badges :', ...product.badges.map((badge) => `- ${badge}`));
+        }
+
+        if (product.highlight) {
+          lines.push('', 'Produit mis en avant pour la boutique.');
+        }
+
+        if (product.updatedAt) {
+          lines.push('', `Dernière mise à jour : ${product.updatedAt}`);
+        }
+
+        documents.push({
+          id: `shop:product:${product.id}`,
+          title: product.name,
+          category: 'shop',
+          content: lines.join('\n'),
+          metadata: {
+            source: 'shop',
+            type: 'product',
+            productId: product.id,
+            highlight: Boolean(product.highlight),
+            price: product.price,
+            providers: [...product.providers],
+            updatedAt: product.updatedAt ?? null,
+          },
+        });
+      }
+    }
+
+    return documents;
   }
 
   private normalizeMarkdown(raw: string): string {

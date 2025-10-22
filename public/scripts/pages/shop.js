@@ -15,12 +15,15 @@ import {
   Truck,
 } from '../core/deps.js';
 import { ShopProductCard } from '../components/index.js';
+import { SHOP_CONTENT } from '../../../src/content/shop.ts';
 
 const FEEDBACK_STYLES = {
   success: 'border-emerald-400/40 bg-emerald-500/10 text-emerald-100',
   info: 'border-sky-400/40 bg-sky-500/10 text-sky-100',
   error: 'border-rose-400/40 bg-rose-500/10 text-rose-100',
 };
+
+const HERO_HIGHLIGHT_ICONS = [ShoppingBag, Truck, Coffee];
 
 const parseCheckoutFeedback = () => {
   if (typeof window === 'undefined') {
@@ -175,6 +178,15 @@ export const ShopPage = ({ bootstrap = null }) => {
     [getReturnUrls],
   );
 
+  const heroHighlights = useMemo(
+    () =>
+      SHOP_CONTENT.hero.highlights.map((highlight, index) => ({
+        label: highlight.label,
+        Icon: HERO_HIGHLIGHT_ICONS[index] ?? ShoppingBag,
+      })),
+    [],
+  );
+
   const sortedProducts = useMemo(() =>
     products
       .slice()
@@ -184,36 +196,31 @@ export const ShopPage = ({ bootstrap = null }) => {
   return html`
     <${Fragment}>
       <section class="space-y-6 rounded-3xl border border-white/10 bg-white/5 px-8 py-12 shadow-xl shadow-slate-950/40 backdrop-blur-xl">
-        <p class="text-xs uppercase tracking-[0.35em] text-slate-300">Boutique officielle</p>
+        <p class="text-xs uppercase tracking-[0.35em] text-slate-300">${SHOP_CONTENT.hero.eyebrow}</p>
         <div class="grid gap-8 lg:grid-cols-[1.1fr_1fr] lg:items-center">
           <div class="space-y-4">
             <h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">
-              La Boutique Libre Antenne
+              ${SHOP_CONTENT.hero.title}
             </h1>
             <p class="text-base leading-relaxed text-slate-200">
-              Soutiens la libre antenne et repars avec des pièces conçues pour les noctambules,
-              les gamers et les voix libres. Paiement sécurisé via Stripe, PayPal ou CoinGate.
+              ${SHOP_CONTENT.hero.description}
             </p>
             <div class="flex flex-wrap gap-3 text-xs text-slate-200">
-              <span class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-1.5">
-                <${ShoppingBag} class="h-4 w-4" aria-hidden="true" />
-                Stripe, PayPal & CoinGate
-              </span>
-              <span class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-1.5">
-                <${Truck} class="h-4 w-4" aria-hidden="true" />
-                Livraison France & Europe
-              </span>
-              <span class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-1.5">
-                <${Coffee} class="h-4 w-4" aria-hidden="true" />
-                Production à la demande
-              </span>
+              ${heroHighlights.map(
+                ({ Icon, label }) => html`<span
+                  key=${label}
+                  class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-1.5"
+                >
+                  <${Icon} class="h-4 w-4" aria-hidden="true" />
+                  ${label}
+                </span>`,
+              )}
             </div>
           </div>
           <div class="rounded-3xl border border-fuchsia-400/40 bg-fuchsia-500/10 px-6 py-6 text-sm text-fuchsia-100 shadow-lg shadow-fuchsia-900/30">
-            <p class="text-xs uppercase tracking-[0.35em] text-fuchsia-200/80">Libre antenne</p>
+            <p class="text-xs uppercase tracking-[0.35em] text-fuchsia-200/80">${SHOP_CONTENT.hero.support.eyebrow}</p>
             <p class="mt-3 leading-relaxed">
-              Chaque achat finance l’hébergement du bot, le mixage audio et la préparation de
-              nouvelles émissions en roue libre. Merci de faire tourner la radio indépendante.
+              ${SHOP_CONTENT.hero.support.body}
             </p>
           </div>
         </div>
@@ -271,21 +278,19 @@ export const ShopPage = ({ bootstrap = null }) => {
         <div class="rounded-3xl border border-white/10 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">
           <h3 class="flex items-center gap-2 text-lg font-semibold text-white">
             <${ShieldCheck} class="h-5 w-5 text-emerald-300" aria-hidden="true" />
-            Paiements vérifiés
+            ${SHOP_CONTENT.sections.verifiedPayments.title}
           </h3>
           <p class="mt-3 text-sm leading-relaxed text-slate-300">
-            Stripe chiffre chaque transaction et accepte la plupart des cartes, Apple Pay et
-            Google Pay. Aucun numéro sensible n’est stocké sur nos serveurs.
+            ${SHOP_CONTENT.sections.verifiedPayments.description}
           </p>
         </div>
         <div class="rounded-3xl border border-white/10 bg-slate-950/60 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">
           <h3 class="flex items-center gap-2 text-lg font-semibold text-white">
             <${Coins} class="h-5 w-5 text-emerald-300" aria-hidden="true" />
-            Crypto friendly
+            ${SHOP_CONTENT.sections.cryptoFriendly.title}
           </h3>
           <p class="mt-3 text-sm leading-relaxed text-slate-300">
-            CoinGate permet de régler en Bitcoin, Lightning Network et plus de 70 altcoins, avec
-            conversion instantanée en euros ou conservation en crypto.
+            ${SHOP_CONTENT.sections.cryptoFriendly.description}
           </p>
         </div>
       </section>
