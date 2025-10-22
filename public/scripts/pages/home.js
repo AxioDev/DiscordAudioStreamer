@@ -103,6 +103,11 @@ const FAQ_ITEMS = [
     answer:
       'Les meilleures séquences sont résumées dans le blog et certaines émissions sont rediffusées lors des pauses. Suis la newsletter Discord pour connaître les prochains replays.',
   },
+  {
+    question: 'Comment désactiver les fonctionnalités IA ou l’envoi vers OpenAI ?',
+    answer:
+      'Les administrateurs peuvent mettre en pause DailyArticleService et UserPersonaService depuis le tableau de bord « Services IA » ou en définissant OPENAI_DAILY_ARTICLE_DISABLED / OPENAI_PERSONA_DISABLED avant de redémarrer le bot. Tu peux aussi demander une désactivation en contactant axiocontactezmoi@protonmail.com ou dans #support.',
+  },
 ];
 
 const PULSE_ICON_MAP = {

@@ -54,6 +54,7 @@ export interface DailyArticleServiceStatus {
     openAI: boolean;
     blogRepository: boolean;
     voiceActivityRepository: boolean;
+    configEnabled: boolean;
   };
 }
 
@@ -91,6 +92,9 @@ export default class DailyArticleService {
       ? new OpenAI({ apiKey: this.config.openAI.apiKey })
       : null;
     const reasons: string[] = [];
+    if (this.config.openAI.dailyArticleDisabled) {
+      reasons.push('désactivation manuelle via la configuration');
+    }
     if (!this.config.openAI.apiKey) {
       reasons.push('clé API OpenAI manquante');
     }
@@ -101,7 +105,8 @@ export default class DailyArticleService {
       reasons.push('référentiel des transcriptions indisponible');
     }
 
-    this.enabled = reasons.length === 0 && Boolean(this.openai);
+    this.enabled =
+      reasons.length === 0 && Boolean(this.openai) && !this.config.openAI.dailyArticleDisabled;
 
     if (!this.enabled) {
       if (reasons.length > 0) {
@@ -249,6 +254,7 @@ export default class DailyArticleService {
         openAI: Boolean(this.openai),
         blogRepository: Boolean(this.blogRepository),
         voiceActivityRepository: Boolean(this.voiceActivityRepository),
+        configEnabled: !this.config.openAI.dailyArticleDisabled,
       },
     };
   }

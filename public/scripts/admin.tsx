@@ -21,7 +21,15 @@ import {
   useRecordContext,
 } from 'react-admin';
 import type { DataProvider } from 'react-admin';
+import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
+import Card from '@mui/material/Card';
+import CardContent from '@mui/material/CardContent';
+import CardHeader from '@mui/material/CardHeader';
+import CircularProgress from '@mui/material/CircularProgress';
 import CssBaseline from '@mui/material/CssBaseline';
+import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { frFR as muiFrFR } from '@mui/material/locale';
 import polyglotI18nProvider from 'ra-i18n-polyglot';
@@ -35,6 +43,68 @@ interface HttpResponse<T = unknown> {
   headers: Headers;
   json: T;
 }
+
+const formatDateTime = (value: string | null | undefined): string => {
+  if (!value) {
+    return '—';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '—';
+  }
+  return date.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+};
+
+const buildDailyIssues = (status: DailyArticleStatus): string[] => {
+  const issues: string[] = [];
+  if (!status.dependencies.configEnabled) {
+    issues.push('Désactivé via OPENAI_DAILY_ARTICLE_DISABLED=1.');
+  }
+  if (!status.dependencies.openAI) {
+    issues.push('Clé API OpenAI absente ou invalide.');
+  }
+  if (!status.dependencies.blogRepository) {
+    issues.push('Référentiel de blog indisponible.');
+  }
+  if (!status.dependencies.voiceActivityRepository) {
+    issues.push('Transcriptions vocales indisponibles.');
+  }
+  return issues;
+};
+
+const buildPersonaIssues = (status: UserPersonaStatus): string[] => {
+  const issues: string[] = [];
+  if (!status.dependencies.configEnabled) {
+    issues.push('Désactivé via OPENAI_PERSONA_DISABLED=1.');
+  }
+  if (!status.dependencies.openAI) {
+    issues.push('Clé API OpenAI absente ou invalide.');
+  }
+  if (!status.dependencies.voiceActivityRepository) {
+    issues.push("Référentiel d'activité indisponible.");
+  }
+  return issues;
+};
+
+const summarizeDailyResult = (status: DailyArticleStatus): string => {
+  if (!status.lastResult) {
+    return 'Aucune génération effectuée pour le moment.';
+  }
+  switch (status.lastResult.status) {
+    case 'generated': {
+      const slug = status.lastResult.slug ? ` (${status.lastResult.slug})` : '';
+      return `Dernier article généré avec succès${slug}.`;
+    }
+    case 'skipped':
+      return "Dernier cycle ignoré : pas assez de contenus exploitables.";
+    case 'failed': {
+      const reason = status.lastResult.error || status.lastResult.reason || 'raison inconnue';
+      return `Dernier essai en échec (${reason}).`;
+    }
+    default:
+      return 'Historique de génération indisponible.';
+  }
+};
 
 type BlogPostPayload = {
   slug: string;
@@ -51,6 +121,47 @@ type BlogPostPayload = {
 type HiddenMemberPayload = {
   userId: string;
   idea?: string | null;
+};
+
+type DailyArticleGenerationResult = {
+  status: 'generated' | 'skipped' | 'failed';
+  slug: string | null;
+  title?: string;
+  publishedAt?: string;
+  tags?: string[];
+  reason?: string;
+  error?: string;
+};
+
+type DailyArticleStatus = {
+  enabled: boolean;
+  running: boolean;
+  nextRunAt: string | null;
+  lastResult: DailyArticleGenerationResult | null;
+  dependencies: {
+    openAI: boolean;
+    blogRepository: boolean;
+    voiceActivityRepository: boolean;
+    configEnabled: boolean;
+  };
+};
+
+type UserPersonaStatus = {
+  enabled: boolean;
+  running: boolean;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  dependencies: {
+    openAI: boolean;
+    voiceActivityRepository: boolean;
+    configEnabled: boolean;
+  };
+};
+
+type AdminOverview = {
+  timestamp: string;
+  dailyArticle: DailyArticleStatus;
+  userPersona: UserPersonaStatus;
 };
 
 const safeJsonParse = <T,>(input: string | null): T | null => {
@@ -467,6 +578,150 @@ const HiddenMemberEdit: React.FC = (props) => (
 
 const i18nProvider = polyglotI18nProvider(() => frenchMessages, 'fr');
 
+const Dashboard: React.FC = () => {
+  const [state, setState] = React.useState<{
+    loading: boolean;
+    data: AdminOverview | null;
+    error: Error | null;
+  }>({ loading: true, data: null, error: null });
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const { json } = await httpClient<AdminOverview>(`${API_BASE}`);
+        if (!cancelled) {
+          setState({ loading: false, data: json, error: null });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setState({ loading: false, data: null, error: error as Error });
+        }
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const dailyStatus = state.data?.dailyArticle;
+  const personaStatus = state.data?.userPersona;
+
+  return (
+    <Stack spacing={3} sx={{ padding: 3, maxWidth: 960 }}>
+      <Typography variant="h4" component="h1">
+        Services IA & conformité
+      </Typography>
+      <Typography variant="body2" color="text.secondary">
+        Dernière mise à jour : {formatDateTime(state.data?.timestamp)}
+      </Typography>
+
+      {state.loading ? (
+        <Stack direction="row" spacing={2} alignItems="center">
+          <CircularProgress size={24} />
+          <Typography variant="body2">Chargement des statuts…</Typography>
+        </Stack>
+      ) : state.error ? (
+        <Alert severity="error">{state.error.message}</Alert>
+      ) : (
+        <>
+          {dailyStatus ? (
+            <Card variant="outlined">
+              <CardHeader title="Journal automatique IA" subheader="DailyArticleService" />
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom>
+                  Statut : {dailyStatus.enabled ? 'activé' : 'désactivé'}
+                </Typography>
+                <Typography variant="body2">
+                  Prochaine exécution planifiée : {formatDateTime(dailyStatus.nextRunAt)}
+                </Typography>
+                <Typography variant="body2">{summarizeDailyResult(dailyStatus)}</Typography>
+                <Typography variant="body2" sx={{ marginTop: 2 }}>
+                  Pour suspendre la génération automatique, définis la variable d’environnement{' '}
+                  <code style={{ marginLeft: 4, marginRight: 4 }}>OPENAI_DAILY_ARTICLE_DISABLED=1</code>
+                  {' '}ou retire la clé <code>OPENAI_API_KEY</code> puis redémarre le bot. Une demande peut aussi être envoyée à{' '}
+                  <a href="mailto:axiocontactezmoi@protonmail.com" style={{ marginLeft: 4 }}>
+                    axiocontactezmoi@protonmail.com
+                  </a>{' '}
+                  pour une désactivation immédiate.
+                </Typography>
+                {!dailyStatus.enabled && dailyStatus.dependencies.configEnabled && (
+                  <Alert severity="info" sx={{ marginTop: 2 }}>
+                    Le service est stoppé mais pourra être relancé lorsque les dépendances seront rétablies.
+                  </Alert>
+                )}
+                {buildDailyIssues(dailyStatus).length > 0 && (
+                  <Alert severity="warning" sx={{ marginTop: 2 }}>
+                    {buildDailyIssues(dailyStatus).join(' ')}
+                  </Alert>
+                )}
+                <Button
+                  sx={{ marginTop: 2 }}
+                  variant="outlined"
+                  size="small"
+                  component="a"
+                  href="/cgu#transferts-internationaux"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Consulter la politique de données
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <Alert severity="info">Statut du journal automatique indisponible.</Alert>
+          )}
+
+          {personaStatus ? (
+            <Card variant="outlined">
+              <CardHeader title="Profils IA des membres" subheader="UserPersonaService" />
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom>
+                  Statut : {personaStatus.enabled ? 'activé' : 'désactivé'}
+                </Typography>
+                <Typography variant="body2">
+                  Prochaine exécution planifiée : {formatDateTime(personaStatus.nextRunAt)}
+                </Typography>
+                <Typography variant="body2">
+                  Dernière exécution : {formatDateTime(personaStatus.lastRunAt)}
+                </Typography>
+                <Typography variant="body2" sx={{ marginTop: 2 }}>
+                  Pour arrêter la génération des fiches, définis{' '}
+                  <code style={{ marginLeft: 4, marginRight: 4 }}>OPENAI_PERSONA_DISABLED=1</code>{' '}
+                  (ou retire la clé <code>OPENAI_API_KEY</code>) et redémarre le service. Les membres peuvent demander un retrait
+                  ou une anonymisation via{' '}
+                  <a href="mailto:axiocontactezmoi@protonmail.com" style={{ marginLeft: 4 }}>
+                    axiocontactezmoi@protonmail.com
+                  </a>{' '}ou dans le salon Discord #support.
+                </Typography>
+                {buildPersonaIssues(personaStatus).length > 0 && (
+                  <Alert severity="warning" sx={{ marginTop: 2 }}>
+                    {buildPersonaIssues(personaStatus).join(' ')}
+                  </Alert>
+                )}
+                <Button
+                  sx={{ marginTop: 2 }}
+                  variant="outlined"
+                  size="small"
+                  component="a"
+                  href="/cgu#transferts-internationaux"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Voir les garanties de transfert
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <Alert severity="info">Statut des fiches membres indisponible.</Alert>
+          )}
+        </>
+      )}
+    </Stack>
+  );
+};
+
 const theme = createTheme({}, muiFrFR);
 
 const App: React.FC = () => (
@@ -478,6 +733,7 @@ const App: React.FC = () => (
       authProvider={authProvider}
       i18nProvider={i18nProvider}
       basename="/admin"
+      dashboard={Dashboard}
     >
       <Resource name="blog-posts" list={BlogPostList} edit={BlogPostEdit} create={BlogPostCreate} show={BlogPostShow} />
       <Resource name="users" list={HiddenMemberList} edit={HiddenMemberEdit} create={HiddenMemberCreate} />
