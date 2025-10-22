@@ -6,6 +6,7 @@ export interface BlogRepositoryOptions {
   ssl?: boolean;
   poolConfig?: Omit<PoolConfig, 'connectionString'>;
   debug?: boolean;
+  pool?: Pool;
 }
 
 export type BlogPostSortBy = 'published_at' | 'title' | 'updated_at' | 'slug';
@@ -67,7 +68,11 @@ export default class BlogRepository {
 
   private readonly debugQueries: boolean;
 
-  private pool: Pool | null = null;
+  private readonly externalPool: Pool | null;
+
+  private pool: Pool | null;
+
+  private poolConfigured: boolean;
 
   private warnedAboutMissingConnection = false;
 
@@ -76,10 +81,13 @@ export default class BlogRepository {
     this.ssl = Boolean(options.ssl);
     this.poolConfig = options.poolConfig;
     this.debugQueries = Boolean(options.debug);
+    this.externalPool = options.pool ?? null;
+    this.pool = this.externalPool;
+    this.poolConfigured = false;
   }
 
   private async getPool(): Promise<Pool | null> {
-    if (!this.connectionString) {
+    if (!this.connectionString && !this.pool) {
       if (!this.warnedAboutMissingConnection) {
         this.warnedAboutMissingConnection = true;
         console.warn('BlogRepository: aucune base de données configurée (DATABASE_URL manquant).');
@@ -87,38 +95,43 @@ export default class BlogRepository {
       return null;
     }
 
-    if (this.pool) {
-      return this.pool;
+    if (!this.pool) {
+      this.pool = new Pool({
+        connectionString: this.connectionString,
+        ssl: this.ssl ? { rejectUnauthorized: false } : undefined,
+        ...this.poolConfig,
+      });
     }
 
-    this.pool = new Pool({
-      connectionString: this.connectionString,
-      ssl: this.ssl ? { rejectUnauthorized: false } : undefined,
-      ...this.poolConfig,
-    });
+    if (!this.poolConfigured) {
+      if (!this.externalPool) {
+        this.pool.on('error', (error) => {
+          console.error('BlogRepository: erreur de connexion à la base de données', error);
+        });
+      }
 
-    this.pool.on('error', (error) => {
-      console.error('BlogRepository: erreur de connexion à la base de données', error);
-    });
+      attachPostgresQueryLogger(this.pool, {
+        context: 'BlogRepository',
+        debug: this.debugQueries,
+        connectionString: this.connectionString,
+        ssl: this.ssl,
+      });
 
-    attachPostgresQueryLogger(this.pool, {
-      context: 'BlogRepository',
-      debug: this.debugQueries,
-      connectionString: this.connectionString,
-      ssl: this.ssl,
-    });
+      this.poolConfigured = true;
+    }
 
     return this.pool;
   }
 
   async close(): Promise<void> {
-    if (!this.pool) {
+    if (!this.pool || this.pool === this.externalPool) {
       return;
     }
     try {
       await this.pool.end();
     } finally {
       this.pool = null;
+      this.poolConfigured = false;
     }
   }
 

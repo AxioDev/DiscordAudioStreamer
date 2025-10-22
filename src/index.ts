@@ -22,6 +22,7 @@ import UserAudioRecorder from './services/UserAudioRecorder';
 import AudioStreamHealthService from './services/AudioStreamHealthService';
 import DiscordVectorIngestionService from './services/DiscordVectorIngestionService';
 import UserDataRetentionService from './services/UserDataRetentionService';
+import { getDatabasePool } from './lib/db';
 
 const consoleNoop = (..._args: unknown[]): void => {
   // Intentionally left blank to silence non-error console output.
@@ -63,10 +64,13 @@ const sseService = new SseService({
 
 const listenerStatsService = new ListenerStatsService();
 
+const sharedDatabasePool = config.database.url ? getDatabasePool() : null;
+
 const voiceActivityRepository = new VoiceActivityRepository({
   url: config.database.url,
   ssl: config.database.ssl,
   debug: config.database.logQueries,
+  pool: sharedDatabasePool ?? undefined,
 });
 
 const statisticsService = new StatisticsService({
@@ -120,6 +124,7 @@ const blogRepository = config.database.url
       url: config.database.url,
       ssl: config.database.ssl,
       debug: config.database.logQueries,
+      pool: sharedDatabasePool ?? undefined,
     })
   : null;
 
