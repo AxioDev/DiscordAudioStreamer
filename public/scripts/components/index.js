@@ -3455,7 +3455,10 @@ const ProfileVoiceRecordingsCard = ({ userId }) => {
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 class="text-lg font-semibold text-white">Enregistrements audio</h2>
-          <p class="text-xs text-slate-400">Derniers fichiers conservés sur les sept derniers jours.</p>
+          <p class="text-xs text-slate-400">
+            Derniers fichiers conservés sur les sept derniers jours. Les voix ont été modifiées pour des raisons légales ;
+            il est donc normal qu'elles puissent paraître robotiques.
+          </p>
         </div>
         <button
           type="button"
