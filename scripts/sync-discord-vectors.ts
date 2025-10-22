@@ -4,6 +4,7 @@ import config from '../src/config';
 import BlogRepository from '../src/services/BlogRepository';
 import BlogService from '../src/services/BlogService';
 import DiscordVectorIngestionService from '../src/services/DiscordVectorIngestionService';
+import ShopService from '../src/services/ShopService';
 import VoiceActivityRepository from '../src/services/VoiceActivityRepository';
 
 async function main(): Promise<void> {
@@ -30,6 +31,8 @@ async function main(): Promise<void> {
 
   await blogService.initialize();
 
+  const shopService = new ShopService({ config });
+
   const voiceActivityRepository = new VoiceActivityRepository({
     url: config.database.url,
     ssl: config.database.ssl,
@@ -40,6 +43,7 @@ async function main(): Promise<void> {
     const ingestionService = new DiscordVectorIngestionService({
       blogService,
       projectRoot: path.resolve(__dirname, '..'),
+      shopService,
       voiceActivityRepository,
     });
 
