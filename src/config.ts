@@ -117,6 +117,10 @@ export interface SecretArticleTriggerConfig {
   password: string | null;
 }
 
+export interface VectorIngestionConfig {
+  lookbackWeeks: number;
+}
+
 export interface Config {
   botToken: string;
   guildId?: string;
@@ -140,6 +144,7 @@ export interface Config {
   shop: ShopConfig;
   database: DatabaseConfig;
   openAI: OpenAIConfig;
+  vectorIngestion: VectorIngestionConfig;
   publicBaseUrl: string;
   siteName: string;
   siteLocale: string;
@@ -253,6 +258,9 @@ const config: Config = {
       Math.max(parseInteger(process.env.OPENAI_PERSONA_LOOKBACK_DAYS, 45), 1),
       365,
     ),
+  },
+  vectorIngestion: {
+    lookbackWeeks: Math.max(parseInteger(process.env.DISCORD_VECTOR_LOOKBACK_WEEKS, 8), 1),
   },
   publicBaseUrl: process.env.PUBLIC_BASE_URL || 'https://libre-antenne.com/',
   siteName: process.env.SITE_NAME || 'Libre Antenne',

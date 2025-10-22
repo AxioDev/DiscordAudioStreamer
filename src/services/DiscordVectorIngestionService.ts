@@ -13,6 +13,7 @@ import {
   PgvectorExtensionRequiredError,
 } from './DiscordVectorRepository';
 import type BlogService from './BlogService';
+import VoiceActivityRepository from './VoiceActivityRepository';
 
 interface DiscordVectorDocument {
   id: string;
@@ -45,6 +46,7 @@ interface JsonSource {
 export interface DiscordVectorIngestionServiceOptions {
   blogService: BlogService | null;
   projectRoot: string;
+  voiceActivityRepository: VoiceActivityRepository | null;
 }
 
 const defaultMarkdownSources: MarkdownSource[] = [
@@ -89,6 +91,18 @@ export default class DiscordVectorIngestionService {
 
   private readonly projectRoot: string;
 
+  private readonly voiceActivityRepository: VoiceActivityRepository | null;
+
+  private readonly ingestionLookbackMs: number;
+
+  private readonly maxDocumentContentLength = 8000;
+
+  private readonly maxVoiceTranscriptions = 1000;
+
+  private readonly maxMessagesPerUser = 100;
+
+  private readonly maxActiveUsers = 200;
+
   private readonly defaultIntervalMs = 60 * 60 * 1000;
 
   private syncPromise: Promise<void> | null = null;
@@ -98,6 +112,9 @@ export default class DiscordVectorIngestionService {
   constructor(options: DiscordVectorIngestionServiceOptions) {
     this.blogService = options.blogService;
     this.projectRoot = options.projectRoot;
+    this.voiceActivityRepository = options.voiceActivityRepository ?? null;
+    const lookbackWeeks = Math.max(config.vectorIngestion.lookbackWeeks, 1);
+    this.ingestionLookbackMs = lookbackWeeks * 7 * 24 * 60 * 60 * 1000;
   }
 
   startScheduledSynchronization(intervalMs = this.defaultIntervalMs): void {
@@ -174,6 +191,8 @@ export default class DiscordVectorIngestionService {
   private async collectDocuments(): Promise<DiscordVectorDocument[]> {
     const documents: DiscordVectorDocument[] = [];
 
+    const range = this.getIngestionRange();
+
     const blogDocuments = await this.collectBlogDocuments();
     documents.push(...blogDocuments);
 
@@ -183,7 +202,35 @@ export default class DiscordVectorIngestionService {
     const jsonDocuments = await this.collectJsonDocuments();
     documents.push(...jsonDocuments);
 
-    return documents;
+    const activeUserIds = await this.listActiveUserIds(range);
+
+    const voiceTranscriptionDocuments = await this.collectVoiceTranscriptionDocuments(range);
+    documents.push(...voiceTranscriptionDocuments);
+
+    const messageDocuments = await this.collectMessageDocuments(activeUserIds, range);
+    documents.push(...messageDocuments);
+
+    const voiceActivityDocuments = await this.collectVoiceActivityDocuments(activeUserIds, range);
+    documents.push(...voiceActivityDocuments);
+
+    const personaDocuments = await this.collectPersonaDocuments(activeUserIds);
+    documents.push(...personaDocuments);
+
+    return documents
+      .map((document) => {
+        const preparedContent = this.prepareDocumentContent(document.content);
+        if (!preparedContent) {
+          return null;
+        }
+        return { ...document, content: preparedContent };
+      })
+      .filter((document): document is DiscordVectorDocument => document !== null);
+  }
+
+  private getIngestionRange(): { since: Date; until: Date } {
+    const until = new Date();
+    const since = new Date(until.getTime() - this.ingestionLookbackMs);
+    return { since, until };
   }
 
   private async collectBlogDocuments(): Promise<DiscordVectorDocument[]> {
@@ -310,6 +357,7 @@ export default class DiscordVectorIngestionService {
 
   private chunkDocuments(documents: readonly DiscordVectorDocument[]): DiscordVectorChunk[] {
     const chunks: DiscordVectorChunk[] = [];
+    const seenContentHashes = new Set<string>();
 
     for (const document of documents) {
       const normalizedContent = this.normalizeWhitespace(document.content);
@@ -326,6 +374,10 @@ export default class DiscordVectorIngestionService {
       parts.forEach((part, index) => {
         const chunkSourceId = chunkCount > 1 ? `${document.id}#${index + 1}` : document.id;
         const contentHash = this.hashContent(part);
+        if (seenContentHashes.has(contentHash)) {
+          return;
+        }
+        seenContentHashes.add(contentHash);
         const metadata = {
           ...document.metadata,
           title: document.title,
@@ -395,6 +447,398 @@ export default class DiscordVectorIngestionService {
     }
 
     return chunks;
+  }
+
+  private prepareDocumentContent(content: string): string {
+    if (typeof content !== 'string') {
+      return '';
+    }
+    const normalized = content.replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    if (!normalized) {
+      return '';
+    }
+
+    if (normalized.length <= this.maxDocumentContentLength) {
+      return normalized;
+    }
+
+    const truncated = normalized.slice(0, this.maxDocumentContentLength).trimEnd();
+    return `${truncated}…`;
+  }
+
+  private toIsoString(value: Date | null | undefined): string | null {
+    if (!(value instanceof Date)) {
+      return null;
+    }
+    const time = value.getTime();
+    if (Number.isNaN(time)) {
+      return null;
+    }
+    return value.toISOString();
+  }
+
+  private formatMultiline(value: string | null | undefined, fallback = '(aucun contenu)'): string {
+    if (typeof value !== 'string') {
+      return fallback;
+    }
+    const normalized = value.replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    return normalized.length > 0 ? normalized : fallback;
+  }
+
+  private async listActiveUserIds(range: { since: Date; until: Date }): Promise<string[]> {
+    if (!this.voiceActivityRepository) {
+      return [];
+    }
+
+    try {
+      const entries = await this.voiceActivityRepository.listActiveUsers({ limit: this.maxActiveUsers });
+      const sinceTime = range.since.getTime();
+      return entries
+        .filter((entry) => {
+          const lastActivityAt = entry.lastActivityAt;
+          if (!(lastActivityAt instanceof Date)) {
+            return false;
+          }
+          const time = lastActivityAt.getTime();
+          return !Number.isNaN(time) && time >= sinceTime;
+        })
+        .map((entry) => entry.userId)
+        .filter((userId) => typeof userId === 'string' && userId.length > 0);
+    } catch (error) {
+      console.error('DiscordVectorIngestionService: failed to list active users.', error);
+      return [];
+    }
+  }
+
+  private async collectVoiceTranscriptionDocuments(
+    range: { since: Date; until: Date },
+  ): Promise<DiscordVectorDocument[]> {
+    if (!this.voiceActivityRepository) {
+      return [];
+    }
+
+    try {
+      const records = await this.voiceActivityRepository.listVoiceTranscriptionsForRange({
+        since: range.since,
+        until: range.until,
+        limit: this.maxVoiceTranscriptions,
+      });
+
+      return records.map((record) => {
+        const timestampIso = this.toIsoString(record.timestamp);
+        const contentBody = this.formatMultiline(record.content, '(aucune transcription disponible)');
+        const header = [
+          'Transcription vocale Discord',
+          `Utilisateur : ${record.userId ?? 'inconnu'}`,
+          `Salon : ${record.channelId ?? 'inconnu'}`,
+          `Serveur : ${record.guildId ?? 'inconnu'}`,
+          `Horodatage : ${timestampIso ?? 'inconnu'}`,
+        ].join('\n');
+        const content = `${header}\n\n${contentBody}`;
+
+        return {
+          id: `voice-transcription:${record.id}`,
+          title: 'Transcription vocale',
+          category: 'discord',
+          content,
+          metadata: {
+            source: 'voice-transcription',
+            transcriptionId: record.id,
+            userId: record.userId ?? null,
+            channelId: record.channelId ?? null,
+            guildId: record.guildId ?? null,
+            timestamp: timestampIso,
+          },
+        };
+      });
+    } catch (error) {
+      console.error('DiscordVectorIngestionService: failed to collect voice transcriptions.', error);
+      return [];
+    }
+  }
+
+  private async collectMessageDocuments(
+    userIds: readonly string[],
+    range: { since: Date; until: Date },
+  ): Promise<DiscordVectorDocument[]> {
+    if (!this.voiceActivityRepository || userIds.length === 0) {
+      return [];
+    }
+
+    const documents: DiscordVectorDocument[] = [];
+
+    for (const userId of userIds) {
+      try {
+        const entries = await this.voiceActivityRepository.listUserMessageActivity({
+          userId,
+          since: range.since,
+          until: range.until,
+        });
+        const limitedEntries = entries.length > this.maxMessagesPerUser
+          ? entries.slice(entries.length - this.maxMessagesPerUser)
+          : entries;
+
+        for (const entry of limitedEntries) {
+          const timestampIso = this.toIsoString(entry.timestamp);
+          const messageContent = this.formatMultiline(entry.content, '(contenu vide)');
+          const content = [
+            'Message texte Discord',
+            `Utilisateur : ${userId}`,
+            `Salon : ${entry.channelId ?? 'inconnu'}`,
+            `Serveur : ${entry.guildId ?? 'inconnu'}`,
+            `Horodatage : ${timestampIso ?? 'inconnu'}`,
+            '',
+            messageContent,
+          ].join('\n');
+
+          documents.push({
+            id: entry.messageId ? `message:${entry.messageId}` : `message:${userId}:${timestampIso ?? 'unknown'}`,
+            title: 'Message Discord',
+            category: 'discord',
+            content,
+            metadata: {
+              source: 'message',
+              messageId: entry.messageId,
+              userId,
+              channelId: entry.channelId ?? null,
+              guildId: entry.guildId ?? null,
+              timestamp: timestampIso,
+              contentLength: messageContent.length,
+            },
+          });
+        }
+      } catch (error) {
+        console.error(
+          `DiscordVectorIngestionService: failed to collect message activity for user ${userId}.`,
+          error,
+        );
+      }
+    }
+
+    return documents;
+  }
+
+  private async collectVoiceActivityDocuments(
+    userIds: readonly string[],
+    range: { since: Date; until: Date },
+  ): Promise<DiscordVectorDocument[]> {
+    if (!this.voiceActivityRepository || userIds.length === 0) {
+      return [];
+    }
+
+    const documents: DiscordVectorDocument[] = [];
+
+    for (const userId of userIds) {
+      try {
+        const [activitySegments, presenceSegments] = await Promise.all([
+          this.voiceActivityRepository.listUserVoiceActivity({
+            userId,
+            since: range.since,
+            until: range.until,
+          }),
+          this.voiceActivityRepository.listUserVoicePresence({
+            userId,
+            since: range.since,
+            until: range.until,
+          }),
+        ]);
+
+        for (const segment of activitySegments) {
+          const startedAtIso = this.toIsoString(segment.startedAt);
+          const durationMs = segment.durationMs;
+          const durationMinutes = Number.isFinite(durationMs)
+            ? (durationMs / 60000).toFixed(2)
+            : '0';
+          const estimatedEnd =
+            typeof durationMs === 'number' && Number.isFinite(durationMs)
+              ? this.toIsoString(new Date(segment.startedAt.getTime() + durationMs))
+              : null;
+
+          const content = [
+            'Activité vocale Discord',
+            `Utilisateur : ${userId}`,
+            `Salon : ${segment.channelId ?? 'inconnu'}`,
+            `Serveur : ${segment.guildId ?? 'inconnu'}`,
+            `Début : ${startedAtIso ?? 'inconnu'}`,
+            `Durée (minutes) : ${durationMinutes}`,
+            `Fin estimée : ${estimatedEnd ?? 'inconnue'}`,
+          ].join('\n');
+
+          const activityKey = `${userId}:${segment.channelId ?? 'unknown'}:${segment.guildId ?? 'unknown'}:${startedAtIso ?? ''}:${durationMs ?? ''}`;
+          const activityId = startedAtIso
+            ? `voice-activity:${userId}:${startedAtIso}`
+            : `voice-activity:${this.hashContent(activityKey)}`;
+
+          documents.push({
+            id: activityId,
+            title: 'Activité vocale',
+            category: 'discord',
+            content,
+            metadata: {
+              source: 'voice-activity',
+              userId,
+              channelId: segment.channelId ?? null,
+              guildId: segment.guildId ?? null,
+              startedAt: startedAtIso,
+              durationMs,
+              estimatedEndedAt: estimatedEnd,
+            },
+          });
+        }
+
+        for (const presence of presenceSegments) {
+          const joinedAtIso = this.toIsoString(presence.joinedAt);
+          const leftAtIso = this.toIsoString(presence.leftAt ?? null);
+          const content = [
+            'Présence vocale Discord',
+            `Utilisateur : ${userId}`,
+            `Salon : ${presence.channelId ?? 'inconnu'}`,
+            `Serveur : ${presence.guildId ?? 'inconnu'}`,
+            `Arrivée : ${joinedAtIso ?? 'inconnue'}`,
+            `Départ : ${leftAtIso ?? 'en cours'}`,
+          ].join('\n');
+
+          const presenceKey = `${userId}:${presence.channelId ?? 'unknown'}:${presence.guildId ?? 'unknown'}:${joinedAtIso ?? ''}:${leftAtIso ?? ''}`;
+          const presenceId = joinedAtIso
+            ? `voice-presence:${userId}:${joinedAtIso}`
+            : `voice-presence:${this.hashContent(presenceKey)}`;
+
+          documents.push({
+            id: presenceId,
+            title: 'Présence vocale',
+            category: 'discord',
+            content,
+            metadata: {
+              source: 'voice-presence',
+              userId,
+              channelId: presence.channelId ?? null,
+              guildId: presence.guildId ?? null,
+              joinedAt: joinedAtIso,
+              leftAt: leftAtIso,
+            },
+          });
+        }
+      } catch (error) {
+        console.error(
+          `DiscordVectorIngestionService: failed to collect voice activity for user ${userId}.`,
+          error,
+        );
+      }
+    }
+
+    return documents;
+  }
+
+  private async collectPersonaDocuments(userIds: readonly string[]): Promise<DiscordVectorDocument[]> {
+    if (!this.voiceActivityRepository || userIds.length === 0) {
+      return [];
+    }
+
+    const documents: DiscordVectorDocument[] = [];
+
+    for (const userId of userIds) {
+      try {
+        const profile = await this.voiceActivityRepository.getUserPersonaProfile({ userId });
+        if (!profile) {
+          continue;
+        }
+
+        const persona = profile.persona;
+        if (!persona) {
+          continue;
+        }
+        const sections: string[] = [];
+
+        if (profile.summary) {
+          sections.push(profile.summary);
+        }
+
+        const appendInsights = (
+          title: string,
+          items: Array<{ title: string; detail: string; confidence: string }> | undefined,
+        ): void => {
+          if (!items || items.length === 0) {
+            return;
+          }
+          sections.push('', title);
+          for (const item of items) {
+            const detail = this.formatMultiline(item.detail, '(détail indisponible)');
+            sections.push(`- ${item.title} — ${detail} (confiance : ${item.confidence})`);
+          }
+        };
+
+        appendInsights('Points forts', persona.highlights);
+        appendInsights('Identité — Rôles', persona.identity?.roles);
+        appendInsights('Identité — Langues', persona.identity?.languages);
+        appendInsights('Identité — Lieux', persona.identity?.locations);
+        appendInsights('Centres d’intérêt', persona.interests);
+        appendInsights('Expertise', persona.expertise);
+        appendInsights('Personnalité — Traits', persona.personality?.traits);
+        appendInsights('Personnalité — Communication', persona.personality?.communication);
+        appendInsights('Personnalité — Valeurs', persona.personality?.values);
+        appendInsights('Préférences — Aime', persona.preferences?.likes);
+        appendInsights('Préférences — N’aime pas', persona.preferences?.dislikes);
+        appendInsights('Préférences — Conseils de collaboration', persona.preferences?.collaborationTips);
+        appendInsights('Préférences — Formats de contenu', persona.preferences?.contentFormats);
+        appendInsights('Initiateurs de conversation', persona.conversationStarters);
+        appendInsights('Style de vie', persona.lifestyle);
+        appendInsights(
+          'Citations notables',
+          persona.notableQuotes?.map((quote) => ({
+            title: quote.context ? `Citation (${quote.context})` : 'Citation',
+            detail: quote.quote,
+            confidence: 'medium',
+          })),
+        );
+        appendInsights('Avertissements', persona.disclaimers);
+
+        const generatedAtIso = this.toIsoString(profile.generatedAt ?? null);
+        const updatedAtIso = this.toIsoString(profile.updatedAt ?? null);
+        const lastActivityIso = this.toIsoString(profile.lastActivityAt ?? null);
+
+        const content = [
+          `Profil de persona Discord pour l’utilisateur ${userId}`,
+          `Serveur : ${profile.guildId ?? 'inconnu'}`,
+          `Modèle : ${profile.model ?? 'inconnu'}`,
+          `Version : ${profile.version ?? 'inconnue'}`,
+          `Généré le : ${generatedAtIso ?? 'inconnu'}`,
+          `Mis à jour le : ${updatedAtIso ?? 'inconnu'}`,
+          `Dernière activité : ${lastActivityIso ?? 'inconnue'}`,
+          `Échantillons vocaux : ${profile.voiceSampleCount}`,
+          `Échantillons de messages : ${profile.messageSampleCount}`,
+          `Caractères analysés : ${profile.inputCharacterCount}`,
+          '',
+          ...sections,
+        ].join('\n');
+
+        documents.push({
+          id: `user-persona:${userId}`,
+          title: 'Profil persona Discord',
+          category: 'discord',
+          content,
+          metadata: {
+            source: 'user-persona',
+            userId,
+            guildId: profile.guildId ?? null,
+            model: profile.model ?? null,
+            version: profile.version ?? null,
+            generatedAt: generatedAtIso,
+            updatedAt: updatedAtIso,
+            lastActivityAt: lastActivityIso,
+            voiceSampleCount: profile.voiceSampleCount,
+            messageSampleCount: profile.messageSampleCount,
+            inputCharacterCount: profile.inputCharacterCount,
+          },
+        });
+      } catch (error) {
+        console.error(
+          `DiscordVectorIngestionService: failed to collect persona profile for user ${userId}.`,
+          error,
+        );
+      }
+    }
+
+    return documents;
   }
 
   private hashContent(content: string): string {
