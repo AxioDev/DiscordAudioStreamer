@@ -261,6 +261,47 @@ export default class DiscordVectorIngestionService {
       .filter((document): document is DiscordVectorDocument => document !== null);
   }
 
+  private collectAboutPageDocument(): DiscordVectorDocument | null {
+    const hero = aboutPageContent.hero;
+    const highlights = aboutPageContent.highlights;
+
+    const lines: string[] = [
+      hero.eyebrow,
+      hero.title,
+      '',
+      ...hero.paragraphs,
+    ];
+
+    if (hero.cta?.label && hero.cta?.href) {
+      lines.push('', `Appel à l'action : ${hero.cta.label}`, `Lien : ${hero.cta.href}`);
+    }
+
+    if (highlights.length > 0) {
+      lines.push('', 'Points saillants :');
+      for (const highlight of highlights) {
+        lines.push(`- ${highlight.title}`, highlight.body, '');
+      }
+    }
+
+    const content = lines.join('\n').trim();
+    if (!content) {
+      return null;
+    }
+
+    return {
+      id: 'page:about',
+      title: hero.title,
+      category: 'about',
+      content,
+      metadata: {
+        source: 'about',
+        eyebrow: hero.eyebrow,
+        cta: hero.cta,
+        highlights: highlights.map((highlight) => highlight.title),
+      },
+    };
+  }
+
   private getIngestionRange(): { since: Date; until: Date } {
     const until = new Date();
     const since = new Date(until.getTime() - this.ingestionLookbackMs);

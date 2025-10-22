@@ -10,6 +10,7 @@ test('collectDocuments inclut la page À propos et respecte la longueur maximale
   const service = new DiscordVectorIngestionService({
     blogService: null,
     projectRoot: path.resolve(__dirname, '..', '..', '..'),
+    shopService: null,
     voiceActivityRepository: null,
   });
 
