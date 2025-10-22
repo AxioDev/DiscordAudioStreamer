@@ -181,7 +181,7 @@ const config: Config = {
     const raw = process.env.RECORDINGS_DIR || 'recordings';
     return path.isAbsolute(raw) ? raw : path.resolve(process.cwd(), raw);
   })(),
-  recordingsRetentionDays: Math.max(parseInteger(process.env.RECORDINGS_RETENTION_DAYS, 7), 0),
+  recordingsRetentionDays: Math.max(parseInteger(process.env.RECORDINGS_RETENTION_DAYS, 0), 0),
   outputFormat,
   opusBitrate: process.env.OPUS_BITRATE || '64000',
   mp3Bitrate: process.env.MP3_BITRATE || '96000',

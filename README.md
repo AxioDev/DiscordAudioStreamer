@@ -4,6 +4,12 @@
 
 The application uses environment variables (loaded via [dotenv](https://github.com/motdotla/dotenv)) to control its behaviour.
 
+### User audio recordings
+
+By default the bot does **not** persist user audio outside of the transient live buffer. The `UserAudioRecorder` component is only initialised when `RECORDINGS_RETENTION_DAYS` is set to a positive number, in which case anonymised excerpts created for moderation purposes are deleted automatically once the retention delay expires.
+
+For production deployments, leave `RECORDINGS_RETENTION_DAYS` unset (or set it to `0`) unless you have a documented legal basis for collecting short-lived, anonymised recordings. When you do enable the feature, favour the shortest possible retention window (for example `RECORDINGS_RETENTION_DAYS=3`).
+
 ### Excluding users from the audio mix
 
 Use the `EXCLUDED_USER_IDS` environment variable to provide a comma-separated list of Discord user IDs that should be ignored by the audio bridge and speaker tracking logic. If the variable is not provided, the application excludes the user `1419381362116268112` by default.
