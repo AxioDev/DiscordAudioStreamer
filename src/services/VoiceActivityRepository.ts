@@ -3431,22 +3431,33 @@ ${limitClause}`;
       return { clause, params };
     };
 
-    const buildPresenceFilters = (): { clause: string; params: unknown[] } => {
-      const conditions: string[] = ['vp.joined_at <= $1::timestamptz', '($2::timestamptz IS NULL OR vp.left_at IS NULL OR vp.left_at >= $2::timestamptz)'];
-      const params: unknown[] = [untilIso, sinceIso];
-      let index = 3;
+    const buildPresenceFilters = (): {
+      clause: string;
+      params: unknown[];
+      sinceParamIndex: number;
+      untilParamIndex: number;
+    } => {
+      const params: unknown[] = [];
+      const untilParamIndex = params.push(untilIso);
+      const sinceParamIndex = params.push(sinceIso);
+
+      const conditions: string[] = [
+        `vp.joined_at <= $${untilParamIndex}::timestamptz`,
+        `($${sinceParamIndex}::timestamptz IS NULL OR vp.left_at IS NULL OR vp.left_at >= $${sinceParamIndex}::timestamptz)`,
+      ];
+
       if (userId) {
-        conditions.push(`vp.user_id::text = $${index}`);
-        params.push(userId);
-        index += 1;
+        const userIndex = params.push(userId);
+        conditions.push(`vp.user_id::text = $${userIndex}`);
       }
+
       if (channelIds.length > 0) {
-        conditions.push(`vp.channel_id::text = ANY($${index}::text[])`);
-        params.push(channelIds);
-        index += 1;
+        const channelIndex = params.push(channelIds);
+        conditions.push(`vp.channel_id::text = ANY($${channelIndex}::text[])`);
       }
+
       const clause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-      return { clause, params };
+      return { clause, params, sinceParamIndex, untilParamIndex };
     };
 
     const totals: CommunityStatisticsTotals = {
@@ -3531,20 +3542,22 @@ ${limitClause}`;
 
     // Presence duration
     try {
-      const filters = buildPresenceFilters();
-      const params = [...filters.params, sinceIso, untilIso];
-      const sinceIndex = filters.params.length + 1;
-      const untilIndex = filters.params.length + 2;
-      const adjustedClause = filters.clause.replace('$1', `$${untilIndex}`).replace('$2', `$${sinceIndex}`);
+      const {
+        clause: presenceClause,
+        params: presenceParams,
+        sinceParamIndex,
+        untilParamIndex,
+      } = buildPresenceFilters();
+
       const query = `
         SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (
-            LEAST(COALESCE(vp.left_at, $${untilIndex}::timestamptz), $${untilIndex}::timestamptz)
-            - GREATEST(vp.joined_at, $${sinceIndex}::timestamptz)
+            LEAST(COALESCE(vp.left_at, $${untilParamIndex}::timestamptz), $${untilParamIndex}::timestamptz)
+            - GREATEST(vp.joined_at, $${sinceParamIndex}::timestamptz)
         ))), 0) AS seconds
           FROM voice_presence vp
-          ${adjustedClause}
+          ${presenceClause}
       `;
-      const result = await pool.query(query, params);
+      const result = await pool.query(query, presenceParams);
       presenceSeconds = parseNumber(result.rows?.[0]?.seconds);
     } catch (error) {
       console.error('Failed to compute presence duration for statistics', error);
