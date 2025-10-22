@@ -45,12 +45,73 @@ const formatInteger = (value) => {
   return numeric.toLocaleString('fr-FR');
 };
 
+const MEMBER_SEARCH_QUERY_PARAM = 'search';
+const MAX_MEMBER_SEARCH_LENGTH = 80;
+
+const parseSearchQueryFromLocation = (location) => {
+  if (!location || typeof location !== 'object') {
+    return '';
+  }
+
+  const search = typeof location.search === 'string' ? location.search : '';
+  if (!search) {
+    return '';
+  }
+
+  try {
+    const params = new URLSearchParams(search);
+    const value = params.get(MEMBER_SEARCH_QUERY_PARAM);
+    if (typeof value === 'string') {
+      return value.slice(0, MAX_MEMBER_SEARCH_LENGTH);
+    }
+    return '';
+  } catch (error) {
+    console.warn('Impossible de lire le paramètre de recherche des membres', error);
+    return '';
+  }
+};
+
+const syncSearchQueryWithHistory = (value) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const { pathname, search, hash } = window.location;
+  const params = new URLSearchParams(search);
+  const trimmed = value.trim();
+  if (trimmed) {
+    params.set(MEMBER_SEARCH_QUERY_PARAM, trimmed.slice(0, MAX_MEMBER_SEARCH_LENGTH));
+  } else {
+    params.delete(MEMBER_SEARCH_QUERY_PARAM);
+  }
+
+  const nextQuery = params.toString();
+  const suffix = hash && typeof hash === 'string' ? hash : '';
+  const nextUrl = `${pathname}${nextQuery ? `?${nextQuery}` : ''}${suffix}`;
+  const currentUrl = `${pathname}${search}${suffix}`;
+
+  if (nextUrl !== currentUrl) {
+    try {
+      window.history.replaceState(window.history.state ?? {}, '', nextUrl);
+    } catch (error) {
+      console.warn('Impossible de synchroniser le paramètre de recherche des membres', error);
+    }
+  }
+};
+
 const MembersPage = ({ onViewProfile }) => {
+  const initialSearch = useMemo(() => {
+    if (typeof window === 'undefined') {
+      return '';
+    }
+    return parseSearchQueryFromLocation(window.location);
+  }, []);
+
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [query, setQuery] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [query, setQuery] = useState(initialSearch);
+  const [searchTerm, setSearchTerm] = useState(initialSearch.trim());
   const [cursorHistory, setCursorHistory] = useState([null]);
   const [pageIndex, setPageIndex] = useState(0);
   const [nextCursor, setNextCursor] = useState(null);
@@ -77,6 +138,32 @@ const MembersPage = ({ onViewProfile }) => {
     }, 300);
     return () => clearTimeout(timer);
   }, [query]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const handlePopState = () => {
+      const nextQuery = parseSearchQueryFromLocation(window.location);
+      setQuery(nextQuery);
+      const normalized = nextQuery.trim();
+      let didChange = false;
+      setSearchTerm((current) => {
+        if (current === normalized) {
+          return current;
+        }
+        didChange = true;
+        return normalized;
+      });
+      if (didChange) {
+        setRefreshNonce((value) => value + 1);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   useEffect(() => {
     setCursorHistory([null]);
@@ -217,6 +304,10 @@ const MembersPage = ({ onViewProfile }) => {
   const canGoNext = Boolean(nextCursor);
   const isInitialLoading = loading && members.length === 0 && !error;
   const sortLabel = sort === 'messages' ? 'messages envoyés' : 'temps passé en vocal';
+
+  useEffect(() => {
+    syncSearchQueryWithHistory(appliedSearch);
+  }, [appliedSearch]);
 
   return html`
     <${Fragment}>
