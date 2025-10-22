@@ -26,7 +26,7 @@
     "dev": "npm run build:client && ts-node src/server.ts",
     "verify:performance": "node scripts/run-lighthouse.mjs",
     "audit:performance": "node scripts/run-lighthouse.mjs",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "BOT_TOKEN=test npm run build:server && BOT_TOKEN=test node --test dist/__tests__"
   },
   "dependencies": {
     "@discordjs/opus": "^0.10.0",

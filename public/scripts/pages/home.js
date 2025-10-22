@@ -10,6 +10,7 @@ import {
   Headphones,
   MessageSquare,
 } from '../core/deps.js';
+import homepageContent from '../../content/homepage.json' assert { type: 'json' };
 import {
   StatusBadge,
   MicrophoneDisplay,
@@ -21,89 +22,14 @@ import {
   ListenerTrendCard,
 } from '../components/index.js';
 
-const HIGHLIGHTS = [
-  {
-    title: 'Talk-show communautaire en continu',
-    description:
-      'Des animateurs tournants et une modération bienveillante pour offrir un espace libre, mais sécurisé, à toutes les voix nocturnes.',
-  },
-  {
-    title: 'Histoires, jeux et culture web',
-    description:
-      'Débats improvisés, actualités pop et découvertes musicales : chaque soirée propose un nouveau terrain de jeu collectif.',
-  },
-  {
-    title: 'Participation ouverte',
-    description:
-      'Rejoins le salon vocal, propose ton sujet et passe à l’antenne : la communauté décide avec qui et comment la discussion évolue.',
-  },
-];
-
-const WEEKLY_PROGRAMME = [
-  {
-    day: 'Lundi',
-    title: 'Table ronde communauté',
-    time: '21h30',
-    description: 'Revue des moments forts du week-end et ouverture micro pour planifier la semaine.',
-  },
-  {
-    day: 'Mercredi',
-    title: 'Atelier création & audio',
-    time: '22h00',
-    description: 'Montage, musique ou storytelling : chacun peut présenter un projet et récolter des retours.',
-  },
-  {
-    day: 'Vendredi',
-    title: 'Libre antenne nocturne',
-    time: '23h00',
-    description: 'Afterwork décomplexé : débats, jeux improvisés et histoires borderline jusqu’au bout de la nuit.',
-  },
-  {
-    day: 'Dimanche',
-    title: 'Débrief modération & invités',
-    time: '20h30',
-    description: 'Bilan de la semaine, teasing des interviews à venir et sélection des contributions à mettre en avant.',
-  },
-];
-
-const COMMUNITY_QUOTES = [
-  {
-    quote:
-      '« Un mix improbable entre radio pirate et salon Discord : on débarque pour écouter et on finit toujours par prendre le micro. »',
-    author: 'Vega',
-    role: 'Auditrice depuis 2022',
-  },
-  {
-    quote:
-      '« Ici, les débats partent dans tous les sens mais l’équipe garde le cadre. C’est le seul endroit où je peux tester des idées en direct. »',
-    author: 'Nox',
-    role: 'Animateur bénévole',
-  },
-  {
-    quote:
-      '« Les FAQ, les replays et le blog m’aident à suivre l’actu communautaire même quand je rate le live. »',
-    author: 'Lune',
-    role: 'Contributrice blog',
-  },
-];
-
-const FAQ_ITEMS = [
-  {
-    question: 'Comment participer à l’émission ?',
-    answer:
-      'Rejoins le Discord, vérifie le salon #brief pour connaître le sujet du moment puis connecte-toi au vocal « Libre Antenne ». Une équipe de modération t’accompagne avant ton passage à l’antenne.',
-  },
-  {
-    question: 'Puis-je publier un article ou suggérer un thème ?',
-    answer:
-      'Oui ! Mets ton article en ligne via le formulaire « Publier un article » dans la section blog ou partage ton idée directement dans #pitch. Les contributions sont relues chaque dimanche.',
-  },
-  {
-    question: 'Y a-t-il un replay ?',
-    answer:
-      'Les meilleures séquences sont résumées dans le blog et certaines émissions sont rediffusées lors des pauses. Suis la newsletter Discord pour connaître les prochains replays.',
-  },
-];
+const HIGHLIGHTS = Array.isArray(homepageContent?.highlights) ? homepageContent.highlights : [];
+const WEEKLY_PROGRAMME = Array.isArray(homepageContent?.weeklyProgramme)
+  ? homepageContent.weeklyProgramme
+  : [];
+const COMMUNITY_QUOTES = Array.isArray(homepageContent?.communityQuotes)
+  ? homepageContent.communityQuotes
+  : [];
+const FAQ_ITEMS = Array.isArray(homepageContent?.faqItems) ? homepageContent.faqItems : [];
 
 const PULSE_ICON_MAP = {
   Activity,

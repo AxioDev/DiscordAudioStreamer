@@ -43,6 +43,13 @@ interface JsonSource {
   category: string;
 }
 
+interface HomePageContent {
+  highlights?: Array<{ title?: string; description?: string }>;
+  weeklyProgramme?: Array<{ day?: string; title?: string; time?: string; description?: string }>;
+  communityQuotes?: Array<{ quote?: string; author?: string; role?: string }>;
+  faqItems?: Array<{ question?: string; answer?: string }>;
+}
+
 interface UserSummary {
   userId: string;
   displayName: string | null;
@@ -214,6 +221,9 @@ export default class DiscordVectorIngestionService {
     const jsonDocuments = await this.collectJsonDocuments();
     documents.push(...jsonDocuments);
 
+    const homePageDocuments = await this.collectHomePageDocuments();
+    documents.push(...homePageDocuments);
+
     const userSummaries = await this.loadKnownUsers(range);
     const userMap = new Map<string, UserSummary>();
     for (const user of userSummaries) {
@@ -367,6 +377,128 @@ export default class DiscordVectorIngestionService {
     }
 
     return documents;
+  }
+
+  private async collectHomePageDocuments(): Promise<DiscordVectorDocument[]> {
+    const jsonRelativePath = path.posix.join('public', 'content', 'homepage.json');
+    const absoluteJsonPath = path.join(this.projectRoot, 'public', 'content', 'homepage.json');
+
+    try {
+      const [rawContent, stats] = await Promise.all([
+        fs.readFile(absoluteJsonPath, 'utf8'),
+        fs.stat(absoluteJsonPath),
+      ]);
+      const data = JSON.parse(rawContent) as HomePageContent;
+
+      const sections: string[] = [];
+
+      if (Array.isArray(data.highlights) && data.highlights.length > 0) {
+        const lines = data.highlights
+          .map((item) => {
+            const title = typeof item.title === 'string' ? item.title.trim() : '';
+            const description = typeof item.description === 'string' ? item.description.trim() : '';
+            if (!title && !description) {
+              return null;
+            }
+            if (title && description) {
+              return `• ${title} — ${description}`;
+            }
+            return `• ${title || description}`;
+          })
+          .filter((line): line is string => Boolean(line));
+        if (lines.length > 0) {
+          sections.push(['Points forts de la page d\'accueil', ...lines].join('\n'));
+        }
+      }
+
+      if (Array.isArray(data.weeklyProgramme) && data.weeklyProgramme.length > 0) {
+        const lines = data.weeklyProgramme
+          .map((item) => {
+            const day = typeof item.day === 'string' ? item.day.trim() : '';
+            const title = typeof item.title === 'string' ? item.title.trim() : '';
+            const time = typeof item.time === 'string' ? item.time.trim() : '';
+            const description = typeof item.description === 'string' ? item.description.trim() : '';
+            const headerParts = [day || null, title || null].filter(Boolean);
+            const header = headerParts.length > 0 ? headerParts.join(' — ') : null;
+            const timeLabel = time ? ` (${time})` : '';
+            if (!header && !description && !time) {
+              return null;
+            }
+            const descriptionPart = description ? ` : ${description}` : '';
+            return `• ${header ?? 'Programme'}${timeLabel}${descriptionPart}`.trim();
+          })
+          .filter((line): line is string => Boolean(line));
+        if (lines.length > 0) {
+          sections.push(['Programmation hebdomadaire', ...lines].join('\n'));
+        }
+      }
+
+      if (Array.isArray(data.communityQuotes) && data.communityQuotes.length > 0) {
+        const lines = data.communityQuotes
+          .map((item) => {
+            const quote = typeof item.quote === 'string' ? item.quote.trim() : '';
+            const author = typeof item.author === 'string' ? item.author.trim() : '';
+            const role = typeof item.role === 'string' ? item.role.trim() : '';
+            if (!quote && !author && !role) {
+              return null;
+            }
+            const attribution = [author || null, role ? `(${role})` : null]
+              .filter(Boolean)
+              .join(' ');
+            return attribution ? `• ${quote} — ${attribution}` : `• ${quote}`;
+          })
+          .filter((line): line is string => Boolean(line));
+        if (lines.length > 0) {
+          sections.push(['Témoignages de la communauté', ...lines].join('\n'));
+        }
+      }
+
+      if (Array.isArray(data.faqItems) && data.faqItems.length > 0) {
+        const entries = data.faqItems
+          .map((item) => {
+            const question = typeof item.question === 'string' ? item.question.trim() : '';
+            const answer = typeof item.answer === 'string' ? item.answer.trim() : '';
+            if (!question && !answer) {
+              return null;
+            }
+            const lines = [`Q : ${question || '(question indisponible)'}`];
+            lines.push(`R : ${answer || '(réponse indisponible)'}`);
+            return lines.join('\n');
+          })
+          .filter((entry): entry is string => Boolean(entry));
+        if (entries.length > 0) {
+          sections.push(['FAQ de la communauté', ...entries].join('\n\n'));
+        }
+      }
+
+      if (sections.length === 0) {
+        return [];
+      }
+
+      const content = sections.join('\n\n');
+
+      return [
+        {
+          id: 'app:homepage',
+          title: 'Contenu éditorial de la page d\'accueil',
+          category: 'app',
+          content,
+          metadata: {
+            source: 'homepage',
+            path: 'public/scripts/pages/home.js',
+            jsonPath: jsonRelativePath,
+            type: 'content',
+            lastModified: stats.mtime.toISOString(),
+          },
+        },
+      ];
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        return [];
+      }
+      console.error('DiscordVectorIngestionService: failed to collect homepage content.', error);
+      return [];
+    }
   }
 
   private normalizeMarkdown(raw: string): string {
