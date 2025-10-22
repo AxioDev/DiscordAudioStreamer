@@ -174,12 +174,19 @@ const HomePage = ({
       const headerNote = [updatedLabel, pulse.comparisonLabel]
         .filter((value) => typeof value === 'string' && value.trim().length > 0)
         .join(' • ');
+      const rawWindowLabel = typeof pulse.windowLabel === 'string' ? pulse.windowLabel.trim() : '';
+      const headingWindowLabel = rawWindowLabel
+        ? rawWindowLabel.startsWith('Sur ')
+          ? `Chiffres sur ${rawWindowLabel.slice(4)}`
+          : `Chiffres ${rawWindowLabel}`
+        : 'Chiffres';
+
       return html`
         <section id="home-community-pulse" class="rounded-3xl border border-slate-800/60 bg-slate-950/70 p-8">
           <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p class="text-xs uppercase tracking-[0.3em] text-amber-300/80">Pulse communautaire</p>
-              <h2 class="text-2xl font-semibold text-white">Chiffres des ${pulse.windowLabel}</h2>
+              <h2 class="text-2xl font-semibold text-white">${headingWindowLabel}</h2>
             </div>
             <p class="text-xs text-slate-400">${headerNote}</p>
           </div>
