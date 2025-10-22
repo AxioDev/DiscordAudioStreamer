@@ -4,6 +4,7 @@ import crypto from 'crypto';
 
 import config from '../config';
 import { getEmbedding } from '../lib/openai';
+import { aboutPageContent } from '../content/about';
 import {
   buildVectorLiteral,
   deleteDiscordVectorsByIds,
@@ -205,6 +206,11 @@ export default class DiscordVectorIngestionService {
 
     const range = this.getIngestionRange();
 
+    const aboutDocument = this.collectAboutPageDocument();
+    if (aboutDocument) {
+      documents.push(aboutDocument);
+    }
+
     const blogDocuments = await this.collectBlogDocuments();
     documents.push(...blogDocuments);
 
@@ -367,6 +373,74 @@ export default class DiscordVectorIngestionService {
     }
 
     return documents;
+  }
+
+  private collectAboutPageDocument(): DiscordVectorDocument | null {
+    const { hero, highlights } = aboutPageContent;
+    if (!hero?.title) {
+      return null;
+    }
+
+    const segments: string[] = [];
+    segments.push(`# ${hero.title}`);
+
+    if (Array.isArray(hero.paragraphs)) {
+      for (const paragraph of hero.paragraphs) {
+        if (typeof paragraph === 'string') {
+          const trimmed = paragraph.trim();
+          if (trimmed) {
+            segments.push(trimmed);
+          }
+        }
+      }
+    }
+
+    if (hero.cta?.label) {
+      const label = hero.cta.label.trim();
+      if (label) {
+        const href = typeof hero.cta.href === 'string' && hero.cta.href.trim().length > 0 ? hero.cta.href.trim() : null;
+        const ctaLine = href ? `${label} (${href})` : label;
+        segments.push(`Appel à l'action: ${ctaLine}`);
+      }
+    }
+
+    if (Array.isArray(highlights)) {
+      for (const highlight of highlights) {
+        const title = typeof highlight?.title === 'string' ? highlight.title.trim() : '';
+        const body = typeof highlight?.body === 'string' ? highlight.body.trim() : '';
+        if (!title && !body) {
+          continue;
+        }
+        if (title) {
+          segments.push(`## ${title}`);
+        }
+        if (body) {
+          segments.push(body);
+        }
+      }
+    }
+
+    const content = segments.join('\n\n').trim();
+    if (!content) {
+      return null;
+    }
+
+    return {
+      id: 'page:about',
+      title: hero.title,
+      category: 'page',
+      content,
+      metadata: {
+        source: 'about',
+        type: 'page',
+        slug: 'about',
+        highlights: Array.isArray(highlights)
+          ? highlights
+              .map((highlight) => (typeof highlight?.title === 'string' ? highlight.title.trim() : ''))
+              .filter((title) => title.length > 0)
+          : [],
+      },
+    };
   }
 
   private normalizeMarkdown(raw: string): string {
