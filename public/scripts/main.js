@@ -18,7 +18,6 @@ import {
   MessageSquare,
   Activity,
   Sparkles,
-  ShieldCheck,
 } from './core/deps.js';
 import {
   DEFAULT_WINDOW_MINUTES,
@@ -69,12 +68,6 @@ const NAV_LINKS = [
   { label: 'Statistiques', route: 'statistiques', href: '/statistiques', icon: Activity },
   { label: 'Blog', route: 'blog', href: '/blog', icon: MessageSquare },
   { label: 'Assistant IA', route: 'chat', href: '/assistant', icon: Sparkles },
-  {
-    label: 'Mentions légales',
-    route: 'mentions-legales',
-    href: '/mentions-legales',
-    icon: ShieldCheck,
-  },
 ];
 
 const PRERENDER_CLASS_TOKENS = [
@@ -1968,6 +1961,8 @@ const App = () => {
               event.preventDefault();
               navigateToRoute('cgu', {}, { scrollToTop: true });
             }}
+            onMouseEnter=${() => prefetchRoute('cgu')}
+            onFocus=${() => prefetchRoute('cgu')}
           >
             Conditions générales d’utilisation
           </a>
@@ -1979,8 +1974,23 @@ const App = () => {
               event.preventDefault();
               navigateToRoute('about', {}, { scrollToTop: true });
             }}
+            onMouseEnter=${() => prefetchRoute('about')}
+            onFocus=${() => prefetchRoute('about')}
           >
             À propos
+          </a>
+          <span class="hidden sm:inline">•</span>
+          <a
+            class="text-slate-300 transition hover:text-white hover:underline"
+            href="/mentions-legales"
+            onClick=${(event) => {
+              event.preventDefault();
+              navigateToRoute('mentions-legales', {}, { scrollToTop: true });
+            }}
+            onMouseEnter=${() => prefetchRoute('mentions-legales')}
+            onFocus=${() => prefetchRoute('mentions-legales')}
+          >
+            Mentions légales
           </a>
         </div>
       </footer>
