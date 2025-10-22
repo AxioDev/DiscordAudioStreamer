@@ -18,6 +18,12 @@ const CGU_ALIASES = new Set([
   'conditions-generales-d-utilisation',
   'conditions-generales-d’utilisation',
 ]);
+const MENTIONS_ALIASES = new Set([
+  'mentions-legales',
+  'mentions',
+  'legal',
+  'mentions-legales-fr',
+]);
 
 const decodePathSegment = (value) => {
   if (typeof value !== 'string') {
@@ -84,6 +90,8 @@ export const buildRoutePath = (name, params = {}) => {
       return '/about';
     case 'cgu':
       return '/cgu';
+    case 'mentions-legales':
+      return '/mentions-legales';
     case 'chat':
       return '/assistant';
     case 'statistiques': {
@@ -151,6 +159,9 @@ export const parseRouteFromLocation = (location) => {
 
   if (CGU_ALIASES.has(head)) {
     return { name: 'cgu', params: {} };
+  }
+  if (MENTIONS_ALIASES.has(head)) {
+    return { name: 'mentions-legales', params: {} };
   }
   if (head === 'about') {
     return { name: 'about', params: {} };

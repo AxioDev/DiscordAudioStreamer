@@ -18,6 +18,7 @@ import {
   MessageSquare,
   Activity,
   Sparkles,
+  ShieldCheck,
 } from './core/deps.js';
 import {
   DEFAULT_WINDOW_MINUTES,
@@ -48,6 +49,8 @@ const ROUTE_LOADERS = {
     import('./pages/classements.js').then((module) => module?.ClassementsPage ?? null),
   cgu: () => import('./pages/cgu.js').then((module) => module?.CguPage ?? null),
   chat: () => import('./pages/chat.js').then((module) => module?.ChatPage ?? null),
+  'mentions-legales': () =>
+    import('./pages/mentions-legales.js').then((module) => module?.MentionsLegalesPage ?? null),
   salons: () => import('./pages/salons.js').then((module) => module?.SalonsPage ?? null),
   members: () => import('./pages/members.js').then((module) => module?.MembersPage ?? null),
   profile: () => import('./pages/profile.js').then((module) => module?.ProfilePage ?? null),
@@ -64,6 +67,12 @@ const NAV_LINKS = [
   { label: 'Statistiques', route: 'statistiques', href: '/statistiques', icon: Activity },
   { label: 'Blog', route: 'blog', href: '/blog', icon: MessageSquare },
   { label: 'Assistant IA', route: 'chat', href: '/assistant', icon: Sparkles },
+  {
+    label: 'Mentions légales',
+    route: 'mentions-legales',
+    href: '/mentions-legales',
+    icon: ShieldCheck,
+  },
 ];
 
 const PRERENDER_CLASS_TOKENS = [
@@ -72,6 +81,7 @@ const PRERENDER_CLASS_TOKENS = [
   'shop-page',
   'about-page',
   'cgu-page',
+  'mentions-legales-page',
 ];
 
 const PWA_PROMPT_STORAGE_KEY = 'libre-antenne:pwa-prompt';
