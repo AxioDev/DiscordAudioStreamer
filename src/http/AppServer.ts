@@ -66,6 +66,7 @@ import StatisticsService, {
 import type UserAudioRecorder from '../services/UserAudioRecorder';
 import { registerChatRoute } from './routes/chat';
 import { getDatabasePool } from '../lib/db';
+import DatabaseCache from '../services/DatabaseCache';
 
 const MESSAGE_CAPTCHA_TTL_MS = 10 * 60 * 1000;
 const MESSAGE_COOLDOWN_MS = 60 * 60 * 1000;
@@ -385,7 +386,7 @@ export default class AppServer {
 
   private readonly hypeLeaderboardTtlMs = AppServer.hypeLeaderboardCacheTtlMs;
 
-  private readonly hypeLeaderboardCache = new Map<string, { result: HypeLeaderboardResult; expiresAt: number }>();
+  private readonly hypeLeaderboardCacheStore = new DatabaseCache('app:hype_leaderboard');
 
   private readonly hypeLeaderboardPromise = new Map<string, Promise<HypeLeaderboardResult>>();
 
@@ -8139,13 +8140,9 @@ export default class AppServer {
 
     const normalized = service.normalizeOptions(options);
     const cacheKey = service.buildCacheKey(normalized);
-    const now = Date.now();
-    const cached = this.hypeLeaderboardCache.get(cacheKey);
+    const cached = await this.hypeLeaderboardCacheStore.get<HypeLeaderboardResult>(cacheKey);
     if (cached) {
-      if (cached.expiresAt > now) {
-        return cached.result;
-      }
-      this.hypeLeaderboardCache.delete(cacheKey);
+      return cached;
     }
 
     const inflight = this.hypeLeaderboardPromise.get(cacheKey);
@@ -8155,11 +8152,8 @@ export default class AppServer {
 
     const promise = service
       .getLeaderboardWithTrends(normalized)
-      .then((result) => {
-        this.hypeLeaderboardCache.set(cacheKey, {
-          result,
-          expiresAt: Date.now() + this.hypeLeaderboardTtlMs,
-        });
+      .then(async (result) => {
+        await this.hypeLeaderboardCacheStore.set(cacheKey, result, this.hypeLeaderboardTtlMs);
         return result;
       })
       .finally(() => {

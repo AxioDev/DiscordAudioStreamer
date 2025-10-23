@@ -1,4 +1,5 @@
 import type { DiscordUserIdentity } from '../discord/DiscordAudioBridge';
+import DatabaseCache from './DatabaseCache';
 import type VoiceActivityRepository from './VoiceActivityRepository';
 import type {
   HypeLeaderEntry,
@@ -60,20 +61,34 @@ type EnrichedLeader = HypeLeaderEntry & {
   profile?: { avatar: string | null } | null;
 };
 
+type StoredLeader = Omit<HypeLeaderWithTrend, 'positionTrend'> & {
+  positionTrend: Omit<LeaderboardPositionTrend, 'comparedAt'> & { comparedAt: string | null };
+};
+
+interface StoredLeaderboardResultRecord {
+  bucketStart: string;
+  computedAt: string;
+  leaders: StoredLeader[];
+  snapshot: {
+    bucketStart: string;
+    comparedTo: string | null;
+  };
+}
+
+interface StoredBaseLeaderboardRecord {
+  periodKey: string;
+  periodDays: number | null;
+  bucketStart: string;
+  computedAt: string;
+  leaders: EnrichedLeader[];
+}
+
 interface BaseLeaderboardCache {
   periodKey: string;
   periodDays: number | null;
   bucketStart: Date;
   computedAt: Date;
   leaders: EnrichedLeader[];
-}
-
-interface CachedLeaderboardResult {
-  cacheKey: string;
-  snapshotOptions: NormalizedHypeLeaderboardQueryOptions;
-  bucketStart: Date;
-  computedAt: Date;
-  result: HypeLeaderboardResult;
 }
 
 interface HypeLeaderboardServiceOptions {
@@ -118,13 +133,13 @@ export default class HypeLeaderboardService {
 
   private readonly identityProvider?: IdentityProvider;
 
-  private readonly identityCache = new Map<string, CachedIdentity>();
+  private readonly identityCacheStore: DatabaseCache;
 
   private readonly identityCacheTtlMs = 6 * 60 * 60 * 1000;
 
-  private readonly baseLeaderboards = new Map<string, BaseLeaderboardCache>();
+  private readonly baseLeaderboardCache: DatabaseCache;
 
-  private readonly precomputedResults = new Map<string, CachedLeaderboardResult>();
+  private readonly precomputedResultCache: DatabaseCache;
 
   private readonly precomputedResultTtlMs: number;
 
@@ -146,6 +161,9 @@ export default class HypeLeaderboardService {
     this.precomputePeriods = precomputePeriods.length > 0 ? [...precomputePeriods] : DEFAULT_PRECOMPUTE_PERIODS;
     this.sortableColumns = precomputeSorts.length > 0 ? [...precomputeSorts] : DEFAULT_SORT_COLUMNS;
     this.identityProvider = identityProvider;
+    this.identityCacheStore = new DatabaseCache('hype:identity');
+    this.baseLeaderboardCache = new DatabaseCache('hype:base');
+    this.precomputedResultCache = new DatabaseCache('hype:result');
     this.precomputedResultTtlMs = Math.max(this.snapshotIntervalMs, MIN_PRECOMPUTED_RESULT_TTL_MS);
   }
 
@@ -236,7 +254,7 @@ export default class HypeLeaderboardService {
     now: Date = new Date(),
   ): Promise<HypeLeaderboardResult> {
     const normalized = this.normalizeOptions(options);
-    this.cleanupExpiredPrecomputedResults(now);
+    await this.cleanupExpiredPrecomputedResults();
     const base = await this.ensureBaseLeaderboard(normalized.periodDays ?? null, now);
     if (!base) {
       const fallback = await this.rehydrateFromSnapshots(normalized);
@@ -253,11 +271,12 @@ export default class HypeLeaderboardService {
     };
 
     const cacheKey = this.buildCacheKey(snapshotOptions);
-    const cached = this.precomputedResults.get(cacheKey);
-    if (cached && cached.bucketStart.getTime() === base.bucketStart.getTime()) {
+    const resultCacheKey = this.buildResultCacheKey(cacheKey, base.bucketStart);
+    const cached = await this.loadPrecomputedResultFromCache(resultCacheKey);
+    if (cached) {
       return {
-        leaders: this.cloneLeaders(cached.result.leaders, normalized.limit),
-        snapshot: cached.result.snapshot,
+        leaders: this.cloneLeaders(cached.leaders, normalized.limit),
+        snapshot: cached.snapshot,
       };
     }
 
@@ -270,13 +289,7 @@ export default class HypeLeaderboardService {
       },
     };
 
-    this.precomputedResults.set(cacheKey, {
-      cacheKey,
-      snapshotOptions,
-      bucketStart: base.bucketStart,
-      computedAt: new Date(),
-      result: cachedResult,
-    });
+    await this.savePrecomputedResultToCache(resultCacheKey, base.bucketStart, cachedResult);
 
     return {
       leaders: this.cloneLeaders(ranked, normalized.limit),
@@ -290,7 +303,7 @@ export default class HypeLeaderboardService {
       return;
     }
 
-    this.cleanupExpiredPrecomputedResults(now);
+    await this.cleanupExpiredPrecomputedResults();
 
     const promise = (async () => {
       for (const period of this.precomputePeriods) {
@@ -309,6 +322,7 @@ export default class HypeLeaderboardService {
             });
             options.limit = this.maxLeaderboardSize;
             const cacheKey = this.buildCacheKey(options);
+            const resultCacheKey = this.buildResultCacheKey(cacheKey, base.bucketStart);
             const { ranked, comparedAt } = await this.buildRankedLeaders(base, options);
             const result: HypeLeaderboardResult = {
               leaders: ranked,
@@ -317,13 +331,7 @@ export default class HypeLeaderboardService {
                 comparedTo: comparedAt,
               },
             };
-            this.precomputedResults.set(cacheKey, {
-              cacheKey,
-              snapshotOptions: options,
-              bucketStart: base.bucketStart,
-              computedAt: new Date(),
-              result,
-            });
+            await this.savePrecomputedResultToCache(resultCacheKey, base.bucketStart, result);
           }
         }
       }
@@ -344,10 +352,13 @@ export default class HypeLeaderboardService {
   ): Promise<BaseLeaderboardCache | null> {
     const periodKey = this.getPeriodKey(periodDays);
     const bucketStart = this.getBucketStart(now);
-    const existing = this.baseLeaderboards.get(periodKey);
+    const cacheKey = this.buildBaseCacheKey(periodKey, bucketStart);
 
-    if (!forceRefresh && existing && existing.bucketStart.getTime() === bucketStart.getTime()) {
-      return existing;
+    if (!forceRefresh) {
+      const cached = await this.loadBaseLeaderboardFromCache(cacheKey);
+      if (cached) {
+        return cached;
+      }
     }
 
     return this.computeBaseLeaderboard(periodDays, bucketStart);
@@ -374,7 +385,7 @@ export default class HypeLeaderboardService {
         computedAt: new Date(),
         leaders: enriched,
       };
-      this.baseLeaderboards.set(base.periodKey, base);
+      await this.saveBaseLeaderboardToCache(base);
       return base;
     } catch (error) {
       console.error('Failed to compute base hype leaderboard', error);
@@ -451,7 +462,7 @@ export default class HypeLeaderboardService {
         computedAt: latestSnapshot.updatedAt,
         leaders: enriched,
       };
-      this.baseLeaderboards.set(periodKey, baseFromSnapshot);
+      await this.saveBaseLeaderboardToCache(baseFromSnapshot);
 
       const { ranked, comparedAt } = await this.buildRankedLeaders(baseFromSnapshot, snapshotOptions);
       const result: HypeLeaderboardResult = {
@@ -462,13 +473,8 @@ export default class HypeLeaderboardService {
         },
       };
 
-      this.precomputedResults.set(optionsHash, {
-        cacheKey: optionsHash,
-        snapshotOptions,
-        bucketStart: latestSnapshot.bucketStart,
-        computedAt: latestSnapshot.updatedAt,
-        result,
-      });
+      const resultCacheKey = this.buildResultCacheKey(optionsHash, latestSnapshot.bucketStart);
+      await this.savePrecomputedResultToCache(resultCacheKey, latestSnapshot.bucketStart, result);
 
       return {
         leaders: this.cloneLeaders(ranked, normalized.limit),
@@ -514,9 +520,8 @@ export default class HypeLeaderboardService {
       return null;
     }
 
-    const cached = this.identityCache.get(userId);
-    const now = Date.now();
-    if (cached && now - cached.fetchedAt < this.identityCacheTtlMs) {
+    const cached = await this.identityCacheStore.get<CachedIdentity>(userId);
+    if (cached) {
       return cached;
     }
 
@@ -526,16 +531,12 @@ export default class HypeLeaderboardService {
         avatarUrl: this.normalizeString(identity?.avatarUrl) ?? null,
         displayName: this.normalizeString(identity?.displayName),
         username: this.normalizeString(identity?.username),
-        fetchedAt: now,
+        fetchedAt: Date.now(),
       };
-      this.identityCache.set(userId, normalized);
+      await this.identityCacheStore.set(userId, normalized, this.identityCacheTtlMs);
       return normalized;
     } catch (error) {
       console.warn('Failed to resolve Discord identity for leaderboard user', userId, error);
-      if (cached) {
-        cached.fetchedAt = now;
-        return cached;
-      }
       return null;
     }
   }
@@ -691,20 +692,12 @@ export default class HypeLeaderboardService {
     return sorted;
   }
 
-  private cleanupExpiredPrecomputedResults(now: Date = new Date()): void {
-    const referenceTime = now.getTime();
-    if (!Number.isFinite(referenceTime)) {
-      return;
-    }
-
-    const cutoff = referenceTime - this.precomputedResultTtlMs;
-
-    for (const [cacheKey, cached] of this.precomputedResults) {
-      const computedTime = cached.computedAt.getTime();
-      if (!Number.isFinite(computedTime) || computedTime < cutoff) {
-        this.precomputedResults.delete(cacheKey);
-      }
-    }
+  private async cleanupExpiredPrecomputedResults(): Promise<void> {
+    await Promise.allSettled([
+      this.baseLeaderboardCache.purgeExpired(),
+      this.precomputedResultCache.purgeExpired(),
+      this.identityCacheStore.purgeExpired(),
+    ]);
   }
 
   private compareBySort(a: EnrichedLeader, b: EnrichedLeader, sortBy: HypeLeaderboardSortBy): number {
@@ -789,6 +782,144 @@ export default class HypeLeaderboardService {
       ...leader,
       positionTrend: { ...leader.positionTrend },
     }));
+  }
+
+  private buildBaseCacheKey(periodKey: string, bucketStart: Date): string {
+    return `${periodKey}|bucket:${bucketStart.toISOString()}`;
+  }
+
+  private deserializeBaseLeaderboard(record: StoredBaseLeaderboardRecord | null | undefined): BaseLeaderboardCache | null {
+    if (!record) {
+      return null;
+    }
+
+    const bucketStart = new Date(record.bucketStart);
+    if (Number.isNaN(bucketStart.getTime())) {
+      return null;
+    }
+
+    const computedAt = new Date(record.computedAt);
+    const safeComputedAt = Number.isNaN(computedAt.getTime()) ? bucketStart : computedAt;
+    const leaders = Array.isArray(record.leaders) ? record.leaders : [];
+
+    return {
+      periodKey: record.periodKey,
+      periodDays: record.periodDays ?? null,
+      bucketStart,
+      computedAt: safeComputedAt,
+      leaders,
+    };
+  }
+
+  private async loadBaseLeaderboardFromCache(cacheKey: string): Promise<BaseLeaderboardCache | null> {
+    const record = await this.baseLeaderboardCache.get<StoredBaseLeaderboardRecord>(cacheKey);
+    return this.deserializeBaseLeaderboard(record);
+  }
+
+  private async saveBaseLeaderboardToCache(base: BaseLeaderboardCache): Promise<void> {
+    const cacheKey = this.buildBaseCacheKey(base.periodKey, base.bucketStart);
+    const record: StoredBaseLeaderboardRecord = {
+      periodKey: base.periodKey,
+      periodDays: base.periodDays,
+      bucketStart: base.bucketStart.toISOString(),
+      computedAt: base.computedAt.toISOString(),
+      leaders: base.leaders,
+    };
+    await this.baseLeaderboardCache.set(cacheKey, record, this.precomputedResultTtlMs);
+  }
+
+  private buildResultCacheKey(cacheKey: string, bucketStart: Date): string {
+    return `${cacheKey}|bucket:${bucketStart.toISOString()}`;
+  }
+
+  private serializeLeaderboardResult(
+    bucketStart: Date,
+    computedAt: Date,
+    result: HypeLeaderboardResult,
+  ): StoredLeaderboardResultRecord {
+    const snapshotBucket = result.snapshot.bucketStart.toISOString();
+    const snapshotComparedTo = result.snapshot.comparedTo
+      ? result.snapshot.comparedTo.toISOString()
+      : null;
+
+    const leaders: StoredLeader[] = result.leaders.map((leader) => ({
+      ...leader,
+      positionTrend: {
+        ...leader.positionTrend,
+        comparedAt: leader.positionTrend.comparedAt
+          ? leader.positionTrend.comparedAt.toISOString()
+          : null,
+      },
+    }));
+
+    return {
+      bucketStart: bucketStart.toISOString(),
+      computedAt: computedAt.toISOString(),
+      leaders,
+      snapshot: {
+        bucketStart: snapshotBucket,
+        comparedTo: snapshotComparedTo,
+      },
+    };
+  }
+
+  private deserializeLeaderboardResult(
+    record: StoredLeaderboardResultRecord | null | undefined,
+  ): HypeLeaderboardResult | null {
+    if (!record) {
+      return null;
+    }
+
+    const snapshotBucket = new Date(record.snapshot.bucketStart);
+    if (Number.isNaN(snapshotBucket.getTime())) {
+      return null;
+    }
+
+    const comparedTo = record.snapshot.comparedTo ? new Date(record.snapshot.comparedTo) : null;
+    const safeComparedTo = comparedTo && !Number.isNaN(comparedTo.getTime()) ? comparedTo : null;
+
+    const leaders: HypeLeaderWithTrend[] = (record.leaders ?? []).map((leader) => ({
+      ...leader,
+      positionTrend: {
+        ...leader.positionTrend,
+        comparedAt:
+          leader.positionTrend.comparedAt && leader.positionTrend.comparedAt.length > 0
+            ? new Date(leader.positionTrend.comparedAt)
+            : null,
+      },
+    }));
+
+    leaders.forEach((leader) => {
+      const comparedAt = leader.positionTrend.comparedAt;
+      if (comparedAt && Number.isNaN(comparedAt.getTime())) {
+        leader.positionTrend.comparedAt = null;
+      }
+    });
+
+    return {
+      leaders,
+      snapshot: {
+        bucketStart: snapshotBucket,
+        comparedTo: safeComparedTo,
+      },
+    };
+  }
+
+  private async loadPrecomputedResultFromCache(
+    cacheKey: string,
+  ): Promise<HypeLeaderboardResult | null> {
+    const record = await this.precomputedResultCache.get<StoredLeaderboardResultRecord>(cacheKey);
+    return this.deserializeLeaderboardResult(record);
+  }
+
+  private async savePrecomputedResultToCache(
+    cacheKey: string,
+    bucketStart: Date,
+    result: HypeLeaderboardResult,
+  ): Promise<void> {
+    const computedAt = new Date();
+    const record = this.serializeLeaderboardResult(bucketStart, computedAt, result);
+    await this.precomputedResultCache.set(cacheKey, record, this.precomputedResultTtlMs);
   }
 
   private getPeriodKey(periodDays: number | null): string {
