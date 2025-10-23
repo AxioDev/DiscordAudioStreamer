@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import type { Config } from '../config';
 import BlogRepository from './BlogRepository';
 import BlogService from './BlogService';
+import BlogModerationService from './BlogModerationService';
 import type VoiceActivityRepository from './VoiceActivityRepository';
 import type { VoiceTranscriptionRecord } from './VoiceActivityRepository';
 
@@ -10,6 +11,7 @@ interface DailyArticleServiceOptions {
   blogRepository: BlogRepository | null;
   blogService?: BlogService | null;
   voiceActivityRepository: VoiceActivityRepository | null;
+  moderationService?: BlogModerationService | null;
 }
 
 interface GeneratedArticleResult {
@@ -73,6 +75,8 @@ export default class DailyArticleService {
 
   private readonly openai: OpenAI | null;
 
+  private readonly moderationService: BlogModerationService;
+
   private timer: NodeJS.Timeout | null = null;
 
   private running = false;
@@ -91,6 +95,7 @@ export default class DailyArticleService {
     this.openai = this.config.openAI.apiKey
       ? new OpenAI({ apiKey: this.config.openAI.apiKey })
       : null;
+    this.moderationService = options.moderationService ?? new BlogModerationService();
     const reasons: string[] = [];
     if (this.config.openAI.dailyArticleDisabled) {
       reasons.push('désactivation manuelle via la configuration');
@@ -373,12 +378,24 @@ export default class DailyArticleService {
       );
 
       const publishedAt = new Date();
+      const normalizedExcerpt = this.normalizeExcerpt(article.excerpt);
+      const normalizedContent = article.contentMarkdown.trim();
+      const moderationVerdict = this.moderationService.evaluate({
+        title: article.title.trim(),
+        excerpt: normalizedExcerpt,
+        contentMarkdown: normalizedContent,
+      });
+
+      if (!moderationVerdict.approved) {
+        await this.handleModerationRejection(slug, moderationVerdict.reasons);
+        return { status: 'failed', slug, error: 'MODERATION_REJECTED' };
+      }
 
       await this.blogRepository.upsertPost({
         slug,
         title: article.title.trim(),
-        excerpt: this.normalizeExcerpt(article.excerpt),
-        contentMarkdown: article.contentMarkdown.trim(),
+        excerpt: normalizedExcerpt,
+        contentMarkdown: normalizedContent,
         coverImageUrl: coverImageUrl ?? null,
         tags: normalizedTags,
         seoDescription: article.seoDescription ?? null,
@@ -416,6 +433,18 @@ export default class DailyArticleService {
       return trimmed;
     }
     return trimmed;
+  }
+
+  private async handleModerationRejection(slug: string, reasons: string[]): Promise<void> {
+    const joined = reasons.length > 0 ? reasons.join('; ') : 'critères éditoriaux non respectés';
+    console.warn(`DailyArticleService: article "${slug}" rejeté par la modération (${joined}).`);
+    if (this.blogRepository) {
+      try {
+        await this.blogRepository.deletePostBySlug(slug);
+      } catch (error) {
+        console.warn(`DailyArticleService: impossible de supprimer l’article rejeté ${slug}`, error);
+      }
+    }
   }
 
   private async generateArticleWithOpenAI(payload: ArticleGenerationPayload): Promise<GeneratedArticleResult | null> {

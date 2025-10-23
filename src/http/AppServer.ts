@@ -31,6 +31,7 @@ import BlogService, {
 } from '../services/BlogService';
 import BlogRepository, { type BlogPostRow } from '../services/BlogRepository';
 import BlogSubmissionService, { BlogSubmissionError } from '../services/BlogSubmissionService';
+import BlogModerationService from '../services/BlogModerationService';
 import type {
   CommunityPulseSnapshot,
   HypeLeaderboardQueryOptions,
@@ -94,6 +95,7 @@ export interface AppServerOptions {
   blogRepository?: BlogRepository | null;
   blogService?: BlogService | null;
   blogSubmissionService?: BlogSubmissionService | null;
+  blogModerationService?: BlogModerationService | null;
   dailyArticleService?: DailyArticleService | null;
   userPersonaService?: UserPersonaService | null;
   adminService: AdminService;
@@ -411,6 +413,8 @@ export default class AppServer {
 
   private readonly blogSubmissionService: BlogSubmissionService;
 
+  private readonly blogModerationService: BlogModerationService;
+
   private readonly seoRenderer: SeoRenderer;
 
   private textChannelCache:
@@ -452,6 +456,7 @@ export default class AppServer {
     blogRepository = null,
     blogService = null,
     blogSubmissionService = null,
+    blogModerationService = null,
     dailyArticleService = null,
     userPersonaService = null,
     adminService,
@@ -524,11 +529,14 @@ export default class AppServer {
           })
         : null);
 
+    this.blogModerationService = blogModerationService ?? new BlogModerationService();
+
     this.blogService =
       blogService ??
       new BlogService({
         postsDirectory: path.resolve(__dirname, '..', '..', 'content', 'blog'),
         repository: this.blogRepository,
+        moderationService: this.blogModerationService,
       });
 
     this.blogSubmissionService =
@@ -536,6 +544,7 @@ export default class AppServer {
       new BlogSubmissionService({
         repository: this.blogRepository,
         blogService: this.blogService,
+        moderationService: this.blogModerationService,
       });
 
     void this.blogSubmissionService.initialize().catch((error) => {

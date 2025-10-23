@@ -1,9 +1,11 @@
 import BlogRepository from './BlogRepository';
 import BlogService from './BlogService';
+import BlogModerationService from './BlogModerationService';
 
 export interface BlogSubmissionServiceOptions {
   repository?: BlogRepository | null;
   blogService?: BlogService | null;
+  moderationService?: BlogModerationService | null;
 }
 
 export interface SubmitBlogArticleInput {
@@ -90,11 +92,14 @@ export default class BlogSubmissionService {
 
   private readonly blogService: BlogService | null;
 
+  private readonly moderationService: BlogModerationService;
+
   private initialized = false;
 
   constructor(options: BlogSubmissionServiceOptions) {
     this.repository = options.repository ?? null;
     this.blogService = options.blogService ?? null;
+    this.moderationService = options.moderationService ?? new BlogModerationService();
   }
 
   async initialize(): Promise<void> {
@@ -158,6 +163,22 @@ export default class BlogSubmissionService {
 
     if (Object.keys(errors).length > 0) {
       throw new BlogSubmissionError('VALIDATION_ERROR', 'Certaines informations sont manquantes ou invalides.', errors);
+    }
+
+    const moderationVerdict = this.moderationService.evaluate({
+      title,
+      excerpt: excerpt || null,
+      contentMarkdown: contentMarkdownRaw,
+    });
+
+    if (!moderationVerdict.approved) {
+      const reason =
+        moderationVerdict.reasons.join(' ') || 'Le contenu soumis ne répond pas aux critères éditoriaux.';
+      throw new BlogSubmissionError(
+        'VALIDATION_ERROR',
+        'Le contenu soumis ne respecte pas les critères éditoriaux du blog.',
+        { contentMarkdown: reason },
+      );
     }
 
     const slugBase = providedSlug ? slugify(providedSlug) : slugify(title);

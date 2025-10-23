@@ -5,10 +5,12 @@ import BlogRepository, {
   type BlogPostListOptions as RepositoryListOptions,
   type BlogPostRow,
 } from './BlogRepository';
+import BlogModerationService from './BlogModerationService';
 
 export interface BlogServiceOptions {
   postsDirectory?: string | null;
   repository?: BlogRepository | null;
+  moderationService?: BlogModerationService | null;
 }
 
 export interface BlogPostSummary {
@@ -161,6 +163,8 @@ export default class BlogService {
 
   private readonly repository: BlogRepository | null;
 
+  private readonly moderationService: BlogModerationService;
+
   private repositoryAvailable: boolean;
 
   private initializationPromise: Promise<void> | null = null;
@@ -168,6 +172,7 @@ export default class BlogService {
   constructor(options: BlogServiceOptions) {
     this.postsDirectory = options.postsDirectory ?? null;
     this.repository = options.repository ?? null;
+    this.moderationService = options.moderationService ?? new BlogModerationService();
     this.repositoryAvailable = Boolean(this.repository);
   }
 
@@ -191,9 +196,24 @@ export default class BlogService {
       };
       try {
         const rows = await this.repository.listPosts(listOptions);
+        const approvedRows: Array<{ row: BlogPostRow; markdown: string }> = [];
+        for (const row of rows) {
+          const normalizedMarkdown = normalizeMarkdownContent(row.content_markdown);
+          const verdict = this.moderationService.evaluate({
+            title: row.title,
+            excerpt: row.excerpt ?? null,
+            contentMarkdown: normalizedMarkdown,
+          });
+          if (!verdict.approved) {
+            await this.handleRejectedPost(row.slug, verdict.reasons, 'repository');
+            continue;
+          }
+          approvedRows.push({ row, markdown: normalizedMarkdown });
+        }
+
         const tags = await this.repository.listTags();
         return {
-          posts: rows.map((row) => this.convertRowToSummary(row)),
+          posts: approvedRows.map(({ row, markdown }) => this.convertRowToSummary(row, markdown)),
           availableTags: tags,
         };
       } catch (error) {
@@ -219,8 +239,17 @@ export default class BlogService {
         if (!row) {
           return null;
         }
-        const summary = this.convertRowToSummary(row);
         const markdown = normalizeMarkdownContent(row.content_markdown);
+        const verdict = this.moderationService.evaluate({
+          title: row.title,
+          excerpt: row.excerpt ?? null,
+          contentMarkdown: markdown,
+        });
+        if (!verdict.approved) {
+          await this.handleRejectedPost(row.slug, verdict.reasons, 'repository');
+          return null;
+        }
+        const summary = this.convertRowToSummary(row, markdown);
         const contentHtml = marked.parse(markdown);
         return {
           ...summary,
@@ -250,7 +279,7 @@ export default class BlogService {
     }
   }
 
-  private convertRowToSummary(row: BlogPostRow): BlogPostSummary {
+  private convertRowToSummary(row: BlogPostRow, normalizedMarkdownOverride?: string): BlogPostSummary {
     const toIsoString = (value: Date | string | null | undefined): string | null => {
       if (!value) {
         return null;
@@ -264,7 +293,7 @@ export default class BlogService {
 
     const date = toIsoString(row.published_at);
     const updatedAt = toIsoString(row.updated_at);
-    const normalizedMarkdown = normalizeMarkdownContent(row.content_markdown);
+    const normalizedMarkdown = normalizedMarkdownOverride ?? normalizeMarkdownContent(row.content_markdown);
     const excerpt = row.excerpt ?? sanitizeExcerpt(normalizedMarkdown) ?? null;
     const coverImageUrl = normalizeCoverImage(row.cover_image_url);
     const tags = Array.isArray(row.tags)
@@ -303,6 +332,9 @@ export default class BlogService {
         const slug = entry.name.replace(/\.md$/i, '');
         const filePath = path.join(this.postsDirectory, entry.name);
         const summary = await this.readPostSummary(filePath, slug);
+        if (!summary) {
+          continue;
+        }
         summary.tags.forEach((tag) => allTags.add(tag));
         allSummaries.push(summary);
       }
@@ -361,6 +393,25 @@ export default class BlogService {
     }
   }
 
+  private async handleRejectedPost(
+    slug: string,
+    reasons: string[],
+    source: 'repository' | 'filesystem',
+  ): Promise<void> {
+    const joinedReasons = reasons.length > 0 ? reasons.join('; ') : 'critères éditoriaux non respectés';
+    const actionLabel =
+      source === 'repository' ? 'suppression automatique de' : 'exclusion automatique de';
+    console.warn(`BlogService: ${actionLabel} l’article "${slug}" (${joinedReasons}).`);
+
+    if (source === 'repository' && this.repository) {
+      try {
+        await this.repository.deletePostBySlug(slug);
+      } catch (error) {
+        console.warn(`BlogService: échec de suppression de l’article rejeté ${slug}`, error);
+      }
+    }
+  }
+
   private async getPostFromFilesystem(slug: string): Promise<BlogPostDetail | null> {
     if (!this.postsDirectory) {
       return null;
@@ -373,20 +424,30 @@ export default class BlogService {
         fs.stat(filePath),
       ]);
       const parsed = parseFrontMatter(rawContent);
-      const title = deriveTitle(parsed.metadata, parsed.body, safeSlug);
+      const normalizedMarkdown = normalizeMarkdownContent(parsed.body);
+      const title = deriveTitle(parsed.metadata, normalizedMarkdown, safeSlug);
       const date = normalizeDate(parsed.metadata.date);
-      const excerpt = deriveExcerpt(parsed.metadata, parsed.body);
+      const excerpt = deriveExcerpt(parsed.metadata, normalizedMarkdown);
       const coverImageUrl = normalizeCoverImage(parsed.metadata.cover ?? parsed.metadata.image);
       const tags = parseTags(parsed.metadata.tags);
       const seoDescription = parsed.metadata['seo-description'] ?? parsed.metadata.seo_description ?? excerpt;
-      const contentHtml = marked.parse(parsed.body);
+      const verdict = this.moderationService.evaluate({
+        title,
+        excerpt,
+        contentMarkdown: normalizedMarkdown,
+      });
+      if (!verdict.approved) {
+        await this.handleRejectedPost(safeSlug, verdict.reasons, 'filesystem');
+        return null;
+      }
+      const contentHtml = marked.parse(normalizedMarkdown);
       return {
         slug: safeSlug,
         title,
         date,
         updatedAt: stats.mtime.toISOString(),
         excerpt,
-        contentMarkdown: parsed.body,
+        contentMarkdown: normalizedMarkdown,
         contentHtml: typeof contentHtml === 'string' ? contentHtml : String(contentHtml),
         coverImageUrl,
         tags,
@@ -400,18 +461,28 @@ export default class BlogService {
     }
   }
 
-  private async readPostSummary(filePath: string, slug: string): Promise<BlogPostSummary> {
+  private async readPostSummary(filePath: string, slug: string): Promise<BlogPostSummary | null> {
     const [rawContent, stats] = await Promise.all([
       fs.readFile(filePath, 'utf8'),
       fs.stat(filePath),
     ]);
     const parsed = parseFrontMatter(rawContent);
-    const title = deriveTitle(parsed.metadata, parsed.body, slug);
+    const normalizedMarkdown = normalizeMarkdownContent(parsed.body);
+    const title = deriveTitle(parsed.metadata, normalizedMarkdown, slug);
     const date = normalizeDate(parsed.metadata.date) ?? stats.mtime.toISOString();
-    const excerpt = deriveExcerpt(parsed.metadata, parsed.body);
+    const excerpt = deriveExcerpt(parsed.metadata, normalizedMarkdown);
     const coverImageUrl = normalizeCoverImage(parsed.metadata.cover ?? parsed.metadata.image);
     const tags = parseTags(parsed.metadata.tags);
     const seoDescription = parsed.metadata['seo-description'] ?? parsed.metadata.seo_description ?? excerpt;
+    const verdict = this.moderationService.evaluate({
+      title,
+      excerpt,
+      contentMarkdown: normalizedMarkdown,
+    });
+    if (!verdict.approved) {
+      await this.handleRejectedPost(slug, verdict.reasons, 'filesystem');
+      return null;
+    }
     return {
       slug,
       title,
