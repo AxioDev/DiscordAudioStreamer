@@ -8,8 +8,9 @@ type DiscordVectorIngestionServiceConstructor = typeof import('../src/services/D
 type ShopServiceConstructor = typeof import('../src/services/ShopService').default;
 type VoiceActivityRepositoryConstructor = typeof import('../src/services/VoiceActivityRepository').default;
 type BlogModerationServiceConstructor = typeof import('../src/services/BlogModerationService').default;
+type DiscordVectorRepositoryModule = typeof import('../src/services/DiscordVectorRepository');
 
-const TOTAL_STEPS = 7;
+const TOTAL_STEPS = 8;
 
 function logStep(step: number, message: string): void {
   console.log(`[sync:vectors] [${step}/${TOTAL_STEPS}] ${message}`);
@@ -30,6 +31,7 @@ async function main(): Promise<void> {
     shopServiceModule,
     voiceActivityRepositoryModule,
     blogModerationServiceModule,
+    discordVectorRepositoryModule,
   ] = await Promise.all([
     import('../src/config'),
     import('../src/services/BlogRepository'),
@@ -38,6 +40,7 @@ async function main(): Promise<void> {
     import('../src/services/ShopService'),
     import('../src/services/VoiceActivityRepository'),
     import('../src/services/BlogModerationService'),
+    import('../src/services/DiscordVectorRepository'),
   ]);
 
   const config = configModule.default as Config;
@@ -48,6 +51,7 @@ async function main(): Promise<void> {
   const ShopService = shopServiceModule.default as ShopServiceConstructor;
   const VoiceActivityRepository = voiceActivityRepositoryModule.default as VoiceActivityRepositoryConstructor;
   const BlogModerationService = blogModerationServiceModule.default as BlogModerationServiceConstructor;
+  const { getDiscordVectorCount } = discordVectorRepositoryModule as DiscordVectorRepositoryModule;
 
   logInfo('Initialisation de la synchronisation des vecteurs Discord.');
 
@@ -61,7 +65,11 @@ async function main(): Promise<void> {
     throw new Error('OPENAI_API_KEY must be configured to synchronize discord_vectors.');
   }
 
-  logStep(3, 'Préparation des services de blog…');
+  logStep(3, 'Récupération du nombre de lignes existantes dans discord_vectors…');
+  const initialVectorCount = await getDiscordVectorCount();
+  logInfo(`Nombre de lignes initiales dans discord_vectors : ${initialVectorCount}.`);
+
+  logStep(4, 'Préparation des services de blog…');
   const blogRepository = config.database.url
     ? new BlogRepository({
         url: config.database.url,
@@ -82,10 +90,10 @@ async function main(): Promise<void> {
   await blogService.initialize();
   logInfo('Service de blog initialisé.');
 
-  logStep(4, 'Préparation du service boutique…');
+  logStep(5, 'Préparation du service boutique…');
   const shopService = new ShopService({ config });
 
-  logStep(5, 'Connexion au dépôt d’activité vocale…');
+  logStep(6, 'Connexion au dépôt d’activité vocale…');
   const voiceActivityRepository = new VoiceActivityRepository({
     url: config.database.url,
     ssl: config.database.ssl,
@@ -93,7 +101,7 @@ async function main(): Promise<void> {
   });
 
   try {
-    logStep(6, 'Création du service d’ingestion des vecteurs…');
+    logStep(7, 'Création du service d’ingestion des vecteurs…');
     const ingestionService = new DiscordVectorIngestionService({
       blogService,
       projectRoot: path.resolve(__dirname, '..'),
@@ -101,8 +109,16 @@ async function main(): Promise<void> {
       voiceActivityRepository,
     });
 
-    logStep(7, 'Synchronisation des vecteurs en base…');
+    logStep(8, 'Synchronisation des vecteurs en base…');
     await ingestionService.synchronize();
+
+    const finalVectorCount = await getDiscordVectorCount();
+    const addedVectorCount = finalVectorCount - initialVectorCount;
+    const formattedDelta = addedVectorCount >= 0 ? `+${addedVectorCount}` : `${addedVectorCount}`;
+    logInfo(`Nombre de lignes dans discord_vectors après synchronisation : ${finalVectorCount}.`);
+    logInfo(
+      `Nombre de lignes ajoutées pendant la synchronisation : ${formattedDelta}.`,
+    );
   } finally {
     logInfo('Fermeture du dépôt d’activité vocale.');
     await voiceActivityRepository.close();
