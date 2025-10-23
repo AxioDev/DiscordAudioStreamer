@@ -10,7 +10,24 @@ loadEnv();
 const BLOG_DIRECTORY = path.resolve(process.cwd(), 'content', 'blog');
 const OUTPUT_DIRECTORY = path.resolve(process.cwd(), 'public', 'images', 'blog');
 
+type ImageGenerationSize =
+  | 'auto'
+  | '1024x1024'
+  | '1536x1024'
+  | '1024x1536'
+  | '256x256'
+  | '512x512'
+  | '1792x1024'
+  | '1024x1792';
+
 interface GenerateOptions {
+  dryRun: boolean;
+  size: ImageGenerationSize;
+  model: string;
+  force: boolean;
+}
+
+interface CliOptions {
   dryRun: boolean;
   size: string;
   model: string;
@@ -41,17 +58,53 @@ const logger = {
 
 const program = new Command();
 
+const VALID_IMAGE_SIZES: ReadonlySet<ImageGenerationSize> = new Set([
+  'auto',
+  '1024x1024',
+  '1536x1024',
+  '1024x1536',
+  '256x256',
+  '512x512',
+  '1792x1024',
+  '1024x1792',
+]);
+
+const DEFAULT_IMAGE_SIZE: ImageGenerationSize = '1024x1024';
+
 program
   .description(
     'Génère des images de couverture pour les articles de blog dépourvus de champ "cover".'
   )
   .option('--dry-run', 'Affiche les actions sans générer d\'image ni modifier les fichiers.', false)
   .option('--force', 'Remplace les couvertures existantes.', false)
-  .option('--size <size>', 'Taille à utiliser pour la génération (ex: 1024x576).', '1024x576')
+  .option(
+    '--size <size>',
+    `Taille à utiliser pour la génération (${Array.from(VALID_IMAGE_SIZES).join(', ')}).`,
+    DEFAULT_IMAGE_SIZE
+  )
   .option('--model <model>', 'Modèle OpenAI à utiliser pour la génération.', 'gpt-image-1')
   .parse(process.argv);
 
-const options = program.opts<GenerateOptions>();
+const rawOptions = program.opts<CliOptions>();
+
+function normalizeSize(sizeInput: string | undefined): ImageGenerationSize {
+  if (sizeInput && VALID_IMAGE_SIZES.has(sizeInput as ImageGenerationSize)) {
+    return sizeInput as ImageGenerationSize;
+  }
+  logger.warn(
+    `Taille "${sizeInput ?? 'non définie'}" invalide. Les valeurs acceptées sont : ${Array.from(
+      VALID_IMAGE_SIZES
+    ).join(', ')}. Utilisation de ${DEFAULT_IMAGE_SIZE}.`
+  );
+  return DEFAULT_IMAGE_SIZE;
+}
+
+const options: GenerateOptions = {
+  dryRun: rawOptions.dryRun,
+  force: rawOptions.force,
+  model: rawOptions.model,
+  size: normalizeSize(rawOptions.size),
+};
 
 async function fsStatSafe(targetPath: string): Promise<boolean> {
   try {
@@ -136,7 +189,13 @@ async function processFile(
     response_format: 'b64_json',
   });
 
-  const image = response.data[0]?.b64_json;
+  const imageData = response.data;
+  if (!imageData?.length) {
+    logger.error(`Aucune image reçue pour ${filePath}.`);
+    return false;
+  }
+
+  const image = imageData[0]?.b64_json;
   if (!image) {
     logger.error(`Aucune image reçue pour ${filePath}.`);
     return false;
