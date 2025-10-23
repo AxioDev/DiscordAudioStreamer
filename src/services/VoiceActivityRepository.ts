@@ -579,6 +579,50 @@ export default class VoiceActivityRepository {
     return this.pool;
   }
 
+  private async resetPoolOnConnectionError(): Promise<void> {
+    if (this.externalPool) {
+      this.pool = this.externalPool;
+      this.poolConfigured = false;
+      return;
+    }
+
+    const currentPool = this.pool;
+    this.pool = null;
+    this.poolConfigured = false;
+
+    if (currentPool) {
+      try {
+        await currentPool.end();
+      } catch (error) {
+        console.warn('Failed to close PostgreSQL pool after connection error', error);
+      }
+    }
+  }
+
+  private isConnectionTerminatedError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+      return false;
+    }
+
+    const candidate = error as { message?: unknown; code?: unknown; name?: unknown };
+    const rawMessage = typeof candidate.message === 'string' ? candidate.message : '';
+    const normalizedMessage = rawMessage.toLowerCase();
+    if (
+      normalizedMessage.includes('connection terminated unexpectedly') ||
+      normalizedMessage.includes('server closed the connection unexpectedly') ||
+      normalizedMessage.includes('the server closed the connection')
+    ) {
+      return true;
+    }
+
+    const code = typeof candidate.code === 'string' ? candidate.code : undefined;
+    const name = typeof candidate.name === 'string' ? candidate.name : undefined;
+    const knownCodes = new Set(['57P01', '57P02', '57P03', 'ECONNRESET', 'ECONNREFUSED']);
+    const codeMatches = code ? knownCodes.has(code) : false;
+    const nameMatches = name ? knownCodes.has(name) : false;
+    return codeMatches || nameMatches;
+  }
+
   private async ensureSchemaIntrospection(pool: Pool): Promise<void> {
     if (
       this.voiceInterruptsColumns &&
@@ -3283,17 +3327,16 @@ ${searchClause}
 ORDER BY absolute_rank
 ${limitClause}`;
 
-    try {
-      const result = await pool.query(query, params);
-      return (result.rows ?? []).map((row) => {
-        const parseNumber = (value: unknown): number => {
-          const numeric = Number(value);
-          if (!Number.isFinite(numeric)) {
-            return 0;
-          }
-          return numeric;
-        };
+    const parseNumber = (value: unknown): number => {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) {
+        return 0;
+      }
+      return numeric;
+    };
 
+    const mapResultRows = (rows: Array<Record<string, unknown>> | null | undefined): HypeLeaderEntry[] =>
+      (rows ?? []).map((row) => {
         const username = this.normalizeString(row.username);
         const displayName = this.normalizeString(row.display_name) ?? username ?? 'Anonyme';
 
@@ -3311,7 +3354,35 @@ ${limitClause}`;
           schScoreNorm: parseNumber(row.sch_score_norm),
         };
       });
+
+    const executeQuery = async (poolInstance: Pool): Promise<HypeLeaderEntry[]> => {
+      const result = await poolInstance.query(query, params);
+      return mapResultRows(result.rows);
+    };
+
+    try {
+      return await executeQuery(pool);
     } catch (error) {
+      if (this.isConnectionTerminatedError(error)) {
+        console.warn(
+          'PostgreSQL connection terminated unexpectedly while computing hype leaderboard. Retrying after resetting the pool.',
+          error,
+        );
+
+        await this.resetPoolOnConnectionError();
+        const retryPool = this.ensurePool();
+        if (retryPool) {
+          try {
+            return await executeQuery(retryPool);
+          } catch (retryError) {
+            console.error('Failed to compute hype leaderboard after retry', retryError);
+            throw retryError;
+          }
+        }
+
+        console.error('Failed to re-establish PostgreSQL pool while computing hype leaderboard');
+      }
+
       console.error('Failed to compute hype leaderboard', error);
       throw error;
     }
