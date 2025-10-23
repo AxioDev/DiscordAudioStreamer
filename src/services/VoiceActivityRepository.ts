@@ -1,6 +1,8 @@
 import { Pool, PoolConfig } from 'pg';
 import { attachPostgresQueryLogger } from './utils/PostgresQueryLogger';
 
+const POOL_QUERY_GUARD_MARK = Symbol('voiceActivityRepositoryPoolGuard');
+
 export interface VoiceActivityRepositoryOptions {
   url?: string;
   ssl?: boolean;
@@ -541,6 +543,104 @@ export default class VoiceActivityRepository {
     this.userPersonasEnsured = false;
   }
 
+  private guardPoolQueries(pool: Pool): void {
+    const typedPool = pool as Pool & { [POOL_QUERY_GUARD_MARK]?: boolean };
+    if (typedPool[POOL_QUERY_GUARD_MARK]) {
+      return;
+    }
+    typedPool[POOL_QUERY_GUARD_MARK] = true;
+
+    const originalQuery = pool.query.bind(pool);
+
+    pool.query = ((...args: Parameters<Pool['query']>) => {
+      try {
+        const result = originalQuery(...args) as ReturnType<Pool['query']>;
+        const maybePromise = result as unknown as { then?: unknown; catch?: unknown } | undefined;
+        if (
+          maybePromise &&
+          typeof maybePromise.then === 'function' &&
+          typeof maybePromise.catch === 'function'
+        ) {
+          const promiseResult = result as unknown as Promise<unknown>;
+          return (promiseResult.catch((error: unknown) => {
+            this.handlePoolError(error);
+            throw error;
+          }) as unknown) as ReturnType<Pool['query']>;
+        }
+        return result;
+      } catch (error) {
+        this.handlePoolError(error);
+        throw error;
+      }
+    }) as Pool['query'];
+  }
+
+  private shouldResetPoolForError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+      return false;
+    }
+
+    const candidate = error as { code?: unknown; message?: unknown };
+    const rawCode = candidate.code;
+    const rawMessage = candidate.message;
+
+    const code = typeof rawCode === 'string' ? rawCode : undefined;
+    const message = typeof rawMessage === 'string' ? rawMessage : undefined;
+    const normalizedMessage = message?.toLowerCase() ?? '';
+
+    if (code && ['57P01', '57P02', '08003', '08006', '08000'].includes(code)) {
+      return true;
+    }
+
+    if (code && ['ECONNRESET', 'ECONNREFUSED', 'EPIPE'].includes(code)) {
+      return true;
+    }
+
+    if (normalizedMessage.includes('connection terminated unexpectedly')) {
+      return true;
+    }
+
+    if (normalizedMessage.includes('server closed the connection')) {
+      return true;
+    }
+
+    if (normalizedMessage.includes('connection not open')) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private handlePoolError(error: unknown): void {
+    if (!this.shouldResetPoolForError(error)) {
+      return;
+    }
+
+    if (this.externalPool) {
+      console.warn('External PostgreSQL pool reported a fatal error; manual intervention required.');
+      return;
+    }
+
+    console.warn('Resetting PostgreSQL connection pool after fatal error');
+    this.resetPool();
+  }
+
+  private resetPool(): void {
+    const pool = this.pool;
+    if (!pool) {
+      return;
+    }
+
+    this.pool = null;
+    this.poolConfigured = false;
+
+    void pool
+      .end()
+      .catch((closeError) => {
+        console.error('Failed to close PostgreSQL connection pool cleanly', closeError);
+      });
+  }
+
   private ensurePool(): Pool | null {
     if (!this.connectionString && !this.pool) {
       if (!this.warnedAboutMissingConnection) {
@@ -563,8 +663,11 @@ export default class VoiceActivityRepository {
       if (!this.externalPool) {
         this.pool.on('error', (error: unknown) => {
           console.error('Unexpected error from PostgreSQL connection pool', error);
+          this.handlePoolError(error);
         });
       }
+
+      this.guardPoolQueries(this.pool);
 
       attachPostgresQueryLogger(this.pool, {
         context: 'VoiceActivityRepository',
