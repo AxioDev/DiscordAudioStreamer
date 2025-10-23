@@ -1,0 +1,4815 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Libre Antenne API",
+    "version": "1.0.0",
+    "description": "Documentation OpenAPI pour les interfaces HTTP du site Libre Antenne."
+  },
+  "servers": [
+    {
+      "url": "https://libre-antenne.example.com"
+    },
+    {
+      "url": "http://localhost:3000"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Stream"
+    },
+    {
+      "name": "Chat"
+    },
+    {
+      "name": "Shop"
+    },
+    {
+      "name": "Anonymous Voice"
+    },
+    {
+      "name": "Discord"
+    },
+    {
+      "name": "Privacy"
+    },
+    {
+      "name": "Community"
+    },
+    {
+      "name": "Blog"
+    },
+    {
+      "name": "Users"
+    },
+    {
+      "name": "Members"
+    }
+  ],
+  "paths": {
+    "/status": {
+      "get": {
+        "tags": [
+          "Stream"
+        ],
+        "summary": "Obtenir l’état du transcodeur audio",
+        "operationId": "getStreamStatus",
+        "responses": {
+          "200": {
+            "description": "Statut courant du service de diffusion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events": {
+      "get": {
+        "tags": [
+          "Stream"
+        ],
+        "summary": "Souscrire au flux SSE temps réel",
+        "operationId": "subscribeEvents",
+        "responses": {
+          "200": {
+            "description": "Flux Server-Sent Events contenant les mises à jour temps réel.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "event": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/StreamInitialState"
+                        },
+                        {
+                          "type": "object"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stream": {
+      "get": {
+        "tags": [
+          "Stream"
+        ],
+        "summary": "Diffusion audio temps réel",
+        "operationId": "getAudioStream",
+        "responses": {
+          "200": {
+            "description": "Flux audio encodé (Opus/MP3 selon configuration).",
+            "content": {
+              "audio/ogg": {},
+              "audio/mpeg": {},
+              "application/octet-stream": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/status": {
+      "get": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "État du corpus conversationnel",
+        "operationId": "getChatStatus",
+        "responses": {
+          "200": {
+            "description": "Statistiques du corpus",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatStatusResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/chat": {
+      "post": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "Générer une réponse contextuelle",
+        "operationId": "postChatCompletion",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatCompletionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Réponse générée",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatCompletionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/pages/about": {
+      "get": {
+        "tags": [
+          "Community"
+        ],
+        "summary": "Contenu de la page À propos",
+        "operationId": "getAboutPage",
+        "responses": {
+          "200": {
+            "description": "Bloc de contenu affiché côté client",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AboutPageContent"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/shop/products": {
+      "get": {
+        "tags": [
+          "Shop"
+        ],
+        "summary": "Lister les produits dérivés",
+        "operationId": "listShopProducts",
+        "responses": {
+          "200": {
+            "description": "Catalogue public",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShopProductListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/shop/checkout": {
+      "post": {
+        "tags": [
+          "Shop"
+        ],
+        "summary": "Initier un paiement",
+        "operationId": "createCheckoutSession",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShopCheckoutRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Session de paiement créée",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShopCheckoutResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/anonymous-slot": {
+      "get": {
+        "tags": [
+          "Anonymous Voice"
+        ],
+        "summary": "Obtenir l’état du micro anonyme",
+        "operationId": "getAnonymousSlot",
+        "responses": {
+          "200": {
+            "description": "État courant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnonymousSlotState"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Anonymous Voice"
+        ],
+        "summary": "Réserver le micro anonyme",
+        "operationId": "claimAnonymousSlot",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "displayName": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Slot réservé",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnonymousSlotClaimResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Anonymous Voice"
+        ],
+        "summary": "Libérer le micro anonyme",
+        "operationId": "releaseAnonymousSlot",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "description": "Jeton \"Bearer {token}\" retourné lors de la réservation.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Slot libéré",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnonymousSlotReleaseResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "410": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/test-beep": {
+      "post": {
+        "tags": [
+          "Anonymous Voice"
+        ],
+        "summary": "Déclencher un bip de test",
+        "operationId": "postTestBeep",
+        "responses": {
+          "202": {
+            "description": "Bip planifié",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestBeepResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/stream/listeners": {
+      "get": {
+        "tags": [
+          "Stream"
+        ],
+        "summary": "Statistiques d’écoute",
+        "operationId": "getStreamListeners",
+        "responses": {
+          "200": {
+            "description": "Mesures d’audience",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListenerStatsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/guild/summary": {
+      "get": {
+        "tags": [
+          "Discord"
+        ],
+        "summary": "Résumé du serveur Discord",
+        "operationId": "getGuildSummary",
+        "responses": {
+          "200": {
+            "description": "Données agrégées du serveur",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuildSummaryResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/text-channels": {
+      "get": {
+        "tags": [
+          "Discord"
+        ],
+        "summary": "Lister les salons textuels accessibles",
+        "operationId": "listTextChannels",
+        "responses": {
+          "200": {
+            "description": "Liste des salons textuels",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextChannelsResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/text-channels/{channelId}/messages": {
+      "get": {
+        "tags": [
+          "Discord"
+        ],
+        "summary": "Récupérer l’historique d’un salon",
+        "operationId": "getTextChannelMessages",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Historique paginé",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextChannelMessagesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "403": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "404": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Discord"
+        ],
+        "summary": "Envoyer un message dans un salon",
+        "operationId": "postTextChannelMessage",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TextChannelMessageRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Message relayé",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextChannelMessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "403": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "404": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/text-channels/{channelId}/captcha": {
+      "post": {
+        "tags": [
+          "Discord"
+        ],
+        "summary": "Générer un captcha d’envoi",
+        "operationId": "createTextChannelCaptcha",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Défi captcha",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextChannelCaptchaResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/privacy/data-deletion/options": {
+      "get": {
+        "tags": [
+          "Privacy"
+        ],
+        "summary": "Lister les canaux de suppression immédiate",
+        "operationId": "listPrivacyDeletionOptions",
+        "responses": {
+          "200": {
+            "description": "Options disponibles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivacyDeletionOptionsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/privacy/data-deletion/captcha": {
+      "post": {
+        "tags": [
+          "Privacy"
+        ],
+        "summary": "Générer un captcha avant demande de suppression",
+        "operationId": "createPrivacyDeletionCaptcha",
+        "responses": {
+          "200": {
+            "description": "Défi captcha",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivacyCaptchaChallengeResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/privacy/data-deletion": {
+      "post": {
+        "tags": [
+          "Privacy"
+        ],
+        "summary": "Transmettre une demande de suppression",
+        "operationId": "submitPrivacyDeletion",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrivacyDeletionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Demande relayée",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivacyDeletionSubmissionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "403": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "404": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/community/pulse": {
+      "get": {
+        "tags": [
+          "Community"
+        ],
+        "summary": "Obtenir le pouls communautaire",
+        "operationId": "getCommunityPulse",
+        "responses": {
+          "200": {
+            "description": "Synthèse de l’activité récente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunityPulseResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/statistiques": {
+      "get": {
+        "tags": [
+          "Community"
+        ],
+        "summary": "Tableau de bord chiffré",
+        "operationId": "getCommunityStatistics",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "granularity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "activity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "channel",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Instantané des métriques",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatisticsResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/blog/posts": {
+      "get": {
+        "tags": [
+          "Blog"
+        ],
+        "summary": "Lister les articles publiés",
+        "operationId": "listBlogPosts",
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste des articles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlogPostListResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/blog/posts/{slug}": {
+      "get": {
+        "tags": [
+          "Blog"
+        ],
+        "summary": "Consulter un article",
+        "operationId": "getBlogPost",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Article détaillé",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlogPostResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "404": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/blog/submissions": {
+      "post": {
+        "tags": [
+          "Blog"
+        ],
+        "summary": "Publier un article communautaire",
+        "operationId": "submitBlogPost",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlogSubmissionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Article publié",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlogSubmissionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "409": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/blog/manual-generate": {
+      "post": {
+        "tags": [
+          "Blog"
+        ],
+        "summary": "Déclencher la génération automatique",
+        "operationId": "triggerManualArticleGeneration",
+        "responses": {
+          "200": {
+            "description": "Génération effectuée",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualArticleResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/voice-activity/history": {
+      "get": {
+        "tags": [
+          "Community"
+        ],
+        "summary": "Historique des segments vocaux",
+        "operationId": "getVoiceActivityHistory",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Segments d’activité vocale",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceActivityHistoryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{userId}/profile": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Statistiques détaillées d’un membre",
+        "operationId": "getUserProfileAnalytics",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Profil analytique",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserProfileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "404": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/users/{userId}/persona/generate": {
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Regénérer la fiche persona",
+        "operationId": "generateUserPersona",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Fiche générée ou déjà à jour",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonaGenerationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "404": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "409": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/users/{userId}/recordings": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Lister les enregistrements audio d’un membre",
+        "operationId": "listUserRecordings",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste des enregistrements",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingsListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "404": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/users/{userId}/recordings/{recordingId}/download": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Télécharger un enregistrement audio",
+        "operationId": "downloadUserRecording",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "recordingId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Flux audio à télécharger",
+            "content": {
+              "audio/wav": {},
+              "audio/mpeg": {},
+              "audio/ogg": {}
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "404": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/users/{userId}/recordings/{recordingId}/stream": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Diffuser un enregistrement audio",
+        "operationId": "streamUserRecording",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "recordingId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Range",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lecture continue",
+            "content": {
+              "audio/wav": {},
+              "audio/mpeg": {},
+              "audio/ogg": {}
+            }
+          },
+          "206": {
+            "description": "Segment audio partiel",
+            "content": {
+              "audio/wav": {},
+              "audio/mpeg": {},
+              "audio/ogg": {}
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "404": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/users/{userId}/voice-transcriptions": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Historique des retranscriptions vocales",
+        "operationId": "listUserTranscriptions",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retranscriptions paginées",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceTranscriptionsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "404": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/members": {
+      "get": {
+        "tags": [
+          "Members"
+        ],
+        "summary": "Lister les membres et leurs indicateurs",
+        "operationId": "listMembers",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "voice",
+                "messages"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste des membres",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MembersResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/StandardError"
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    },
+    "/api/voice-activity/hype-leaders": {
+      "get": {
+        "tags": [
+          "Community"
+        ],
+        "summary": "Classement Hype",
+        "operationId": "getHypeLeaderboard",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            }
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Classement courant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HypeLeaderboardResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/StandardError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "required": [
+          "error",
+          "message"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Code d'erreur stable."
+          },
+          "message": {
+            "type": "string",
+            "description": "Message lisible destiné à l'utilisateur."
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Informations additionnelles sur l'erreur."
+          }
+        }
+      },
+      "RateLimitedErrorResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ErrorResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "retryAt"
+            ],
+            "properties": {
+              "retryAt": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Date ISO 8601 à partir de laquelle une nouvelle tentative est autorisée."
+              }
+            }
+          }
+        ]
+      },
+      "ChatStatusResponse": {
+        "type": "object",
+        "required": [
+          "vectorCount"
+        ],
+        "properties": {
+          "vectorCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Nombre de passages indexés dans la base documentaire."
+          }
+        }
+      },
+      "ChatCompletionRequest": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Message utilisateur adressé au chatbot."
+          }
+        }
+      },
+      "ChatCompletionResponse": {
+        "type": "object",
+        "required": [
+          "answer"
+        ],
+        "properties": {
+          "answer": {
+            "type": "string",
+            "description": "Réponse générée par le chatbot."
+          }
+        }
+      },
+      "AboutPageHero": {
+        "type": "object",
+        "required": [
+          "eyebrow",
+          "title",
+          "paragraphs",
+          "cta"
+        ],
+        "properties": {
+          "eyebrow": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "paragraphs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cta": {
+            "type": "object",
+            "required": [
+              "label",
+              "href"
+            ],
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "href": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        }
+      },
+      "AboutPageHighlight": {
+        "type": "object",
+        "required": [
+          "title",
+          "body"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
+        }
+      },
+      "AboutPageContent": {
+        "type": "object",
+        "required": [
+          "hero",
+          "highlights"
+        ],
+        "properties": {
+          "hero": {
+            "$ref": "#/components/schemas/AboutPageHero"
+          },
+          "highlights": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AboutPageHighlight"
+            }
+          }
+        }
+      },
+      "ShopProductPrice": {
+        "type": "object",
+        "required": [
+          "amount",
+          "currency",
+          "formatted"
+        ],
+        "properties": {
+          "amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "currency": {
+            "type": "string",
+            "description": "Code ISO 4217."
+          },
+          "formatted": {
+            "type": "string"
+          }
+        }
+      },
+      "ShopProductImage": {
+        "type": "object",
+        "required": [
+          "url",
+          "alt"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "alt": {
+            "type": "string"
+          }
+        }
+      },
+      "ShopProduct": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "price",
+          "includes",
+          "shippingEstimate",
+          "badges",
+          "accent",
+          "accentSoft",
+          "emoji",
+          "highlight",
+          "providers",
+          "image",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/components/schemas/ShopProductPrice"
+          },
+          "includes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "shippingEstimate": {
+            "type": "string"
+          },
+          "badges": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "accent": {
+            "type": "string"
+          },
+          "accentSoft": {
+            "type": "string"
+          },
+          "emoji": {
+            "type": "string"
+          },
+          "highlight": {
+            "type": "boolean"
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "stripe",
+                "coingate",
+                "paypal"
+              ]
+            }
+          },
+          "image": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShopProductImage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "ShopProductListResponse": {
+        "type": "object",
+        "required": [
+          "currency",
+          "products"
+        ],
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "products": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShopProduct"
+            }
+          }
+        }
+      },
+      "ShopCheckoutRequest": {
+        "type": "object",
+        "required": [
+          "productId",
+          "provider"
+        ],
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "stripe",
+              "coingate",
+              "paypal"
+            ]
+          },
+          "successUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "cancelUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "customerEmail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "email"
+          }
+        }
+      },
+      "ShopCheckoutResponse": {
+        "type": "object",
+        "required": [
+          "provider",
+          "url",
+          "termsUrl"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "stripe",
+              "coingate",
+              "paypal"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "termsUrl": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      "AnonymousSlotState": {
+        "type": "object",
+        "required": [
+          "occupied",
+          "alias",
+          "claimedAt",
+          "expiresAt",
+          "remainingMs",
+          "connectionPending"
+        ],
+        "properties": {
+          "occupied": {
+            "type": "boolean"
+          },
+          "alias": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "claimedAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Horodatage Unix ms."
+          },
+          "expiresAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Horodatage Unix ms."
+          },
+          "remainingMs": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "connectionPending": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AnonymousSlotClaimResponse": {
+        "type": "object",
+        "required": [
+          "token",
+          "alias",
+          "expiresAt",
+          "state"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "alias": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "integer"
+          },
+          "state": {
+            "$ref": "#/components/schemas/AnonymousSlotState"
+          }
+        }
+      },
+      "AnonymousSlotReleaseResponse": {
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "state": {
+            "$ref": "#/components/schemas/AnonymousSlotState"
+          }
+        }
+      },
+      "TestBeepResponse": {
+        "type": "object",
+        "required": [
+          "ok",
+          "written"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "written": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ListenerStatsEntry": {
+        "type": "object",
+        "required": [
+          "timestamp",
+          "count"
+        ],
+        "properties": {
+          "timestamp": {
+            "type": "integer",
+            "description": "Horodatage Unix ms."
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ListenerStatsResponse": {
+        "type": "object",
+        "required": [
+          "count",
+          "history"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ListenerStatsEntry"
+            }
+          }
+        }
+      },
+      "DiscordGuildSummary": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "iconUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "bannerUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "memberCount": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "approximateMemberCount": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "approximatePresenceCount": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        }
+      },
+      "GuildSummaryResponse": {
+        "type": "object",
+        "required": [
+          "guild"
+        ],
+        "properties": {
+          "guild": {
+            "$ref": "#/components/schemas/DiscordGuildSummary"
+          }
+        }
+      },
+      "DiscordTextChannelSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "position"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "topic": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastMessageId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastMessageAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "position": {
+            "type": "integer"
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TextChannelsResponse": {
+        "type": "object",
+        "required": [
+          "channels",
+          "refreshedAt"
+        ],
+        "properties": {
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscordTextChannelSummary"
+            }
+          },
+          "refreshedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "DiscordChannelMessageAuthor": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "username": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "avatarUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          }
+        }
+      },
+      "DiscordChannelMessage": {
+        "type": "object",
+        "required": [
+          "id",
+          "content",
+          "createdAt",
+          "author"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "author": {
+            "$ref": "#/components/schemas/DiscordChannelMessageAuthor"
+          }
+        }
+      },
+      "TextChannelMessagesResponse": {
+        "type": "object",
+        "required": [
+          "messages",
+          "hasMore",
+          "nextCursor"
+        ],
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscordChannelMessage"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TextChannelCaptchaResponse": {
+        "type": "object",
+        "required": [
+          "challenge"
+        ],
+        "properties": {
+          "challenge": {
+            "type": "object",
+            "required": [
+              "id",
+              "question",
+              "expiresAt"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "question": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      },
+      "TextChannelMessageRequest": {
+        "type": "object",
+        "required": [
+          "message",
+          "captchaId",
+          "captchaAnswer"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "captchaId": {
+            "type": "string"
+          },
+          "captchaAnswer": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        }
+      },
+      "TextChannelMessageResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "nextAllowedAt"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DiscordChannelMessage"
+          },
+          "nextAllowedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PrivacyDeletionOption": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "description"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "private",
+              "radio"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
+      "PrivacyDeletionOptionsResponse": {
+        "type": "object",
+        "required": [
+          "options"
+        ],
+        "properties": {
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PrivacyDeletionOption"
+            }
+          }
+        }
+      },
+      "PrivacyCaptchaChallengeResponse": {
+        "type": "object",
+        "required": [
+          "challenge"
+        ],
+        "properties": {
+          "challenge": {
+            "type": "object",
+            "required": [
+              "id",
+              "question",
+              "expiresAt"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "question": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      },
+      "PrivacyDeletionRequest": {
+        "type": "object",
+        "required": [
+          "contactMethod",
+          "message",
+          "captchaId",
+          "captchaAnswer"
+        ],
+        "properties": {
+          "contactMethod": {
+            "type": "string",
+            "enum": [
+              "private",
+              "radio"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "contactHandle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "profileId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "profileName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "captchaId": {
+            "type": "string"
+          },
+          "captchaAnswer": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        }
+      },
+      "PrivacyDeletionSubmissionResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "message",
+          "nextAllowedAt"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "SUBMITTED"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "nextAllowedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "HomePulseMetric": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "icon",
+          "iconClass",
+          "valueLabel",
+          "valueAccessibleLabel",
+          "previousLabel",
+          "changeLabel",
+          "changeAccessibleLabel",
+          "percentLabel",
+          "trend",
+          "trendLabel",
+          "trendIcon",
+          "trendAccentClass",
+          "description"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "voice",
+              "members",
+              "messages"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "string"
+          },
+          "iconClass": {
+            "type": "string"
+          },
+          "valueLabel": {
+            "type": "string"
+          },
+          "valueAccessibleLabel": {
+            "type": "string"
+          },
+          "previousLabel": {
+            "type": "string"
+          },
+          "changeLabel": {
+            "type": "string"
+          },
+          "changeAccessibleLabel": {
+            "type": "string"
+          },
+          "percentLabel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trend": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down",
+              "steady"
+            ]
+          },
+          "trendLabel": {
+            "type": "string"
+          },
+          "trendIcon": {
+            "type": "string"
+          },
+          "trendAccentClass": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
+      "HomePulseData": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "generatedAtLabel",
+          "windowMinutes",
+          "windowLabel",
+          "comparisonLabel",
+          "metrics"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "generatedAtLabel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "windowMinutes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "windowLabel": {
+            "type": "string"
+          },
+          "comparisonLabel": {
+            "type": "string"
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HomePulseMetric"
+            }
+          }
+        }
+      },
+      "CommunityPulseResponse": {
+        "type": "object",
+        "required": [
+          "pulse"
+        ],
+        "properties": {
+          "pulse": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HomePulseData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "StatisticsTotals": {
+        "type": "object",
+        "required": [
+          "totalMembers",
+          "activeMembers",
+          "newMembers",
+          "voiceMinutes",
+          "messageCount",
+          "averageConnectedPerHour",
+          "retentionRate",
+          "growthRate"
+        ],
+        "properties": {
+          "totalMembers": {
+            "type": "number"
+          },
+          "activeMembers": {
+            "type": "number"
+          },
+          "newMembers": {
+            "type": "number"
+          },
+          "voiceMinutes": {
+            "type": "number"
+          },
+          "messageCount": {
+            "type": "number"
+          },
+          "averageConnectedPerHour": {
+            "type": "number"
+          },
+          "retentionRate": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "growthRate": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      },
+      "StatisticsSeriesPoint": {
+        "type": "object",
+        "required": [
+          "bucket",
+          "voiceMinutes",
+          "messageCount",
+          "activeMembers"
+        ],
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "voiceMinutes": {
+            "type": "number"
+          },
+          "messageCount": {
+            "type": "number"
+          },
+          "activeMembers": {
+            "type": "number"
+          }
+        }
+      },
+      "StatisticsNewMemberPoint": {
+        "type": "object",
+        "required": [
+          "bucket",
+          "count"
+        ],
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "count": {
+            "type": "number"
+          }
+        }
+      },
+      "StatisticsTopMemberEntry": {
+        "type": "object",
+        "required": [
+          "userId",
+          "displayName",
+          "voiceMinutes",
+          "messageCount",
+          "activityScore"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "username": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "voiceMinutes": {
+            "type": "number"
+          },
+          "messageCount": {
+            "type": "number"
+          },
+          "activityScore": {
+            "type": "number"
+          }
+        }
+      },
+      "StatisticsChannelActivityEntry": {
+        "type": "object",
+        "required": [
+          "channelId",
+          "channelName",
+          "voiceMinutes",
+          "messageCount"
+        ],
+        "properties": {
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "channelName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "voiceMinutes": {
+            "type": "number"
+          },
+          "messageCount": {
+            "type": "number"
+          }
+        }
+      },
+      "StatisticsChannelActivity": {
+        "type": "object",
+        "required": [
+          "voice",
+          "text"
+        ],
+        "properties": {
+          "voice": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StatisticsChannelActivityEntry"
+            }
+          },
+          "text": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StatisticsChannelActivityEntry"
+            }
+          }
+        }
+      },
+      "StatisticsRetentionBucket": {
+        "type": "object",
+        "required": [
+          "windowDays",
+          "returningUsers",
+          "totalUsers",
+          "rate"
+        ],
+        "properties": {
+          "windowDays": {
+            "type": "integer"
+          },
+          "returningUsers": {
+            "type": "number"
+          },
+          "totalUsers": {
+            "type": "number"
+          },
+          "rate": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      },
+      "StatisticsHeatmapEntry": {
+        "type": "object",
+        "required": [
+          "source",
+          "dayOfWeek",
+          "hour",
+          "value"
+        ],
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "voice",
+              "text"
+            ]
+          },
+          "dayOfWeek": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6
+          },
+          "hour": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 23
+          },
+          "value": {
+            "type": "number"
+          }
+        }
+      },
+      "StatisticsHypeHistoryEntry": {
+        "type": "object",
+        "required": [
+          "bucketStart",
+          "averageSchScore",
+          "leaderCount"
+        ],
+        "properties": {
+          "bucketStart": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "averageSchScore": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "leaderCount": {
+            "type": "integer"
+          }
+        }
+      },
+      "CommunityStatisticsSnapshot": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "timezone",
+          "totals",
+          "newMembers",
+          "activitySeries",
+          "topMembers",
+          "channelActivity",
+          "retention",
+          "heatmap",
+          "hypeHistory",
+          "availableChannels",
+          "availableUsers"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/StatisticsTotals"
+          },
+          "newMembers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StatisticsNewMemberPoint"
+            }
+          },
+          "activitySeries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StatisticsSeriesPoint"
+            }
+          },
+          "topMembers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StatisticsTopMemberEntry"
+            }
+          },
+          "channelActivity": {
+            "$ref": "#/components/schemas/StatisticsChannelActivity"
+          },
+          "retention": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StatisticsRetentionBucket"
+            }
+          },
+          "heatmap": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StatisticsHeatmapEntry"
+            }
+          },
+          "hypeHistory": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StatisticsHypeHistoryEntry"
+            }
+          },
+          "availableChannels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "channelId",
+                "channelName",
+                "channelType",
+                "activityScore"
+              ],
+              "properties": {
+                "channelId": {
+                  "type": "string"
+                },
+                "channelName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "channelType": {
+                  "type": "string",
+                  "enum": [
+                    "text",
+                    "voice",
+                    "unknown"
+                  ]
+                },
+                "activityScore": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "availableUsers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "userId",
+                "displayName"
+              ],
+              "properties": {
+                "userId": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "username": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "avatarUrl": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uri"
+                }
+              }
+            }
+          }
+        }
+      },
+      "StatisticsResponse": {
+        "type": "object",
+        "required": [
+          "statistics"
+        ],
+        "properties": {
+          "statistics": {
+            "$ref": "#/components/schemas/CommunityStatisticsSnapshot"
+          }
+        }
+      },
+      "BlogPostSummary": {
+        "type": "object",
+        "required": [
+          "slug",
+          "title",
+          "date",
+          "updatedAt",
+          "excerpt",
+          "coverImageUrl",
+          "tags",
+          "seoDescription"
+        ],
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "excerpt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "coverImageUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "seoDescription": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "BlogPostDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BlogPostSummary"
+          },
+          {
+            "type": "object",
+            "required": [
+              "contentHtml",
+              "contentMarkdown"
+            ],
+            "properties": {
+              "contentHtml": {
+                "type": "string"
+              },
+              "contentMarkdown": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "BlogPostListResponse": {
+        "type": "object",
+        "required": [
+          "posts",
+          "tags"
+        ],
+        "properties": {
+          "posts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BlogPostSummary"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "BlogPostResponse": {
+        "type": "object",
+        "required": [
+          "post"
+        ],
+        "properties": {
+          "post": {
+            "$ref": "#/components/schemas/BlogPostDetail"
+          }
+        }
+      },
+      "BlogSubmissionRequest": {
+        "type": "object",
+        "required": [
+          "title",
+          "contentMarkdown"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "excerpt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contentMarkdown": {
+            "type": "string"
+          },
+          "coverImageUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "seoDescription": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "BlogSubmissionResponse": {
+        "type": "object",
+        "required": [
+          "message",
+          "article"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "article": {
+            "type": "object",
+            "required": [
+              "slug",
+              "publishedAt"
+            ],
+            "properties": {
+              "slug": {
+                "type": "string"
+              },
+              "publishedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      },
+      "DailyArticleGenerationResult": {
+        "type": "object",
+        "required": [
+          "status",
+          "slug"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "generated",
+              "skipped",
+              "failed"
+            ]
+          },
+          "slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "publishedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ManualArticleResponse": {
+        "type": "object",
+        "required": [
+          "result",
+          "message"
+        ],
+        "properties": {
+          "result": {
+            "$ref": "#/components/schemas/DailyArticleGenerationResult"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "TemporalMarker": {
+        "type": "object",
+        "required": [
+          "ms",
+          "iso"
+        ],
+        "properties": {
+          "ms": {
+            "type": "integer"
+          },
+          "iso": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "VoiceActivityHistoryEntry": {
+        "type": "object",
+        "required": [
+          "id",
+          "userId",
+          "channelId",
+          "guildId",
+          "durationMs",
+          "startedAt",
+          "endedAt",
+          "startedAtMs",
+          "endedAtMs",
+          "profile"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "guildId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "durationMs": {
+            "type": "number"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startedAtMs": {
+            "type": "integer"
+          },
+          "endedAtMs": {
+            "type": "integer"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "displayName",
+                  "username",
+                  "avatar"
+                ],
+                "properties": {
+                  "displayName": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "username": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "avatar": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uri"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "VoiceActivityHistoryResponse": {
+        "type": "object",
+        "required": [
+          "segments"
+        ],
+        "properties": {
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VoiceActivityHistoryEntry"
+            }
+          }
+        }
+      },
+      "UserProfileSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "displayName",
+          "username",
+          "avatar",
+          "discriminator",
+          "globalName",
+          "bannerUrl",
+          "accentColor",
+          "createdAt",
+          "guild"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "username": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "avatar": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "discriminator": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "globalName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bannerUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "accentColor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "guild": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "id",
+                  "nickname",
+                  "displayName",
+                  "joinedAt",
+                  "roles"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "nickname": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "displayName": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "joinedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "roles": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "name"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "ProfileRange": {
+        "type": "object",
+        "required": [
+          "since",
+          "until",
+          "sinceMs",
+          "untilMs"
+        ],
+        "properties": {
+          "since": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sinceMs": {
+            "type": "integer"
+          },
+          "untilMs": {
+            "type": "integer"
+          }
+        }
+      },
+      "ProfileSummary": {
+        "type": "object",
+        "required": [
+          "rangeDurationMs",
+          "totalPresenceMs",
+          "totalSpeakingMs",
+          "messageCount",
+          "presenceSessions",
+          "speakingSessions",
+          "uniqueActiveDays",
+          "activeDayCount",
+          "firstPresenceAt",
+          "lastPresenceAt",
+          "firstSpeakingAt",
+          "lastSpeakingAt",
+          "firstMessageAt",
+          "lastMessageAt",
+          "firstActivityAt",
+          "lastActivityAt"
+        ],
+        "properties": {
+          "rangeDurationMs": {
+            "type": "integer"
+          },
+          "totalPresenceMs": {
+            "type": "integer"
+          },
+          "totalSpeakingMs": {
+            "type": "integer"
+          },
+          "messageCount": {
+            "type": "integer"
+          },
+          "presenceSessions": {
+            "type": "integer"
+          },
+          "speakingSessions": {
+            "type": "integer"
+          },
+          "uniqueActiveDays": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "activeDayCount": {
+            "type": "integer"
+          },
+          "firstPresenceAt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemporalMarker"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastPresenceAt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemporalMarker"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "firstSpeakingAt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemporalMarker"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastSpeakingAt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemporalMarker"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "firstMessageAt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemporalMarker"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastMessageAt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemporalMarker"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "firstActivityAt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemporalMarker"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastActivityAt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemporalMarker"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "VoicePresenceSegment": {
+        "type": "object",
+        "required": [
+          "channelId",
+          "guildId",
+          "joinedAt",
+          "joinedAtMs",
+          "leftAt",
+          "leftAtMs"
+        ],
+        "properties": {
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "guildId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "joinedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "joinedAtMs": {
+            "type": "integer"
+          },
+          "leftAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "leftAtMs": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        }
+      },
+      "VoiceSpeakingSegment": {
+        "type": "object",
+        "required": [
+          "channelId",
+          "guildId",
+          "startedAt",
+          "startedAtMs",
+          "durationMs",
+          "endedAt",
+          "endedAtMs"
+        ],
+        "properties": {
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "guildId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startedAtMs": {
+            "type": "integer"
+          },
+          "durationMs": {
+            "type": "integer"
+          },
+          "endedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAtMs": {
+            "type": "integer"
+          }
+        }
+      },
+      "MessageActivityEntry": {
+        "type": "object",
+        "required": [
+          "messageId",
+          "channelId",
+          "guildId",
+          "content",
+          "timestamp",
+          "timestampMs"
+        ],
+        "properties": {
+          "messageId": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "guildId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "timestampMs": {
+            "type": "integer"
+          }
+        }
+      },
+      "PersonaInsight": {
+        "type": "object",
+        "required": [
+          "title",
+          "detail",
+          "confidence"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PersonaProfile": {
+        "type": "object",
+        "required": [
+          "version",
+          "summary",
+          "highlights",
+          "identity",
+          "interests",
+          "expertise",
+          "personality",
+          "preferences",
+          "conversationStarters",
+          "lifestyle",
+          "notableQuotes",
+          "disclaimers"
+        ],
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "highlights": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonaInsight"
+            }
+          },
+          "identity": {
+            "type": "object",
+            "required": [
+              "selfDescription",
+              "roles",
+              "languages",
+              "locations"
+            ],
+            "properties": {
+              "selfDescription": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "roles": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PersonaInsight"
+                }
+              },
+              "languages": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PersonaInsight"
+                }
+              },
+              "locations": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PersonaInsight"
+                }
+              }
+            }
+          },
+          "interests": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonaInsight"
+            }
+          },
+          "expertise": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonaInsight"
+            }
+          },
+          "personality": {
+            "type": "object",
+            "required": [
+              "traits",
+              "communication",
+              "values"
+            ],
+            "properties": {
+              "traits": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PersonaInsight"
+                }
+              },
+              "communication": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PersonaInsight"
+                }
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PersonaInsight"
+                }
+              }
+            }
+          },
+          "preferences": {
+            "type": "object",
+            "required": [
+              "likes",
+              "dislikes",
+              "collaborationTips",
+              "contentFormats"
+            ],
+            "properties": {
+              "likes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PersonaInsight"
+                }
+              },
+              "dislikes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PersonaInsight"
+                }
+              },
+              "collaborationTips": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PersonaInsight"
+                }
+              },
+              "contentFormats": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PersonaInsight"
+                }
+              }
+            }
+          },
+          "conversationStarters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonaInsight"
+            }
+          },
+          "lifestyle": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonaInsight"
+            }
+          },
+          "notableQuotes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "quote",
+                "context",
+                "sourceType",
+                "timestamp"
+              ],
+              "properties": {
+                "quote": {
+                  "type": "string"
+                },
+                "context": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sourceType": {
+                  "type": "string",
+                  "enum": [
+                    "voice",
+                    "text"
+                  ]
+                },
+                "timestamp": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "disclaimers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonaInsight"
+            }
+          }
+        }
+      },
+      "PersonaRecord": {
+        "type": "object",
+        "required": [
+          "summary",
+          "data",
+          "model",
+          "version",
+          "generatedAt",
+          "updatedAt",
+          "lastActivityAt",
+          "voiceSampleCount",
+          "messageSampleCount",
+          "inputCharacterCount"
+        ],
+        "properties": {
+          "summary": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PersonaProfile"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "generatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastActivityAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "voiceSampleCount": {
+            "type": "integer"
+          },
+          "messageSampleCount": {
+            "type": "integer"
+          },
+          "inputCharacterCount": {
+            "type": "integer"
+          }
+        }
+      },
+      "UserProfileResponse": {
+        "type": "object",
+        "required": [
+          "profile",
+          "range",
+          "stats",
+          "presenceSegments",
+          "speakingSegments",
+          "messageEvents",
+          "persona"
+        ],
+        "properties": {
+          "profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserProfileSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "range": {
+            "$ref": "#/components/schemas/ProfileRange"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/ProfileSummary"
+          },
+          "presenceSegments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VoicePresenceSegment"
+            }
+          },
+          "speakingSegments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VoiceSpeakingSegment"
+            }
+          },
+          "messageEvents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageActivityEntry"
+            }
+          },
+          "persona": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonaRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "PersonaGenerationResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "message"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "generated",
+              "skipped",
+              "failed"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "RecordingEntry": {
+        "type": "object",
+        "required": [
+          "id",
+          "fileName",
+          "createdAt",
+          "createdAtMs",
+          "sizeBytes",
+          "durationMs",
+          "downloadUrl",
+          "streamUrl"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAtMs": {
+            "type": "integer"
+          },
+          "sizeBytes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "durationMs": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "downloadUrl": {
+            "type": "string"
+          },
+          "streamUrl": {
+            "type": "string"
+          }
+        }
+      },
+      "RecordingsListResponse": {
+        "type": "object",
+        "required": [
+          "range",
+          "entries"
+        ],
+        "properties": {
+          "range": {
+            "$ref": "#/components/schemas/ProfileRange"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecordingEntry"
+            }
+          }
+        }
+      },
+      "VoiceTranscriptionEntry": {
+        "type": "object",
+        "required": [
+          "transcriptionId",
+          "channelId",
+          "guildId",
+          "content",
+          "timestamp",
+          "timestampMs"
+        ],
+        "properties": {
+          "transcriptionId": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "guildId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "timestampMs": {
+            "type": "integer"
+          }
+        }
+      },
+      "VoiceTranscriptionsResponse": {
+        "type": "object",
+        "required": [
+          "entries",
+          "hasMore",
+          "nextCursor"
+        ],
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VoiceTranscriptionEntry"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "MemberRecentMessage": {
+        "type": "object",
+        "required": [
+          "messageId",
+          "channelId",
+          "guildId",
+          "content",
+          "timestamp",
+          "timestampMs"
+        ],
+        "properties": {
+          "messageId": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "guildId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "timestampMs": {
+            "type": "integer"
+          }
+        }
+      },
+      "MemberEntry": {
+        "type": "object",
+        "required": [
+          "id",
+          "displayName",
+          "username",
+          "nickname",
+          "avatarUrl",
+          "joinedAt",
+          "lastSeenAt",
+          "lastActivityAt",
+          "roles",
+          "isBot",
+          "voiceMinutes",
+          "messageCount",
+          "recentMessages"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "username": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nickname": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "avatarUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "joinedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastSeenAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastActivityAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "isBot": {
+            "type": "boolean"
+          },
+          "voiceMinutes": {
+            "type": "number"
+          },
+          "messageCount": {
+            "type": "number"
+          },
+          "recentMessages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemberRecentMessage"
+            }
+          }
+        }
+      },
+      "MembersResponse": {
+        "type": "object",
+        "required": [
+          "members",
+          "nextCursor",
+          "hasMore"
+        ],
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemberEntry"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "LeaderboardPositionTrend": {
+        "type": "object",
+        "required": [
+          "rank",
+          "previousRank",
+          "delta",
+          "movement",
+          "comparedTo"
+        ],
+        "properties": {
+          "rank": {
+            "type": "integer"
+          },
+          "previousRank": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "delta": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "movement": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down",
+              "same",
+              "new"
+            ]
+          },
+          "comparedTo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "HypeLeader": {
+        "type": "object",
+        "required": [
+          "userId",
+          "displayName",
+          "username",
+          "sessions",
+          "absoluteRank",
+          "arrivalEffect",
+          "departureEffect",
+          "retentionMinutes",
+          "activityScore",
+          "schRaw",
+          "schScoreNorm",
+          "rank",
+          "positionTrend",
+          "avatar",
+          "avatarUrl",
+          "profile"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "username": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sessions": {
+            "type": "integer"
+          },
+          "absoluteRank": {
+            "type": "integer"
+          },
+          "arrivalEffect": {
+            "type": "number"
+          },
+          "departureEffect": {
+            "type": "number"
+          },
+          "retentionMinutes": {
+            "type": "number"
+          },
+          "activityScore": {
+            "type": "number"
+          },
+          "schRaw": {
+            "type": "number"
+          },
+          "schScoreNorm": {
+            "type": "number"
+          },
+          "rank": {
+            "type": "integer"
+          },
+          "positionTrend": {
+            "$ref": "#/components/schemas/LeaderboardPositionTrend"
+          },
+          "avatar": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "avatarUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "avatar"
+                ],
+                "properties": {
+                  "avatar": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uri"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "HypeLeaderboardSnapshot": {
+        "type": "object",
+        "required": [
+          "bucketStart",
+          "comparedTo"
+        ],
+        "properties": {
+          "bucketStart": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "comparedTo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "HypeLeaderboardResponse": {
+        "type": "object",
+        "required": [
+          "leaders",
+          "snapshot"
+        ],
+        "properties": {
+          "leaders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HypeLeader"
+            }
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/HypeLeaderboardSnapshot"
+          }
+        }
+      },
+      "StatusResponse": {
+        "type": "object",
+        "required": [
+          "ffmpeg_pid",
+          "headerBufferBytes",
+          "activeSpeakers"
+        ],
+        "properties": {
+          "ffmpeg_pid": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "headerBufferBytes": {
+            "type": "integer"
+          },
+          "activeSpeakers": {
+            "type": "integer"
+          }
+        }
+      },
+      "StreamSpeaker": {
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "displayName",
+          "avatar",
+          "isSpeaking",
+          "startedAt",
+          "lastSpokeAt",
+          "joinedAt",
+          "voiceState"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "avatar": {
+            "type": "string"
+          },
+          "isSpeaking": {
+            "type": "boolean"
+          },
+          "startedAt": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "lastSpokeAt": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "joinedAt": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "voiceState": {
+            "type": "object",
+            "required": [
+              "channelId",
+              "guildId",
+              "deaf",
+              "mute",
+              "selfDeaf",
+              "selfMute",
+              "suppress",
+              "streaming",
+              "video",
+              "displayName",
+              "username"
+            ],
+            "properties": {
+              "channelId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "guildId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "deaf": {
+                "type": "boolean"
+              },
+              "mute": {
+                "type": "boolean"
+              },
+              "selfDeaf": {
+                "type": "boolean"
+              },
+              "selfMute": {
+                "type": "boolean"
+              },
+              "suppress": {
+                "type": "boolean"
+              },
+              "streaming": {
+                "type": "boolean"
+              },
+              "video": {
+                "type": "boolean"
+              },
+              "displayName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "username": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "BridgeStatus": {
+        "type": "object",
+        "required": [
+          "serverDeafened",
+          "selfDeafened",
+          "updatedAt"
+        ],
+        "properties": {
+          "serverDeafened": {
+            "type": "boolean"
+          },
+          "selfDeafened": {
+            "type": "boolean"
+          },
+          "updatedAt": {
+            "type": "integer"
+          }
+        }
+      },
+      "StreamInitialState": {
+        "type": "object",
+        "required": [
+          "speakers",
+          "bridgeStatus",
+          "anonymousSlot",
+          "listeners"
+        ],
+        "properties": {
+          "speakers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StreamSpeaker"
+            }
+          },
+          "bridgeStatus": {
+            "$ref": "#/components/schemas/BridgeStatus"
+          },
+          "anonymousSlot": {
+            "$ref": "#/components/schemas/AnonymousSlotState"
+          },
+          "listeners": {
+            "$ref": "#/components/schemas/ListenerStatsResponse"
+          }
+        }
+      }
+    },
+    "responses": {
+      "StandardError": {
+        "description": "Erreur applicative",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "RateLimitedError": {
+        "description": "Limitation de débit",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RateLimitedErrorResponse"
+            }
+          }
+        }
+      }
+    }
+  }
+}
