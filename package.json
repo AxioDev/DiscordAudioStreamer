@@ -25,6 +25,7 @@
     "clear:vectors": "ts-node scripts/clear-discord-vectors.ts",
     "precompute:hype-leaderboard": "ts-node scripts/precompute-hype-leaderboard.ts",
     "precompute:hype-leaderboard:daily": "ts-node scripts/precompute-hype-leaderboard.ts --schedule",
+    "generate:missing-covers": "ts-node scripts/generate-missing-covers.ts",
     "start": "node dist/server.js",
     "dev": "npm run build:client && ts-node src/server.ts",
     "verify:performance": "node scripts/run-lighthouse.mjs",
@@ -74,13 +75,14 @@
     "ws": "^8.18.2"
   },
   "devDependencies": {
+    "@lhci/cli": "^0.14.0",
     "@types/compression": "^1.8.1",
     "@types/express": "^4.17.21",
     "@types/marked": "^5.0.2",
     "@types/node": "^22.10.1",
     "@types/pg": "^8.15.5",
-    "@lhci/cli": "^0.14.0",
     "critters": "^0.0.22",
+    "gray-matter": "^4.0.3",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.3"
   },
