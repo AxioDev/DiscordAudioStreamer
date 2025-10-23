@@ -5,6 +5,10 @@
     "moduleResolution": "node",
     "outDir": "dist",
     "rootDir": "src",
+    "baseUrl": ".",
+    "paths": {
+      "stripe": ["node_modules/stripe/types/index.d.ts"]
+    },
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

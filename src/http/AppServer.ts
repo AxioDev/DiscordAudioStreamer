@@ -8238,7 +8238,7 @@ export default class AppServer {
     await this.hypeLeaderboardPrewarmPromise;
   }
 
-  private extractQueryParam(value: unknown): string | null {
+  private readonly extractQueryParam = (value: unknown): string | null => {
     if (typeof value === 'string') {
       return value;
     }
@@ -8248,9 +8248,9 @@ export default class AppServer {
     }
 
     return null;
-  }
+  };
 
-  private parseIntegerParam(value: string | null): number | null {
+  private readonly parseIntegerParam = (value: string | null): number | null => {
     if (!value) {
       return null;
     }
@@ -8266,9 +8266,9 @@ export default class AppServer {
     }
 
     return parsed;
-  }
+  };
 
-  private parsePeriodParam(value: string | null): number | null | undefined {
+  private readonly parsePeriodParam = (value: string | null): number | null | undefined => {
     if (value === null) {
       return undefined;
     }
@@ -8288,9 +8288,9 @@ export default class AppServer {
     }
 
     return parsed;
-  }
+  };
 
-  private parseLeaderboardRequest(req: Request): NormalizedHypeLeaderboardQueryOptions {
+  private readonly parseLeaderboardRequest = (req: Request): NormalizedHypeLeaderboardQueryOptions => {
     const limit = this.parseIntegerParam(this.extractQueryParam(req.query.limit));
     const search = this.extractQueryParam(req.query.search);
     const sortByParam = this.extractQueryParam(req.query.sortBy);
@@ -8360,9 +8360,9 @@ export default class AppServer {
       sortOrder: fallbackSortOrder,
       periodDays: fallbackPeriodDays,
     };
-  }
+  };
 
-  private captureQueryParams(query: Request['query']): Record<string, unknown> {
+  private readonly captureQueryParams = (query: Request['query']): Record<string, unknown> => {
     if (!query) {
       return {};
     }
@@ -8373,9 +8373,9 @@ export default class AppServer {
       console.warn('Failed to serialize query parameters for debug payload', error);
       return {};
     }
-  }
+  };
 
-  private describeError(error: unknown, seen = new Set<unknown>()): Record<string, unknown> {
+  private readonly describeError = (error: unknown, seen = new Set<unknown>()): Record<string, unknown> => {
     if (error === null) {
       return { type: 'NullError' };
     }
@@ -8464,9 +8464,9 @@ export default class AppServer {
     }
 
     return { type: typeof error };
-  }
+  };
 
-  private handleTestBeep(_req: Request, res: Response): void {
+  private readonly handleTestBeep = (_req: Request, res: Response): void => {
     if (!this.discordBridge.hasActiveVoiceConnection()) {
       res
         .status(503)
@@ -8482,9 +8482,9 @@ export default class AppServer {
       console.error('Impossible de générer le bip de test', error);
       res.status(500).json({ error: 'BEEP_FAILED', message: "Le bip de test n'a pas pu être envoyé." });
     }
-  }
+  };
 
-  private createTestBeepBuffer(): Buffer {
+  private readonly createTestBeepBuffer = (): Buffer => {
     const sampleRate = this.config.audio.sampleRate > 0 ? this.config.audio.sampleRate : 48000;
     const channels = this.config.audio.channels > 0 ? this.config.audio.channels : 2;
     const bytesPerSample = this.config.audio.bytesPerSample > 0 ? this.config.audio.bytesPerSample : 2;
@@ -8512,9 +8512,9 @@ export default class AppServer {
     }
 
     return buffer;
-  }
+  };
 
-  private computeEnvelope(index: number, totalSamples: number, fadeSamples: number): number {
+  private readonly computeEnvelope = (index: number, totalSamples: number, fadeSamples: number): number => {
     if (fadeSamples <= 0) {
       return 1;
     }
@@ -8528,9 +8528,9 @@ export default class AppServer {
     }
 
     return 1;
-  }
+  };
 
-  private normalizeIp(ip: string | null | undefined): string {
+  private readonly normalizeIp = (ip: string | null | undefined): string => {
     if (!ip) {
       return 'unknown';
     }
@@ -8541,9 +8541,9 @@ export default class AppServer {
     }
 
     return trimmed;
-  }
+  };
 
-  private getClientIp(req: Request): string {
+  private readonly getClientIp = (req: Request): string => {
     const forwarded = req.headers['x-forwarded-for'];
 
     if (typeof forwarded === 'string' && forwarded.length > 0) {
@@ -8563,9 +8563,9 @@ export default class AppServer {
     }
 
     return this.normalizeIp(req.ip ?? req.socket.remoteAddress ?? null);
-  }
+  };
 
-  private handleStreamRequest(req: Request, res: Response): void {
+  private readonly handleStreamRequest = (req: Request, res: Response): void => {
     const mimeType = this.config.mimeTypes[this.config.outputFormat] || 'application/octet-stream';
     res.setHeader('Content-Type', mimeType);
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -8643,7 +8643,7 @@ export default class AppServer {
     res.on('finish', handleClose);
     res.on('error', handleClose);
     clientStream.on('error', handleClose);
-  }
+  };
 
   public start(): Server {
     if (this.httpServer) {
@@ -8712,7 +8712,7 @@ export default class AppServer {
     this.wsServer = server;
   }
 
-  private extractAnonymousToken(req: Request): string | null {
+  private readonly extractAnonymousToken = (req: Request): string | null => {
     const header = req.header('authorization') || req.header('Authorization');
     if (header && header.toLowerCase().startsWith('bearer ')) {
       return header.slice(7).trim() || null;
@@ -8727,9 +8727,9 @@ export default class AppServer {
     }
 
     return null;
-  }
+  };
 
-  private handleAnonymousSlotError(res: Response, error: unknown): void {
+  private readonly handleAnonymousSlotError = (res: Response, error: unknown): void => {
     if (error && typeof error === 'object' && 'status' in error && 'code' in error) {
       const slotError = error as { status?: number; code?: string; message?: string };
       const status = Number(slotError.status) || 500;
@@ -8739,9 +8739,9 @@ export default class AppServer {
 
     console.error('Unhandled anonymous slot error', error);
     res.status(500).json({ error: 'UNKNOWN', message: 'Une erreur inattendue est survenue.' });
-  }
+  };
 
-  private handleShopError(res: Response, error: unknown): void {
+  private readonly handleShopError = (res: Response, error: unknown): void => {
     if (error instanceof ShopError) {
       res.status(error.status).json({ error: error.code, message: error.message });
       return;
@@ -8749,9 +8749,9 @@ export default class AppServer {
 
     console.error('Unhandled shop error', error);
     res.status(500).json({ error: 'SHOP_UNKNOWN', message: 'Impossible de finaliser la commande.' });
-  }
+  };
 
-  private normalizeShopProvider(raw: unknown): ShopProvider | null {
+  private readonly normalizeShopProvider = (raw: unknown): ShopProvider | null => {
     if (typeof raw !== 'string') {
       return null;
     }
@@ -8762,9 +8762,9 @@ export default class AppServer {
     }
 
     return null;
-  }
+  };
 
-  private extractSecretArticlePassword(req: Request): string | null {
+  private readonly extractSecretArticlePassword = (req: Request): string | null => {
     const authorizationHeader = req.header('authorization') ?? req.header('Authorization');
     if (authorizationHeader) {
       const trimmed = authorizationHeader.trim();
@@ -8811,9 +8811,9 @@ export default class AppServer {
     }
 
     return null;
-  }
+  };
 
-  private requireAdminAuth(req: Request, res: Response): boolean {
+  private readonly requireAdminAuth = (req: Request, res: Response): boolean => {
     if (!this.adminCredentials) {
       res.status(404).json({
         error: 'ADMIN_DISABLED',
@@ -8851,17 +8851,17 @@ export default class AppServer {
     }
 
     return true;
-  }
+  };
 
-  private requestAdminCredentials(res: Response): void {
+  private readonly requestAdminCredentials = (res: Response): void => {
     res.setHeader('WWW-Authenticate', 'Basic realm="Libre Antenne Admin", charset="UTF-8"');
     res.status(401).json({
       error: 'ADMIN_AUTH_REQUIRED',
       message: 'Authentification requise.',
     });
-  }
+  };
 
-  private async buildAdminOverview(): Promise<{
+  private readonly buildAdminOverview = async (): Promise<{
     timestamp: string;
     listeners: { count: number; history: ListenerStatsEntry[] };
     speakers: { count: number; participants: ReturnType<SpeakerTracker['getSpeakers']> };
@@ -8869,7 +8869,7 @@ export default class AppServer {
     hiddenMembers: HiddenMemberRecord[];
     dailyArticle: DailyArticleServiceStatus;
     userPersona: UserPersonaServiceStatus;
-  }> {
+  }> => {
     const [hiddenMembers] = await Promise.all([this.adminService.listHiddenMembers()]);
 
     return {
@@ -8890,9 +8890,9 @@ export default class AppServer {
       dailyArticle: this.getDailyArticleStatusSnapshot(),
       userPersona: this.getUserPersonaStatusSnapshot(),
     };
-  }
+  };
 
-  private getDailyArticleStatusSnapshot(): DailyArticleServiceStatus {
+  private readonly getDailyArticleStatusSnapshot = (): DailyArticleServiceStatus => {
     if (this.dailyArticleService) {
       return this.dailyArticleService.getStatus();
     }
@@ -8909,9 +8909,9 @@ export default class AppServer {
         configEnabled: !this.config.openAI.dailyArticleDisabled,
       },
     };
-  }
+  };
 
-  private getUserPersonaStatusSnapshot(): UserPersonaServiceStatus {
+  private readonly getUserPersonaStatusSnapshot = (): UserPersonaServiceStatus => {
     if (this.userPersonaService) {
       return this.userPersonaService.getStatus();
     }
@@ -8927,5 +8927,5 @@ export default class AppServer {
         configEnabled: !this.config.openAI.personaDisabled,
       },
     };
-  }
+  };
 }
