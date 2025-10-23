@@ -4,6 +4,7 @@ import {
   Events,
   ChannelType,
   PermissionsBitField,
+  Collection,
   type Message,
   type GuildBasedChannel,
   type TextChannel,
@@ -695,7 +696,7 @@ export default class DiscordAudioBridge {
         if (!lastMessage) {
           try {
             const latest = await channel.messages.fetch({ limit: 1 });
-            const first = latest.first() ?? null;
+            const first = (latest as unknown as Collection<Snowflake, Message<true>>).first() ?? null;
             if (first) {
               lastMessage = first;
               lastMessageId = first.id;
@@ -786,7 +787,8 @@ export default class DiscordAudioBridge {
       const textChannel: TextChannel | NewsChannel = guildBased;
 
       const fetchedMessages = await textChannel.messages.fetch(fetchOptions);
-      const sorted = Array.from(fetchedMessages.values()).sort(
+      const messageCollection = fetchedMessages as unknown as Collection<Snowflake, Message<true>>;
+      const sorted = Array.from(messageCollection.values()).sort(
         (a, b) => a.createdTimestamp - b.createdTimestamp,
       );
 
@@ -822,7 +824,7 @@ export default class DiscordAudioBridge {
         } satisfies DiscordChannelMessage;
       });
 
-      const hasMore = fetchedMessages.size === boundedLimit;
+      const hasMore = messageCollection.size === boundedLimit;
       const nextCursor = messages.length > 0 ? messages[0]?.id ?? null : null;
 
       return {
