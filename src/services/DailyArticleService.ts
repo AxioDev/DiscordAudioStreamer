@@ -534,9 +534,18 @@ export default class DailyArticleService {
         model: this.config.openAI.imageModel,
         prompt,
         size: '1024x1024',
+        response_format: 'url',
       });
-      const url = response.data?.[0]?.url;
-      return typeof url === 'string' ? url : null;
+      const imageResult = response.data?.[0];
+      if (typeof imageResult?.url === 'string' && imageResult.url.trim().length > 0) {
+        return imageResult.url;
+      }
+
+      if (typeof imageResult?.b64_json === 'string' && imageResult.b64_json.trim().length > 0) {
+        return `data:image/png;base64,${imageResult.b64_json}`;
+      }
+
+      return null;
     } catch (error) {
       console.error('DailyArticleService: génération de l\'image échouée', error);
       return null;
