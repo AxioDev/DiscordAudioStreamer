@@ -51,6 +51,15 @@ interface UserSummary {
   metadata: Record<string, unknown> | null;
 }
 
+class DiscordVectorSynchronizationTimeoutError extends Error {
+  constructor(readonly step: string, readonly context?: Record<string, unknown>) {
+    super(
+      `Vector synchronization exceeded the configured deadline while executing step "${step}".`,
+    );
+    this.name = 'DiscordVectorSynchronizationTimeoutError';
+  }
+}
+
 export interface DiscordVectorIngestionServiceOptions {
   blogService: BlogService | null;
   projectRoot: string;
@@ -81,9 +90,17 @@ export default class DiscordVectorIngestionService {
 
   private readonly defaultIntervalMs = 60 * 60 * 1000;
 
+  private readonly maxSyncDurationMs = 30 * 60 * 1000;
+
+  private readonly maxEmbeddingsPerRun = 200;
+
+  private readonly maxBlogPostsPerSync = 50;
+
   private syncPromise: Promise<void> | null = null;
 
   private syncInterval: NodeJS.Timeout | null = null;
+
+  private syncDeadline: number | null = null;
 
   private log(message: string, context?: Record<string, unknown>): void {
     if (context && Object.keys(context).length > 0) {
@@ -91,6 +108,26 @@ export default class DiscordVectorIngestionService {
       return;
     }
     console.log(`[DiscordVectorIngestionService] ${message}`);
+  }
+
+  private hasExceededDeadline(): boolean {
+    return this.syncDeadline !== null && Date.now() > this.syncDeadline;
+  }
+
+  private ensureWithinDeadline(step: string, context?: Record<string, unknown>): void {
+    if (!this.hasExceededDeadline()) {
+      return;
+    }
+
+    throw new DiscordVectorSynchronizationTimeoutError(step, context);
+  }
+
+  private remainingSyncTimeMs(): number | null {
+    if (this.syncDeadline === null) {
+      return null;
+    }
+
+    return this.syncDeadline - Date.now();
   }
 
   constructor(options: DiscordVectorIngestionServiceOptions) {
@@ -152,40 +189,71 @@ export default class DiscordVectorIngestionService {
 
     this.log('Début de la synchronisation manuelle.');
 
+    this.syncDeadline = Date.now() + this.maxSyncDurationMs;
+
     try {
-      this.log('Vérification du schéma de la table discord_vectors…');
-      await ensureDiscordVectorSchema();
-      this.log('Schéma discord_vectors prêt.');
+      try {
+        this.log('Vérification du schéma de la table discord_vectors…');
+        await ensureDiscordVectorSchema();
+        this.log('Schéma discord_vectors prêt.');
+      } catch (error) {
+        if (error instanceof PgvectorExtensionRequiredError) {
+          console.error(
+            'DiscordVectorIngestionService: pgvector extension unavailable; unable to synchronize vectors.',
+            error.originalError ?? error,
+          );
+          return;
+        }
+        console.error('DiscordVectorIngestionService: failed to ensure discord_vectors schema.', error);
+        return;
+      }
+
+      this.ensureWithinDeadline('post-schema-verification');
+
+      const documents = await this.collectDocuments();
+      this.ensureWithinDeadline('collect-documents', { collectedDocuments: documents.length });
+
+      if (documents.length === 0) {
+        this.log('Aucun document collecté, fin de la synchronisation.');
+        return;
+      }
+
+      this.log('Documents collectés.', { totalDocuments: documents.length });
+
+      const chunks = this.chunkDocuments(documents);
+      this.ensureWithinDeadline('chunk-documents', { totalChunks: chunks.length });
+      this.log('Fragments générés à partir des documents.', { totalChunks: chunks.length });
+
+      await this.persistChunks(chunks);
+      this.log('Synchronisation terminée avec succès.');
     } catch (error) {
-      if (error instanceof PgvectorExtensionRequiredError) {
+      if (error instanceof DiscordVectorSynchronizationTimeoutError) {
         console.error(
-          'DiscordVectorIngestionService: pgvector extension unavailable; unable to synchronize vectors.',
-          error.originalError ?? error,
+          'DiscordVectorIngestionService: synchronization aborted after exceeding the execution deadline.',
+          {
+            deadlineMs: this.maxSyncDurationMs,
+            remainingTimeMs: this.remainingSyncTimeMs(),
+            step: error.step,
+            context: error.context ?? null,
+          },
         );
         return;
       }
-      console.error('DiscordVectorIngestionService: failed to ensure discord_vectors schema.', error);
-      return;
+
+      console.error('DiscordVectorIngestionService: unexpected error during synchronization.', error);
+    } finally {
+      this.syncDeadline = null;
     }
-
-    const documents = await this.collectDocuments();
-    if (documents.length === 0) {
-      this.log('Aucun document collecté, fin de la synchronisation.');
-      return;
-    }
-
-    this.log('Documents collectés.', { totalDocuments: documents.length });
-
-    const chunks = this.chunkDocuments(documents);
-    this.log('Fragments générés à partir des documents.', { totalChunks: chunks.length });
-    await this.persistChunks(chunks);
-    this.log('Synchronisation terminée avec succès.');
   }
 
   private async collectDocuments(): Promise<DiscordVectorDocument[]> {
     const documents: DiscordVectorDocument[] = [];
 
     const range = this.getIngestionRange();
+    this.ensureWithinDeadline('collect-documents:init', {
+      since: range.since.toISOString(),
+      until: range.until.toISOString(),
+    });
     this.log('Début de la collecte des documents.', {
       since: range.since.toISOString(),
       until: range.until.toISOString(),
@@ -201,43 +269,57 @@ export default class DiscordVectorIngestionService {
     }
 
     const blogDocuments = await this.collectBlogDocuments();
+    this.ensureWithinDeadline('collect-documents:blog', { total: blogDocuments.length });
     this.log('Documents de blog collectés.', { total: blogDocuments.length });
     documents.push(...blogDocuments);
 
     const jsonDocuments = await this.collectJsonDocuments();
+    this.ensureWithinDeadline('collect-documents:json', { total: jsonDocuments.length });
     this.log('Documents JSON collectés.', { total: jsonDocuments.length });
     documents.push(...jsonDocuments);
 
     const shopDocuments = this.collectShopDocuments();
+    this.ensureWithinDeadline('collect-documents:shop', { total: shopDocuments.length });
     this.log('Documents boutique collectés.', { total: shopDocuments.length });
     documents.push(...shopDocuments);
 
     const userSummaries = await this.loadKnownUsers(range);
+    this.ensureWithinDeadline('collect-documents:users', { totalUsers: userSummaries.length });
     this.log('Profils utilisateurs chargés.', { totalUsers: userSummaries.length });
     const userMap = new Map<string, UserSummary>();
     for (const user of userSummaries) {
+      this.ensureWithinDeadline('collect-documents:user-map', { userId: user.userId });
       userMap.set(user.userId, user);
     }
 
     const userDocuments = this.collectUserDocuments(userSummaries);
+    this.ensureWithinDeadline('collect-documents:user-documents', { total: userDocuments.length });
     this.log('Documents utilisateur générés.', { total: userDocuments.length });
     documents.push(...userDocuments);
 
     const voiceTranscriptionDocuments = await this.collectVoiceTranscriptionDocuments(range, userMap);
+    this.ensureWithinDeadline('collect-documents:voice-transcriptions', {
+      total: voiceTranscriptionDocuments.length,
+    });
     this.log('Documents de transcription vocale collectés.', {
       total: voiceTranscriptionDocuments.length,
     });
     documents.push(...voiceTranscriptionDocuments);
 
     const messageDocuments = await this.collectMessageDocuments(userSummaries, range);
+    this.ensureWithinDeadline('collect-documents:messages', { total: messageDocuments.length });
     this.log('Documents de messages collectés.', { total: messageDocuments.length });
     documents.push(...messageDocuments);
 
     const voiceActivityDocuments = await this.collectVoiceActivityDocuments(userSummaries, range);
+    this.ensureWithinDeadline('collect-documents:voice-activity', {
+      total: voiceActivityDocuments.length,
+    });
     this.log('Documents d’activité vocale collectés.', { total: voiceActivityDocuments.length });
     documents.push(...voiceActivityDocuments);
 
     const personaDocuments = await this.collectPersonaDocuments(userSummaries);
+    this.ensureWithinDeadline('collect-documents:persona', { total: personaDocuments.length });
     this.log('Documents persona collectés.', { total: personaDocuments.length });
     documents.push(...personaDocuments);
 
@@ -316,9 +398,20 @@ export default class DiscordVectorIngestionService {
     try {
       this.log('Collecte des articles de blog démarrée.');
       const listResult = await this.blogService.listPosts({ limit: null, sortOrder: 'asc' });
+      this.ensureWithinDeadline('collect-blog:list', { totalPosts: listResult.posts.length });
       this.log('Liste des articles de blog récupérée.', { totalPosts: listResult.posts.length });
+
+      const limitedPosts = listResult.posts.slice(0, this.maxBlogPostsPerSync);
+      if (limitedPosts.length < listResult.posts.length) {
+        this.log('Limitation du nombre de billets de blog synchronisés pour respecter la fenêtre.', {
+          totalPosts: listResult.posts.length,
+          limitedTo: limitedPosts.length,
+        });
+      }
+
       const documents: DiscordVectorDocument[] = [];
-      for (const summary of listResult.posts) {
+      for (const summary of limitedPosts) {
+        this.ensureWithinDeadline('collect-blog:detail', { slug: summary.slug });
         this.log('Récupération du billet de blog.', { slug: summary.slug });
         const detail = await this.blogService.getPost(summary.slug);
         if (!detail) {
@@ -326,6 +419,7 @@ export default class DiscordVectorIngestionService {
           continue;
         }
 
+        this.ensureWithinDeadline('collect-blog:after-detail', { slug: detail.slug });
         this.log('Billet de blog synchronisé.', {
           slug: detail.slug,
           title: detail.title,
@@ -350,6 +444,7 @@ export default class DiscordVectorIngestionService {
       return documents;
     } catch (error) {
       console.error('DiscordVectorIngestionService: failed to collect blog documents.', error);
+      this.ensureWithinDeadline('collect-blog:error');
       return [];
     }
   }
@@ -357,14 +452,20 @@ export default class DiscordVectorIngestionService {
   private async collectJsonDocuments(): Promise<DiscordVectorDocument[]> {
     const documents: DiscordVectorDocument[] = [];
 
+    this.ensureWithinDeadline('collect-json:start', { totalSources: defaultJsonSources.length });
     this.log('Collecte des sources JSON démarrée.', { totalSources: defaultJsonSources.length });
     for (const source of defaultJsonSources) {
+      this.ensureWithinDeadline('collect-json:source', { sourceId: source.id });
       const absolutePath = path.join(this.projectRoot, source.relativePath);
       try {
         const [rawContent, stats] = await Promise.all([
           fs.readFile(absolutePath, 'utf8'),
           fs.stat(absolutePath),
         ]);
+        this.ensureWithinDeadline('collect-json:after-read', {
+          sourceId: source.id,
+          lastModified: stats.mtime.toISOString(),
+        });
         this.log('Fichier JSON chargé.', {
           sourceId: source.id,
           relativePath: source.relativePath,
@@ -409,6 +510,7 @@ export default class DiscordVectorIngestionService {
           });
           continue;
         }
+        this.ensureWithinDeadline('collect-json:error', { sourceId: source.id });
         throw error;
       }
     }
@@ -420,6 +522,7 @@ export default class DiscordVectorIngestionService {
   private collectShopDocuments(): DiscordVectorDocument[] {
     const documents: DiscordVectorDocument[] = [];
 
+    this.ensureWithinDeadline('collect-shop:start');
     this.log('Collecte du contenu boutique démarrée.');
     const heroLines = [
       SHOP_CONTENT.hero.eyebrow,
@@ -456,6 +559,7 @@ export default class DiscordVectorIngestionService {
     ] as const;
 
     for (const entry of sectionEntries) {
+      this.ensureWithinDeadline('collect-shop:section', { section: entry.key });
       documents.push({
         id: `shop:section:${entry.key}`,
         title: entry.section.title,
@@ -480,6 +584,7 @@ export default class DiscordVectorIngestionService {
       });
       const products = this.shopService.getProducts();
       for (const product of products) {
+        this.ensureWithinDeadline('collect-shop:product', { productId: product.id });
         const providerLabels = product.providers.map((provider) => {
           switch (provider) {
             case 'stripe':
@@ -552,12 +657,14 @@ export default class DiscordVectorIngestionService {
     const chunks: DiscordVectorChunk[] = [];
     const seenContentHashes = new Set<string>();
 
+    this.ensureWithinDeadline('chunk:start', { totalDocuments: documents.length });
     this.log('Découpage des documents en fragments.', {
       totalDocuments: documents.length,
       maxDocumentContentLength: this.maxDocumentContentLength,
     });
 
     for (const document of documents) {
+      this.ensureWithinDeadline('chunk:document', { sourceId: document.id });
       this.log('Découpage d’un document.', {
         documentId: document.id,
         title: document.title,
@@ -581,6 +688,11 @@ export default class DiscordVectorIngestionService {
 
       const chunkCount = parts.length;
       parts.forEach((part, index) => {
+        this.ensureWithinDeadline('chunk:part', {
+          sourceId: document.id,
+          chunkIndex: index + 1,
+          chunkCount,
+        });
         const chunkSourceId = chunkCount > 1 ? `${document.id}#${index + 1}` : document.id;
         const contentHash = this.hashContent(part);
         if (seenContentHashes.has(contentHash)) {
@@ -610,6 +722,7 @@ export default class DiscordVectorIngestionService {
           content: part,
           metadata,
         });
+        this.ensureWithinDeadline('chunk:after-push', { totalChunks: chunks.length });
         this.log('Fragment ajouté à la liste des persistances.', {
           chunkSourceId,
           chunkIndex: index + 1,
@@ -819,6 +932,7 @@ export default class DiscordVectorIngestionService {
     this.log('Génération des documents de profil utilisateur.', { userCount: users.length });
 
     for (const user of users) {
+      this.ensureWithinDeadline('collect-users:profile', { userId: user.userId });
       const userId = this.normalizeUserString(user.userId) ?? user.userId;
       if (!userId) {
         this.log('Utilisateur ignoré lors de la génération de profil (identifiant manquant).');
@@ -895,9 +1009,11 @@ export default class DiscordVectorIngestionService {
         since: range.since.toISOString(),
       });
       const rawUsers = await this.voiceActivityRepository.listKnownUsers({ activeSince: range.since });
+      this.ensureWithinDeadline('load-users:list', { totalUsers: rawUsers?.length ?? 0 });
       if (!rawUsers || rawUsers.length === 0) {
         this.log('Aucun utilisateur connu trouvé, utilisation du repli via les utilisateurs actifs.');
         const fallbackIds = await this.listActiveUserIds(range);
+        this.ensureWithinDeadline('load-users:fallback', { totalFallback: fallbackIds.length });
         const uniqueFallback = Array.from(new Set(fallbackIds));
         this.log('Utilisateurs actifs récupérés pour repli.', { total: uniqueFallback.length });
         return uniqueFallback.map((userId) => ({
@@ -929,6 +1045,7 @@ export default class DiscordVectorIngestionService {
       >();
 
       for (const record of rawUsers) {
+        this.ensureWithinDeadline('load-users:record', { userId: record.userId });
         const userId = this.normalizeUserString(record.userId) ?? record.userId;
         if (!userId) {
           this.log('Entrée utilisateur ignorée car identifiant invalide.');
@@ -1062,10 +1179,12 @@ export default class DiscordVectorIngestionService {
         limit: this.maxActiveUsers,
       });
       const entries = await this.voiceActivityRepository.listActiveUsers({ limit: this.maxActiveUsers });
+      this.ensureWithinDeadline('list-active-users:after-query', { totalEntries: entries.length });
       this.log('Utilisateurs actifs récupérés.', { totalEntries: entries.length });
       const sinceTime = range.since.getTime();
       return entries
         .filter((entry) => {
+          this.ensureWithinDeadline('list-active-users:filter', { userId: entry.userId });
           const lastActivityAt = entry.lastActivityAt;
           if (!(lastActivityAt instanceof Date)) {
             return false;
@@ -1100,9 +1219,11 @@ export default class DiscordVectorIngestionService {
         until: range.until,
         limit: this.maxVoiceTranscriptions,
       });
+      this.ensureWithinDeadline('voice-transcriptions:after-query', { totalRecords: records.length });
       this.log('Transcriptions vocales récupérées.', { totalRecords: records.length });
 
       return records.map((record) => {
+        this.ensureWithinDeadline('voice-transcriptions:record', { transcriptionId: record.id });
         this.log('Transformation d’une transcription vocale.', {
           transcriptionId: record.id,
           userId: record.userId,
@@ -1169,6 +1290,7 @@ export default class DiscordVectorIngestionService {
     }
 
     const documents: DiscordVectorDocument[] = [];
+    this.ensureWithinDeadline('collect-messages:start', { userCount: users.length });
     this.log('Collecte des messages texte Discord.', {
       since: range.since.toISOString(),
       until: range.until.toISOString(),
@@ -1177,6 +1299,7 @@ export default class DiscordVectorIngestionService {
     });
 
     for (const user of users) {
+      this.ensureWithinDeadline('collect-messages:user', { userId: user.userId });
       const userId = user.userId;
       if (!userId) {
         continue;
@@ -1188,6 +1311,10 @@ export default class DiscordVectorIngestionService {
           userId,
           since: range.since,
           until: range.until,
+        });
+        this.ensureWithinDeadline('collect-messages:after-query', {
+          userId,
+          totalEntries: entries.length,
         });
         this.log('Messages récupérés pour utilisateur.', {
           userId,
@@ -1205,6 +1332,10 @@ export default class DiscordVectorIngestionService {
         }
 
         for (const entry of limitedEntries) {
+          this.ensureWithinDeadline('collect-messages:entry', {
+            userId,
+            messageId: entry.messageId ?? null,
+          });
           const timestampIso = this.toIsoString(entry.timestamp);
           const messageContent = this.formatMultiline(entry.content, '(contenu vide)');
           this.log('Transformation d’un message texte.', {
@@ -1280,6 +1411,7 @@ export default class DiscordVectorIngestionService {
     }
 
     const documents: DiscordVectorDocument[] = [];
+    this.ensureWithinDeadline('collect-voice-activity:start', { userCount: users.length });
     this.log('Collecte des activités vocales Discord.', {
       since: range.since.toISOString(),
       until: range.until.toISOString(),
@@ -1287,6 +1419,7 @@ export default class DiscordVectorIngestionService {
     });
 
     for (const user of users) {
+      this.ensureWithinDeadline('collect-voice-activity:user', { userId: user.userId });
       const userId = user.userId;
       if (!userId) {
         continue;
@@ -1306,6 +1439,11 @@ export default class DiscordVectorIngestionService {
             until: range.until,
           }),
         ]);
+        this.ensureWithinDeadline('collect-voice-activity:after-query', {
+          userId,
+          activitySegmentCount: activitySegments.length,
+          presenceSegmentCount: presenceSegments.length,
+        });
         this.log('Segments vocaux récupérés.', {
           userId,
           activitySegmentCount: activitySegments.length,
@@ -1329,6 +1467,11 @@ export default class DiscordVectorIngestionService {
 
         for (const segment of activitySegments) {
           const startedAtIso = this.toIsoString(segment.startedAt);
+          this.ensureWithinDeadline('collect-voice-activity:activity-segment', {
+            userId,
+            channelId: segment.channelId ?? null,
+            startedAt: startedAtIso,
+          });
           const durationMs = segment.durationMs;
           this.log('Transformation d’un segment d’activité vocale.', {
             userId,
@@ -1385,6 +1528,11 @@ export default class DiscordVectorIngestionService {
         for (const presence of presenceSegments) {
           const joinedAtIso = this.toIsoString(presence.joinedAt);
           const leftAtIso = this.toIsoString(presence.leftAt ?? null);
+          this.ensureWithinDeadline('collect-voice-activity:presence-segment', {
+            userId,
+            channelId: presence.channelId ?? null,
+            joinedAt: joinedAtIso,
+          });
           this.log('Transformation d’un segment de présence vocale.', {
             userId,
             channelId: presence.channelId,
@@ -1444,9 +1592,11 @@ export default class DiscordVectorIngestionService {
     }
 
     const documents: DiscordVectorDocument[] = [];
+    this.ensureWithinDeadline('collect-persona:start', { userCount: users.length });
     this.log('Collecte des profils persona Discord.', { userCount: users.length });
 
     for (const user of users) {
+      this.ensureWithinDeadline('collect-persona:user', { userId: user.userId });
       const userId = user.userId;
       if (!userId) {
         continue;
@@ -1455,6 +1605,7 @@ export default class DiscordVectorIngestionService {
       try {
         this.log('Récupération du profil persona pour un utilisateur.', { userId });
         const profile = await this.voiceActivityRepository.getUserPersonaProfile({ userId });
+        this.ensureWithinDeadline('collect-persona:after-query', { userId, hasProfile: Boolean(profile) });
         if (!profile) {
           this.log('Aucun profil persona disponible pour cet utilisateur.', { userId });
           continue;
@@ -1496,6 +1647,7 @@ export default class DiscordVectorIngestionService {
           }
           sections.push('', title);
           for (const item of items) {
+            this.ensureWithinDeadline('collect-persona:insight', { userId, title: item.title });
             const detail = this.formatMultiline(item.detail, '(détail indisponible)');
             sections.push(`- ${item.title} — ${detail} (confiance : ${item.confidence})`);
           }
@@ -1598,12 +1750,15 @@ export default class DiscordVectorIngestionService {
       return;
     }
 
+    this.ensureWithinDeadline('persist:start', { requestedChunks: chunks.length });
     this.log('Préparation de la persistance des fragments.', { requestedChunks: chunks.length });
     const existingRows = await listDiscordVectorMetadata();
+    this.ensureWithinDeadline('persist:metadata', { totalExistingRows: existingRows.length });
     this.log('Métadonnées existantes récupérées.', { totalExistingRows: existingRows.length });
     const existingMap = new Map<string, { id: number; hash: string | null }>();
     const idsToDelete = new Set<number>();
     for (const row of existingRows) {
+      this.ensureWithinDeadline('persist:existing-row', { rowId: row.id });
       const sourceId = typeof row.metadata?.sourceId === 'string' ? row.metadata.sourceId : null;
       if (!sourceId) {
         continue;
@@ -1623,6 +1778,7 @@ export default class DiscordVectorIngestionService {
 
     const desiredChunks = new Map<string, DiscordVectorChunk>();
     for (const chunk of chunks) {
+      this.ensureWithinDeadline('persist:desired', { sourceId: chunk.sourceId });
       desiredChunks.set(chunk.sourceId, chunk);
       this.log('Fragment souhaité enregistré pour comparaison.', {
         sourceId: chunk.sourceId,
@@ -1633,6 +1789,7 @@ export default class DiscordVectorIngestionService {
     const chunksToInsert: DiscordVectorChunk[] = [];
 
     for (const [sourceId, chunk] of desiredChunks.entries()) {
+      this.ensureWithinDeadline('persist:reconciliation', { sourceId });
       const existing = existingMap.get(sourceId);
       if (!existing) {
         chunksToInsert.push(chunk);
@@ -1657,6 +1814,7 @@ export default class DiscordVectorIngestionService {
     }
 
     for (const entry of existingMap.values()) {
+      this.ensureWithinDeadline('persist:stale-entry', { rowId: entry.id });
       idsToDelete.add(entry.id);
       this.log('Fragment obsolète marqué pour suppression.', { rowId: entry.id });
     }
@@ -1671,16 +1829,33 @@ export default class DiscordVectorIngestionService {
       return;
     }
 
+    let limitedChunksToInsert = chunksToInsert;
+    if (chunksToInsert.length > this.maxEmbeddingsPerRun) {
+      limitedChunksToInsert = chunksToInsert.slice(0, this.maxEmbeddingsPerRun);
+      this.log('Limitation du nombre de fragments insérés pour respecter le temps de synchronisation.', {
+        requestedInsertions: chunksToInsert.length,
+        limitedTo: limitedChunksToInsert.length,
+      });
+    }
+
+    this.ensureWithinDeadline('persist:before-embedding', {
+      chunksToInsert: limitedChunksToInsert.length,
+    });
     this.log('Génération des embeddings pour les nouveaux fragments.', {
-      chunksToInsert: chunksToInsert.length,
+      chunksToInsert: limitedChunksToInsert.length,
     });
     const rows = [];
-    for (const chunk of chunksToInsert) {
+    for (const chunk of limitedChunksToInsert) {
+      this.ensureWithinDeadline('persist:embedding', { sourceId: chunk.sourceId });
       this.log('Génération de l’embedding pour un fragment.', {
         sourceId: chunk.sourceId,
         contentLength: chunk.content.length,
       });
       const embedding = await getEmbedding(chunk.content);
+      this.ensureWithinDeadline('persist:after-embedding', {
+        sourceId: chunk.sourceId,
+        vectorDimensions: embedding.length,
+      });
       const vectorLiteral = buildVectorLiteral(embedding);
       rows.push({ content: chunk.content, metadata: chunk.metadata, vectorLiteral });
       this.log('Fragment prêt pour insertion.', {
@@ -1690,6 +1865,7 @@ export default class DiscordVectorIngestionService {
     }
 
     await insertDiscordVectors(rows);
+    this.ensureWithinDeadline('persist:after-insert', { insertedRows: rows.length });
     this.log('Nouveaux fragments insérés dans la base.', { insertedRows: rows.length });
   }
 }
