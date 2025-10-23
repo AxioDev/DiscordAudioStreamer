@@ -23,6 +23,8 @@
     "migrate:blog": "ts-node scripts/migrate-proposals-to-posts.ts",
     "sync:vectors": "ts-node scripts/sync-discord-vectors.ts",
     "clear:vectors": "ts-node scripts/clear-discord-vectors.ts",
+    "precompute:hype-leaderboard": "ts-node scripts/precompute-hype-leaderboard.ts",
+    "precompute:hype-leaderboard:daily": "ts-node scripts/precompute-hype-leaderboard.ts --schedule",
     "start": "node dist/server.js",
     "dev": "npm run build:client && ts-node src/server.ts",
     "verify:performance": "node scripts/run-lighthouse.mjs",
