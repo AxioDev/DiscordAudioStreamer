@@ -211,13 +211,18 @@ async function processPost(
     return false;
   }
 
-  const response = await client.images.generate({
+  const requestOptions: Parameters<typeof client.images.generate>[0] = {
     model: generationOptions.model,
     prompt,
     size: generationOptions.size,
     n: 1,
-    response_format: 'b64_json',
-  });
+  };
+
+  if (/^dall-e-/i.test(generationOptions.model)) {
+    requestOptions.response_format = 'b64_json';
+  }
+
+  const response = await client.images.generate(requestOptions);
 
   const imageData = response.data;
   if (!imageData?.length) {
