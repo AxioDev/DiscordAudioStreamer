@@ -32,6 +32,95 @@ import {
   ProfileMessagesCard,
 } from '../components/index.js';
 
+const ProfileLoadingSkeleton = () =>
+  html`
+    <${Fragment}>
+      <section
+        class="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-slate-950/40 backdrop-blur-xl"
+        aria-hidden="true"
+      >
+        <div class="flex flex-col gap-6 md:flex-row md:items-center">
+          <div class="h-24 w-24 rounded-3xl bg-white/10 animate-pulse md:h-28 md:w-28"></div>
+          <div class="flex-1 space-y-4">
+            <div class="h-3 w-32 rounded-full bg-white/10 animate-pulse"></div>
+            <div class="h-8 w-3/4 rounded-full bg-white/10 animate-pulse"></div>
+            <div class="h-4 w-1/2 rounded-full bg-white/10 animate-pulse"></div>
+            <div class="flex flex-wrap gap-3 pt-2">
+              <div class="h-10 w-32 rounded-full bg-white/10 animate-pulse"></div>
+              <div class="h-10 w-24 rounded-full bg-white/10 animate-pulse"></div>
+              <div class="h-10 w-28 rounded-full bg-white/10 animate-pulse"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-slate-950/40 backdrop-blur-xl"
+        aria-hidden="true"
+      >
+        <div class="space-y-4">
+          <div class="h-3 w-40 rounded-full bg-white/10 animate-pulse"></div>
+          <div class="h-6 w-2/3 rounded-full bg-white/10 animate-pulse"></div>
+          <div class="h-20 rounded-2xl bg-white/10 animate-pulse"></div>
+          <div class="h-4 w-1/3 rounded-full bg-white/10 animate-pulse"></div>
+        </div>
+      </section>
+
+      <section
+        class="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-slate-950/40 backdrop-blur-xl"
+        aria-hidden="true"
+      >
+        <div class="flex flex-col gap-6">
+          <div class="space-y-3">
+            <div class="h-3 w-36 rounded-full bg-white/10 animate-pulse"></div>
+            <div class="h-6 w-1/2 rounded-full bg-white/10 animate-pulse"></div>
+            <div class="h-4 w-1/3 rounded-full bg-white/10 animate-pulse"></div>
+          </div>
+          <div class="grid gap-4 sm:grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
+            <div class="h-12 rounded-2xl bg-white/10 animate-pulse"></div>
+            <div class="h-12 rounded-2xl bg-white/10 animate-pulse"></div>
+            <div class="h-12 rounded-2xl bg-white/10 animate-pulse"></div>
+          </div>
+          <div class="flex flex-wrap gap-3">
+            ${Array.from({ length: 5 }).map(
+              (_, index) =>
+                html`<div
+                  key=${`range-skeleton-${index}`}
+                  class="h-9 w-28 rounded-full bg-white/10 animate-pulse"
+                ></div>`,
+            )}
+          </div>
+        </div>
+      </section>
+
+      <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4" aria-hidden="true">
+        ${Array.from({ length: 4 }).map(
+          (_, index) =>
+            html`<div
+              key=${`summary-skeleton-${index}`}
+              class="h-32 rounded-3xl border border-white/10 bg-white/5 p-4 shadow-xl shadow-slate-950/40 animate-pulse"
+            ></div>`,
+        )}
+      </div>
+
+      <section
+        class="h-80 rounded-3xl border border-white/10 bg-white/5 shadow-xl shadow-slate-950/40 animate-pulse"
+        aria-hidden="true"
+      ></section>
+
+      <section
+        class="h-72 rounded-3xl border border-white/10 bg-white/5 shadow-xl shadow-slate-950/40 animate-pulse"
+        aria-hidden="true"
+      ></section>
+
+      <div class="grid gap-6 lg:grid-cols-3" aria-hidden="true">
+        <div class="h-64 rounded-3xl border border-white/10 bg-white/5 shadow-xl shadow-slate-950/40 animate-pulse"></div>
+        <div class="h-64 rounded-3xl border border-white/10 bg-white/5 shadow-xl shadow-slate-950/40 animate-pulse"></div>
+        <div class="h-64 rounded-3xl border border-white/10 bg-white/5 shadow-xl shadow-slate-950/40 animate-pulse"></div>
+      </div>
+    </${Fragment}>
+  `;
+
 const ProfilePage = ({ params, onNavigateHome, onUpdateRange }) => {
   const userId = typeof params?.userId === 'string' && params.userId.trim().length > 0 ? params.userId.trim() : null;
   const [range, setRange] = useState(() => normalizeProfileRange(params ?? {}));
@@ -285,144 +374,141 @@ const ProfilePage = ({ params, onNavigateHome, onUpdateRange }) => {
             </button>
           </section>`
         : html`
-            <div class="mt-6 grid grid-cols-1 gap-8">
-              <${ProfileIdentityCard} profile=${data?.profile ?? null} userId=${userId} />
-              <${ProfilePersonaCard} persona=${data?.persona ?? null} />
-              <section class="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-slate-950/40 backdrop-blur-xl">
-                <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p class="text-xs uppercase tracking-[0.35em] text-indigo-200/80">Mise à jour IA</p>
-                    <h2 class="text-2xl font-semibold text-white">Régénérer la fiche</h2>
-                    <p class="text-sm text-slate-300">
-                      Relance la génération manuelle si le portrait ne reflète plus l’activité récente.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick=${handleGeneratePersona}
-                    class=${[
-                      'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition',
-                      isGeneratingPersona
-                        ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-100 opacity-80'
-                        : 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white',
-                    ].join(' ')}
-                    disabled=${isGeneratingPersona || !userId}
-                  >
-                    <${Sparkles}
-                      class=${`h-4 w-4 ${isGeneratingPersona ? 'animate-spin text-indigo-200' : ''}`}
-                      aria-hidden="true"
-                    />
-                    ${isGeneratingPersona ? 'Génération en cours…' : 'Régénérer la fiche'}
-                  </button>
-                </div>
-                ${personaGenerationMessage
-                  ? html`<p
-                      class=${[
-                        'mt-4 rounded-2xl border px-4 py-2 text-xs',
-                        personaGenerationStatus === 'success'
-                          ? 'border-emerald-400/50 bg-emerald-500/10 text-emerald-100'
-                          : personaGenerationStatus === 'warning'
-                          ? 'border-amber-400/60 bg-amber-500/10 text-amber-100'
-                          : 'border-rose-400/40 bg-rose-500/10 text-rose-100',
-                      ].join(' ')}
-                    >
-                      ${personaGenerationMessage}
-                    </p>`
-                  : null}
-              </section>
+            <div class="mt-6 grid grid-cols-1 gap-8" aria-busy=${isLoading ? 'true' : 'false'}>
+              ${isLoading && !data
+                ? html`<${ProfileLoadingSkeleton} />`
+                : html`
+                    <${ProfileIdentityCard} profile=${data?.profile ?? null} userId=${userId} />
+                    <${ProfilePersonaCard} persona=${data?.persona ?? null} />
+                    <section class="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-slate-950/40 backdrop-blur-xl">
+                      <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p class="text-xs uppercase tracking-[0.35em] text-indigo-200/80">Mise à jour IA</p>
+                          <h2 class="text-2xl font-semibold text-white">Régénérer la fiche</h2>
+                          <p class="text-sm text-slate-300">
+                            Relance la génération manuelle si le portrait ne reflète plus l’activité récente.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick=${handleGeneratePersona}
+                          class=${[
+                            'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition',
+                            isGeneratingPersona
+                              ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-100 opacity-80'
+                              : 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white',
+                          ].join(' ')}
+                          disabled=${isGeneratingPersona || !userId}
+                        >
+                          <${Sparkles}
+                            class=${`h-4 w-4 ${isGeneratingPersona ? 'animate-spin text-indigo-200' : ''}`}
+                            aria-hidden="true"
+                          />
+                          ${isGeneratingPersona ? 'Génération en cours…' : 'Régénérer la fiche'}
+                        </button>
+                      </div>
+                      ${personaGenerationMessage
+                        ? html`<p
+                            class=${[
+                              'mt-4 rounded-2xl border px-4 py-2 text-xs',
+                              personaGenerationStatus === 'success'
+                                ? 'border-emerald-400/50 bg-emerald-500/10 text-emerald-100'
+                                : personaGenerationStatus === 'warning'
+                                ? 'border-amber-400/60 bg-amber-500/10 text-amber-100'
+                                : 'border-rose-400/40 bg-rose-500/10 text-rose-100',
+                            ].join(' ')}
+                          >
+                            ${personaGenerationMessage}
+                          </p>`
+                        : null}
+                    </section>
 
-              <section class="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-slate-950/40 backdrop-blur-xl">
-                <div class="flex flex-col gap-6">
-                  <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-                    <div>
-                      <p class="text-xs uppercase tracking-[0.35em] text-indigo-200/80">Période analysée</p>
-                      <h2 class="text-2xl font-semibold text-white">Filtrer l'activité</h2>
-                      <p class="text-sm text-slate-300">${formatRangeLabel(range.sinceMs, range.untilMs)}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick=${handleRefresh}
-                      class=${[
-                        'inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold transition',
-                        'bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white',
-                        isLoading ? 'opacity-60' : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                      disabled=${isLoading}
-                    >
-                      <${RefreshCcw} class=${`h-4 w-4 ${isLoading ? 'animate-spin text-indigo-200' : ''}`} aria-hidden="true" />
-                      Actualiser
-                    </button>
-                  </div>
+                    <section class="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-slate-950/40 backdrop-blur-xl">
+                      <div class="flex flex-col gap-6">
+                        <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                          <div>
+                            <p class="text-xs uppercase tracking-[0.35em] text-indigo-200/80">Période analysée</p>
+                            <h2 class="text-2xl font-semibold text-white">Filtrer l'activité</h2>
+                            <p class="text-sm text-slate-300">${formatRangeLabel(range.sinceMs, range.untilMs)}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick=${handleRefresh}
+                            class=${[
+                              'inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold transition',
+                              'bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white',
+                              isLoading ? 'opacity-60' : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                            disabled=${isLoading}
+                          >
+                            <${RefreshCcw} class=${`h-4 w-4 ${isLoading ? 'animate-spin text-indigo-200' : ''}`} aria-hidden="true" />
+                            Actualiser
+                          </button>
+                        </div>
 
-                  <form class="grid gap-4 sm:grid-cols-[repeat(auto-fit,minmax(220px,1fr))]" onSubmit=${handleApplyRange}>
-                    <label class="flex flex-col gap-2 text-sm text-slate-200">
-                      <span>Depuis</span>
-                      <input
-                        type="datetime-local"
-                        value=${draftSince}
-                        onInput=${(event) => setDraftSince(event.currentTarget.value)}
-                        class="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white shadow-inner shadow-black/20 focus:border-fuchsia-300 focus:outline-none focus:ring-1 focus:ring-fuchsia-300"
-                        required
-                      />
-                    </label>
-                    <label class="flex flex-col gap-2 text-sm text-slate-200">
-                      <span>Jusqu'à</span>
-                      <input
-                        type="datetime-local"
-                        value=${draftUntil}
-                        onInput=${(event) => setDraftUntil(event.currentTarget.value)}
-                        class="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white shadow-inner shadow-black/20 focus:border-fuchsia-300 focus:outline-none focus:ring-1 focus:ring-fuchsia-300"
-                        required
-                      />
-                    </label>
-                    <div class="flex items-end">
-                      <button
-                        type="submit"
-                        class="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-fuchsia-400/60 bg-fuchsia-500/20 px-4 py-2 text-sm font-semibold text-fuchsia-100 transition hover:bg-fuchsia-500/30 hover:text-white"
-                      >
-                        Appliquer
-                      </button>
-                    </div>
-                  </form>
+                        <form class="grid gap-4 sm:grid-cols-[repeat(auto-fit,minmax(220px,1fr))]" onSubmit=${handleApplyRange}>
+                          <label class="flex flex-col gap-2 text-sm text-slate-200">
+                            <span>Depuis</span>
+                            <input
+                              type="datetime-local"
+                              value=${draftSince}
+                              onInput=${(event) => setDraftSince(event.currentTarget.value)}
+                              class="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white shadow-inner shadow-black/20 focus:border-fuchsia-300 focus:outline-none focus:ring-1 focus:ring-fuchsia-300"
+                              required
+                            />
+                          </label>
+                          <label class="flex flex-col gap-2 text-sm text-slate-200">
+                            <span>Jusqu'à</span>
+                            <input
+                              type="datetime-local"
+                              value=${draftUntil}
+                              onInput=${(event) => setDraftUntil(event.currentTarget.value)}
+                              class="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white shadow-inner shadow-black/20 focus:border-fuchsia-300 focus:outline-none focus:ring-1 focus:ring-fuchsia-300"
+                              required
+                            />
+                          </label>
+                          <div class="flex items-end">
+                            <button
+                              type="submit"
+                              class="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-fuchsia-400/60 bg-fuchsia-500/20 px-4 py-2 text-sm font-semibold text-fuchsia-100 transition hover:bg-fuchsia-500/30 hover:text-white"
+                            >
+                              Appliquer
+                            </button>
+                          </div>
+                        </form>
 
-                  <div class="flex flex-wrap gap-3 text-xs">
-                    ${PROFILE_RANGE_PRESETS.map((preset) => {
-                      const isActive = activeDuration != null && Math.abs(activeDuration - preset.durationMs) <= 60 * 1000;
-                      const classes = [
-                        'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 font-semibold transition',
-                        isActive
-                          ? 'border-fuchsia-400/60 bg-fuchsia-500/20 text-white'
-                          : 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white',
-                      ].join(' ');
-                      return html`<button
-                        key=${preset.label}
-                        type="button"
-                        class=${classes}
-                        onClick=${() => handlePresetClick(preset.durationMs)}
-                      >
-                        ${preset.label}
-                        <span class="sr-only">${preset.description}</span>
-                      </button>`;
-                    })}
-                  </div>
+                        <div class="flex flex-wrap gap-3 text-xs">
+                          ${PROFILE_RANGE_PRESETS.map((preset) => {
+                            const isActive = activeDuration != null && Math.abs(activeDuration - preset.durationMs) <= 60 * 1000;
+                            const classes = [
+                              'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 font-semibold transition',
+                              isActive
+                                ? 'border-fuchsia-400/60 bg-fuchsia-500/20 text-white'
+                                : 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white',
+                            ].join(' ');
+                            return html`<button
+                              key=${preset.label}
+                              type="button"
+                              class=${classes}
+                              onClick=${() => handlePresetClick(preset.durationMs)}
+                            >
+                              ${preset.label}
+                              <span class="sr-only">${preset.description}</span>
+                            </button>`;
+                          })}
+                        </div>
 
-                  ${formError
-                    ? html`<p class="rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-2 text-xs text-rose-100">${formError}</p>`
-                    : null}
-                </div>
-              </section>
+                        ${formError
+                          ? html`<p class="rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-2 text-xs text-rose-100">${formError}</p>`
+                          : null}
+                      </div>
+                    </section>
+                  `}
 
               ${errorMessage
                 ? html`<div class="rounded-3xl border border-rose-400/40 bg-rose-500/10 p-4 text-sm text-rose-100 shadow-lg shadow-rose-900/30">${errorMessage}</div>`
-                : null}
-
-              ${isLoading && !data
-                ? html`<div class="flex items-center gap-3 rounded-3xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-                    <${RefreshCcw} class="h-4 w-4 animate-spin text-indigo-200" aria-hidden="true" />
-                    Chargement du profil…
-                  </div>`
                 : null}
 
               ${data
@@ -446,6 +532,7 @@ const ProfilePage = ({ params, onNavigateHome, onUpdateRange }) => {
                   `
                 : null}
             </div>
+            ${isLoading ? html`<span class="sr-only" role="status">Chargement du profil…</span>` : null}
           `}
     </${Fragment}>
   `;
