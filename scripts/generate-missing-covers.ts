@@ -213,18 +213,18 @@ async function processPost(
     return false;
   }
 
-  const request: ImageGenerateParams = {
+  const requestOptions: Parameters<typeof client.images.generate>[0] = {
     model: generationOptions.model,
     prompt,
     size: generationOptions.size,
     n: 1,
   };
 
-  if (generationOptions.model !== 'gpt-image-1') {
-    request.response_format = 'b64_json';
+  if (/^dall-e-/i.test(generationOptions.model)) {
+    requestOptions.response_format = 'b64_json';
   }
 
-  const response = await client.images.generate(request);
+  const response = await client.images.generate(requestOptions);
 
   const imageData = response.data;
   if (!imageData?.length) {
