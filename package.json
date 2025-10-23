@@ -75,7 +75,7 @@
     "ws": "^8.18.2"
   },
   "devDependencies": {
-    "@lhci/cli": "^0.14.0",
+    "@lhci/cli": "^0.15.1",
     "@types/compression": "^1.8.1",
     "@types/express": "^4.17.21",
     "@types/marked": "^5.0.2",
@@ -84,6 +84,9 @@
     "critters": "^0.0.22",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.3"
+  },
+  "overrides": {
+    "tmp": "^0.2.5"
   },
   "optionalDependencies": {
     "sharp": "^0.33.4"
