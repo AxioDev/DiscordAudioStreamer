@@ -2,4 +2,5 @@ node_modules
 .env
 dist
 public/assets
-content/cache/
+.next
+content/cache

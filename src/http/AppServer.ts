@@ -99,6 +99,7 @@ export interface AppServerOptions {
   adminService: AdminService;
   statisticsService: StatisticsService;
   userAudioRecorder?: UserAudioRecorder | null;
+  frontendHandler?: ((req: Request, res: Response) => Promise<void> | void) | null;
 }
 
 type FlushCapableResponse = Response & {
@@ -145,7 +146,7 @@ type TimeoutError = Error & { code?: string; operation?: string; timeoutMs?: num
 interface AppShellRenderOptions {
   status?: number;
   appHtml?: string | null;
-  preloadState?: unknown;
+  preloadState?: AppPreloadState | undefined;
 }
 
 interface AppRouteDescriptor {
@@ -431,6 +432,8 @@ export default class AppServer {
 
   private readonly secretArticleTrigger: { path: string; password: string } | null;
 
+  private readonly frontendHandler: ((req: Request, res: Response) => Promise<void> | void) | null;
+
   private readonly serverBootTimestamp: string;
 
   private readonly sitemapLastModStore: SitemapLastModStore;
@@ -457,6 +460,7 @@ export default class AppServer {
     adminService,
     statisticsService,
     userAudioRecorder = null,
+    frontendHandler = null,
   }: AppServerOptions) {
     this.config = config;
     this.transcoder = transcoder;
@@ -471,6 +475,7 @@ export default class AppServer {
     this.adminService = adminService;
     this.statisticsService = statisticsService;
     this.userAudioRecorder = userAudioRecorder ?? null;
+    this.frontendHandler = frontendHandler ?? null;
     this.canonicalUrl = (() => {
       try {
         return new URL(this.config.publicBaseUrl);
@@ -4683,7 +4688,7 @@ export default class AppServer {
       }
     });
 
-    this.app.get('/admin', (req, res, next) => {
+    this.app.get('/admin', async (req, res, next) => {
       const accept = req.header('accept') ?? req.header('Accept') ?? '';
       if (typeof accept === 'string' && accept.toLowerCase().includes('application/json')) {
         next();
@@ -4691,6 +4696,18 @@ export default class AppServer {
       }
 
       if (!this.requireAdminAuth(req, res)) {
+        return;
+      }
+
+      if (this.frontendHandler) {
+        try {
+          await this.frontendHandler(req, res);
+        } catch (error) {
+          console.error('Failed to render admin frontend', error);
+          if (!res.headersSent) {
+            res.status(500).type('text/plain').send('ADMIN_UI_FAILED');
+          }
+        }
         return;
       }
 
@@ -4821,8 +4838,9 @@ export default class AppServer {
       }
 
       const parsed = this.parseAdminBlogPostInput(req.body, { allowSlugOverride: true });
-      if (!parsed.ok) {
-        res.status(parsed.status).json({ error: parsed.error, message: parsed.message });
+      if (parsed.ok === false) {
+        const { status, error, message } = parsed;
+        res.status(status).json({ error, message });
         return;
       }
 
@@ -4864,8 +4882,9 @@ export default class AppServer {
       }
 
       const parsed = this.parseAdminBlogPostInput(req.body, { slugFallback: slugParam });
-      if (!parsed.ok) {
-        res.status(parsed.status).json({ error: parsed.error, message: parsed.message });
+      if (parsed.ok === false) {
+        const { status, error, message } = parsed;
+        res.status(status).json({ error, message });
         return;
       }
 
@@ -7904,6 +7923,20 @@ export default class AppServer {
         );
       }
     });
+
+    if (this.frontendHandler) {
+      this.app.all('*', async (req, res) => {
+        try {
+          await this.frontendHandler?.(req, res);
+        } catch (error) {
+          console.error('Failed to render frontend route', { path: req.path, error });
+          if (!res.headersSent) {
+            res.status(500).type('text/plain').send('FRONTEND_UNAVAILABLE');
+          }
+        }
+      });
+      return;
+    }
 
     this.app.get('/', async (_req, res) => {
       const streamContentUrl = this.toAbsoluteUrl(this.config.streamEndpoint);
