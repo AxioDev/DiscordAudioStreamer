@@ -335,9 +335,17 @@ config.audio.frameSamples = Math.floor(
 config.audio.frameBytes =
   config.audio.frameSamples * config.audio.channels * config.audio.bytesPerSample;
 
+const allowMissingBotToken = parseBoolean(process.env.ALLOW_MISSING_BOT_TOKEN);
+
 if (!config.botToken) {
-  console.error('BOT_TOKEN is required in the environment');
-  process.exit(1);
+  if (allowMissingBotToken) {
+    console.warn(
+      'BOT_TOKEN is required in the environment; continuing because ALLOW_MISSING_BOT_TOKEN is set.',
+    );
+  } else {
+    console.error('BOT_TOKEN is required in the environment');
+    process.exit(1);
+  }
 }
 
 export default config;

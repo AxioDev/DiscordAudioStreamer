@@ -1,12 +1,13 @@
 import path from 'path';
 
-import config from '../src/config';
-import BlogRepository from '../src/services/BlogRepository';
-import BlogService from '../src/services/BlogService';
-import DiscordVectorIngestionService from '../src/services/DiscordVectorIngestionService';
-import ShopService from '../src/services/ShopService';
-import VoiceActivityRepository from '../src/services/VoiceActivityRepository';
-import BlogModerationService from '../src/services/BlogModerationService';
+import type { Config } from '../src/config';
+
+type BlogRepositoryConstructor = typeof import('../src/services/BlogRepository').default;
+type BlogServiceConstructor = typeof import('../src/services/BlogService').default;
+type DiscordVectorIngestionServiceConstructor = typeof import('../src/services/DiscordVectorIngestionService').default;
+type ShopServiceConstructor = typeof import('../src/services/ShopService').default;
+type VoiceActivityRepositoryConstructor = typeof import('../src/services/VoiceActivityRepository').default;
+type BlogModerationServiceConstructor = typeof import('../src/services/BlogModerationService').default;
 
 const TOTAL_STEPS = 7;
 
@@ -19,6 +20,35 @@ function logInfo(message: string): void {
 }
 
 async function main(): Promise<void> {
+  process.env.ALLOW_MISSING_BOT_TOKEN = process.env.ALLOW_MISSING_BOT_TOKEN ?? '1';
+
+  const [
+    configModule,
+    blogRepositoryModule,
+    blogServiceModule,
+    ingestionServiceModule,
+    shopServiceModule,
+    voiceActivityRepositoryModule,
+    blogModerationServiceModule,
+  ] = await Promise.all([
+    import('../src/config'),
+    import('../src/services/BlogRepository'),
+    import('../src/services/BlogService'),
+    import('../src/services/DiscordVectorIngestionService'),
+    import('../src/services/ShopService'),
+    import('../src/services/VoiceActivityRepository'),
+    import('../src/services/BlogModerationService'),
+  ]);
+
+  const config = configModule.default as Config;
+  const BlogRepository = blogRepositoryModule.default as BlogRepositoryConstructor;
+  const BlogService = blogServiceModule.default as BlogServiceConstructor;
+  const DiscordVectorIngestionService =
+    ingestionServiceModule.default as DiscordVectorIngestionServiceConstructor;
+  const ShopService = shopServiceModule.default as ShopServiceConstructor;
+  const VoiceActivityRepository = voiceActivityRepositoryModule.default as VoiceActivityRepositoryConstructor;
+  const BlogModerationService = blogModerationServiceModule.default as BlogModerationServiceConstructor;
+
   logInfo('Initialisation de la synchronisation des vecteurs Discord.');
 
   logStep(1, 'Vérification de la configuration de la base de données…');
