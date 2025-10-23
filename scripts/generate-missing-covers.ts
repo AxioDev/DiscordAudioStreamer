@@ -166,6 +166,10 @@ async function updateCoverInDatabase(pool: Pool, postId: number, coverUrl: strin
 }
 
 async function fetchPosts(pool: Pool, force: boolean): Promise<BlogPostRecord[]> {
+  const conditions = force
+    ? ''
+    : "WHERE cover_image_url IS NULL OR TRIM(cover_image_url) = ''";
+
   const baseQuery = `
     SELECT
       id,
@@ -175,7 +179,7 @@ async function fetchPosts(pool: Pool, force: boolean): Promise<BlogPostRecord[]>
       content_markdown,
       cover_image_url
     FROM blog_posts
-    ${force ? '' : 'WHERE cover_image_url IS NULL OR TRIM(cover_image_url) = ''''}
+    ${conditions}
     ORDER BY published_at ASC, id ASC
   `;
 
