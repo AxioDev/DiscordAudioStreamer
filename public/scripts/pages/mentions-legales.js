@@ -2,7 +2,7 @@ import { Fragment, html } from '../core/deps.js';
 
 const publisherDetails = {
   projectName: 'Libre Antenne',
-  publisher: 'Axiome D. – coordination éditoriale',
+  publisher: 'Pierrick Goujon – administration du serveur Discord Libre Antenne',
   legalStatus: 'Projet communautaire associatif (déclaration loi 1901 en cours)',
   address: '38 rue des Studios, 75011 Paris, France',
 };
@@ -14,16 +14,17 @@ const contactDetails = {
 };
 
 const hostingProvider = {
-  name: 'OVHcloud',
-  legalName: 'OVH SAS',
-  address: '2 rue Kellermann, 59100 Roubaix, France',
-  website: 'https://www.ovhcloud.com/',
-  phone: '+33 (0)9 72 10 10 07',
+  name: 'Hetzner Online',
+  legalName: 'Hetzner Online GmbH',
+  address: 'Industriestr. 25, 91710 Gunzenhausen, Allemagne',
+  website: 'https://www.hetzner.com/',
+  phone: '+49 9831 505-0',
 };
 
 const identificationNotes = [
   'Numéro RNA : en cours d’attribution par la préfecture de Paris (dossier déposé).',
-  'Responsable de la publication : Axiome D., au nom de la coordination Libre Antenne.',
+  'Responsable de la publication et administrateur du serveur Discord : Pierrick Goujon.',
+  'Le bot de diffusion Libre Antenne est ajouté et maintenu sur le serveur par Pierrick Goujon.',
   'Le projet est actuellement opéré par une équipe bénévole sans structure commerciale déclarée.',
 ];
 
@@ -86,7 +87,7 @@ const MentionsLegalesPage = () => html`
       </p>
     </section>
 
-    <p class="text-xs uppercase tracking-[0.25em] text-slate-500">Dernière mise à jour : 10 mars 2025</p>
+    <p class="text-xs uppercase tracking-[0.25em] text-slate-500">Dernière mise à jour : 17 mars 2025</p>
   </${Fragment}>
 `;
 

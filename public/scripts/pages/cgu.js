@@ -48,6 +48,31 @@ const DATA_CATEGORIES = [
   },
 ];
 
+const DISCORD_RULES = {
+  general: [
+    'Pas de porn, de gore, de flood, de spam, de publicité ni de vocoder.',
+    'Pas de clash, de trash-talk, de freebashing ou d’insultes envers les autres membres.',
+    'Pas de diffusion d’informations personnelles, de harcèlement ou de canulars téléphoniques.',
+    'Le suicide est strictement interdit aux membres du Discord.',
+  ],
+  written: [
+    'Écris en français (sauf dans le salon #inconnu) et évite le langage SMS.',
+    'Le contenu explicite (XXX) est réservé au salon #inconnu via la commande !nsfw.',
+    'Aucune image n’est autorisée dans le salon #inconnu.',
+  ],
+  vocal: [
+    'Active le mode « Appuyer pour parler » pour garder un vocal serein.',
+    'En dessous de switchette, il faut être validé ou se faire déplacer par un membre autorisé.',
+    'Tout ce qui est dit en vocal peut être enregistré, diffusé et modifié dans le cadre du direct.',
+  ],
+  access: [
+    'Suis les instructions dans #inconnu pour accéder aux salons de bienvenue.',
+    'L’accès à certains salons supplémentaires se débloque progressivement avec le temps.',
+    'Si tu as moins de 15 ans, une autorisation parentale est requise.',
+    'Le rôle « esclave » peut être attribué en faisant un don de 1 € via https://donatebot.io/checkout/261939673662750721.',
+  ],
+};
+
 const FINALITIES = [
   'Diffuser un flux audio communautaire conforme aux règles Discord et au droit français.',
   'Fournir des outils de modération, de statistiques et de découverte de talents à la communauté.',
@@ -117,6 +142,14 @@ const CguPage = () => html`
         modération peut intervenir pour préserver un espace sûr, et que des traitements techniques sont nécessaires pour
         assurer la diffusion et la sécurité du service.
       </p>
+      <p class="text-base leading-relaxed text-slate-200">
+        Le serveur Discord Libre Antenne, tout comme le bot de diffusion associé, sont administrés et maintenus par Pierrick
+        Goujon.
+      </p>
+      <p class="text-base leading-relaxed text-slate-200">
+        En rejoignant le Discord Libre Antenne, tu confirmes avoir lu et accepté le règlement ci-dessous. Si tu refuses ces
+        règles, merci de quitter immédiatement le serveur.
+      </p>
       <ul class="list-disc space-y-2 pl-6 text-sm text-slate-200">
         <li>Respecte les règles Discord, la loi française et les sensibilités des autres participants.</li>
         <li>Ne partage pas de contenus illicites, discriminatoires ou contraires aux valeurs d’inclusion du projet.</li>
@@ -124,6 +157,36 @@ const CguPage = () => html`
         <li>Préserve la confidentialité des informations personnelles échangées hors antenne.</li>
       </ul>
     </article>
+
+    <section class="grid gap-6 lg:grid-cols-2">
+      <article class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">
+        <h2 class="text-lg font-semibold text-white">Règles générales</h2>
+        <ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-300">
+          ${DISCORD_RULES.general.map((item) => html`<li key=${item}>${item}</li>`) }
+        </ul>
+      </article>
+      <article class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">
+        <h2 class="text-lg font-semibold text-white">À l’écrit</h2>
+        <ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-300">
+          ${DISCORD_RULES.written.map((item) => html`<li key=${item}>${item}</li>`) }
+        </ul>
+      </article>
+    </section>
+
+    <section class="grid gap-6 lg:grid-cols-2">
+      <article class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">
+        <h2 class="text-lg font-semibold text-white">En vocal</h2>
+        <ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-300">
+          ${DISCORD_RULES.vocal.map((item) => html`<li key=${item}>${item}</li>`) }
+        </ul>
+      </article>
+      <article class="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-lg shadow-slate-950/40 backdrop-blur">
+        <h2 class="text-lg font-semibold text-white">Accès & rôles</h2>
+        <ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-300">
+          ${DISCORD_RULES.access.map((item) => html`<li key=${item}>${item}</li>`) }
+        </ul>
+      </article>
+    </section>
 
     <section class="grid gap-6 md:grid-cols-2">
       ${DATA_CATEGORIES.map(
