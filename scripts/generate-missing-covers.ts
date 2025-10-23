@@ -26,6 +26,8 @@ interface GenerateOptions {
   force: boolean;
 }
 
+type ImageGenerateParams = Parameters<OpenAI['images']['generate']>[0];
+
 interface CliOptions {
   dryRun: boolean;
   size: string;
@@ -211,13 +213,18 @@ async function processPost(
     return false;
   }
 
-  const response = await client.images.generate({
+  const request: ImageGenerateParams = {
     model: generationOptions.model,
     prompt,
     size: generationOptions.size,
     n: 1,
-    response_format: 'b64_json',
-  });
+  };
+
+  if (generationOptions.model !== 'gpt-image-1') {
+    request.response_format = 'b64_json';
+  }
+
+  const response = await client.images.generate(request);
 
   const imageData = response.data;
   if (!imageData?.length) {
