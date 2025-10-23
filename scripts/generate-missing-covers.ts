@@ -26,6 +26,8 @@ interface GenerateOptions {
   force: boolean;
 }
 
+type ImageGenerateParams = Parameters<OpenAI['images']['generate']>[0];
+
 interface CliOptions {
   dryRun: boolean;
   size: string;
