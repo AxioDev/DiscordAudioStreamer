@@ -81,7 +81,6 @@ async function main(): Promise<void> {
   const blogModerationService = new BlogModerationService();
 
   const blogService = new BlogService({
-    postsDirectory: path.resolve(__dirname, '..', 'content', 'blog'),
     repository: blogRepository,
     moderationService: blogModerationService,
   });
