@@ -1,4 +1,5 @@
 import path from 'path';
+import next from 'next';
 import config from './config';
 import AudioMixer from './audio/AudioMixer';
 import FfmpegTranscoder from './audio/FfmpegTranscoder';
@@ -83,6 +84,8 @@ let userAudioRecorder: UserAudioRecorder | null = null;
 let audioStreamHealthService: AudioStreamHealthService | null = null;
 
 let userDataRetentionService: UserDataRetentionService | null = null;
+
+let appServer: AppServer | null = null;
 
 if (config.recordingsRetentionDays > 0) {
   try {
@@ -201,26 +204,44 @@ const anonymousSpeechManager = new AnonymousSpeechManager({
   sseService,
 });
 
-const appServer = new AppServer({
-  config,
-  transcoder,
-  speakerTracker,
-  sseService,
-  anonymousSpeechManager,
-  discordBridge,
-  shopService,
-  voiceActivityRepository,
-  listenerStatsService,
-  blogRepository,
-  blogService,
-  blogSubmissionService,
-  dailyArticleService,
-  userPersonaService,
-  adminService,
-  statisticsService,
-  userAudioRecorder,
+const projectRoot = path.resolve(__dirname, '..');
+
+async function startHttpServer(): Promise<void> {
+  const dev = process.env.NODE_ENV !== 'production';
+  const nextApp = next({ dev, dir: projectRoot });
+
+  await nextApp.prepare();
+
+  const nextHandler = nextApp.getRequestHandler();
+
+  appServer = new AppServer({
+    config,
+    transcoder,
+    speakerTracker,
+    sseService,
+    anonymousSpeechManager,
+    discordBridge,
+    shopService,
+    voiceActivityRepository,
+    listenerStatsService,
+    blogRepository,
+    blogService,
+    blogSubmissionService,
+    dailyArticleService,
+    userPersonaService,
+    adminService,
+    statisticsService,
+    userAudioRecorder,
+    frontendHandler: (req, res) => nextHandler(req, res),
+  });
+
+  appServer.start();
+}
+
+void startHttpServer().catch((error) => {
+  console.error('Failed to start HTTP server', error);
+  process.exit(1);
 });
-appServer.start();
 
 if (config.streamHealth.enabled) {
   audioStreamHealthService = new AudioStreamHealthService({
@@ -296,7 +317,7 @@ function shutdown(): void {
     .catch((error) => console.error('Error while closing voice activity repository', error));
 
   try {
-    appServer.stop();
+    appServer?.stop();
   } catch (error) {
     console.error('Error while stopping HTTP server', error);
   }
