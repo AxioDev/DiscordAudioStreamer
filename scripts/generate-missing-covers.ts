@@ -1,13 +1,12 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { Command } from 'commander';
-import matter from 'gray-matter';
 import OpenAI from 'openai';
+import { Pool } from 'pg';
 import { config as loadEnv } from 'dotenv';
 
 loadEnv();
 
-const BLOG_DIRECTORY = path.resolve(process.cwd(), 'content', 'blog');
 const OUTPUT_DIRECTORY = path.resolve(process.cwd(), 'public', 'images', 'blog');
 
 type ImageGenerationSize =
@@ -34,11 +33,13 @@ interface CliOptions {
   force: boolean;
 }
 
-interface BlogFrontMatter {
-  title?: string;
-  description?: string;
-  cover?: string;
-  [key: string]: unknown;
+interface BlogPostRecord {
+  id: number;
+  slug: string;
+  title: string;
+  excerpt: string | null;
+  content_markdown: string;
+  cover_image_url: string | null;
 }
 
 const logger = {
@@ -106,30 +107,13 @@ const options: GenerateOptions = {
   size: normalizeSize(rawOptions.size),
 };
 
-async function fsStatSafe(targetPath: string): Promise<boolean> {
-  try {
-    await fs.stat(targetPath);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      logger.error(`Impossible de lire ${targetPath} : ${(error as Error).message}`);
-    }
+const parseBoolean = (value: string | undefined | null): boolean => {
+  if (!value) {
     return false;
   }
-}
-
-function buildPrompt(frontMatter: BlogFrontMatter, slug: string): string {
-  const title = frontMatter.title ?? slug.replace(/-/g, ' ');
-  const description = frontMatter.description ?? '';
-  return [
-    'Illustration éditoriale lumineuse pour un article de blog francophone.',
-    `Titre : ${title}.`,
-    description ? `Thème : ${description}.` : '',
-    'Style : scène réaliste avec touches artistiques, palette chaleureuse, format horizontal 16:9.'
-  ]
-    .filter(Boolean)
-    .join(' ');
-}
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
+};
 
 async function ensureOutputDirectory(): Promise<void> {
   await fs.mkdir(OUTPUT_DIRECTORY, { recursive: true });
@@ -145,39 +129,81 @@ async function writeImageFile(slug: string, imageBase64: string): Promise<{ abso
   return { absolutePath, relativePath };
 }
 
-async function updateFrontMatter(filePath: string, data: BlogFrontMatter, content: string): Promise<void> {
-  const updated = matter.stringify(content, data);
-  await fs.writeFile(filePath, updated, 'utf8');
+function sanitizeDescription(input: string | null | undefined): string | null {
+  if (!input) {
+    return null;
+  }
+  const trimmed = input.length > 1000 ? input.slice(0, 1000) : input;
+  const withoutMarkdown = trimmed
+    .replace(/`{1,3}[^`]*`/g, '')
+    .replace(/[*_~>#\[\](!)]/g, '')
+    .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!withoutMarkdown) {
+    return null;
+  }
+  return withoutMarkdown.length > 280 ? `${withoutMarkdown.slice(0, 277).trim()}…` : withoutMarkdown;
 }
 
-async function processFile(
-  filePath: string,
+function buildPrompt(post: BlogPostRecord): string {
+  const normalizedTitle = typeof post.title === 'string' ? post.title.trim() : '';
+  const title = normalizedTitle.length > 0 ? normalizedTitle : post.slug.replace(/-/g, ' ');
+  const description = sanitizeDescription(post.excerpt) ?? sanitizeDescription(post.content_markdown) ?? '';
+  return [
+    'Illustration éditoriale lumineuse pour un article de blog francophone.',
+    `Titre : ${title}.`,
+    description ? `Thème : ${description}.` : '',
+    'Style : scène réaliste avec touches artistiques, palette chaleureuse, format horizontal 16:9.'
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+async function updateCoverInDatabase(pool: Pool, postId: number, coverUrl: string): Promise<void> {
+  await pool.query('UPDATE blog_posts SET cover_image_url = $1, updated_at = NOW() WHERE id = $2', [coverUrl, postId]);
+}
+
+async function fetchPosts(pool: Pool, force: boolean): Promise<BlogPostRecord[]> {
+  const baseQuery = `
+    SELECT
+      id,
+      slug,
+      title,
+      excerpt,
+      content_markdown,
+      cover_image_url
+    FROM blog_posts
+    ${force ? '' : 'WHERE cover_image_url IS NULL OR TRIM(cover_image_url) = ''''}
+    ORDER BY published_at ASC, id ASC
+  `;
+
+  const { rows } = await pool.query<BlogPostRecord>(baseQuery);
+  return rows;
+}
+
+async function processPost(
+  post: BlogPostRecord,
   client: OpenAI,
+  pool: Pool,
   generationOptions: GenerateOptions
 ): Promise<boolean> {
-  const rawContent = await fs.readFile(filePath, 'utf8');
-  const parsed = matter(rawContent);
-  const frontMatter = parsed.data as BlogFrontMatter;
-  const slug = path.basename(filePath, path.extname(filePath));
-
-  if (frontMatter.cover && !generationOptions.force) {
-    logger.info(`Couverture déjà présente pour « ${slug} », rien à faire.`);
+  if (post.cover_image_url && !generationOptions.force) {
+    logger.info(`Couverture déjà présente pour « ${post.slug} », rien à faire.`);
     return false;
   }
 
-  if (frontMatter.cover && generationOptions.force) {
-    logger.warn(`Une couverture existante pour « ${slug} » sera remplacée.`);
+  if (post.cover_image_url && generationOptions.force) {
+    logger.warn(`Une couverture existante pour « ${post.slug} » sera remplacée.`);
   }
 
-  if (!frontMatter.title) {
-    logger.warn(`Le fichier ${filePath} n'a pas de titre défini, utilisation du slug pour la génération.`);
-  }
-
-  const prompt = buildPrompt(frontMatter, slug);
-  logger.info(`Génération d'une couverture pour « ${frontMatter.title ?? slug} ». Prompt : ${prompt}`);
+  const prompt = buildPrompt(post);
+  const displayTitle = typeof post.title === 'string' && post.title.trim().length > 0 ? post.title.trim() : post.slug;
+  logger.info(`Génération d'une couverture pour « ${displayTitle} ». Prompt : ${prompt}`);
 
   if (generationOptions.dryRun) {
-    logger.info('[Mode simulation] Aucune image ne sera générée ni fichier modifié.');
+    logger.info('[Mode simulation] Aucune image ne sera générée ni base de données modifiée.');
     return false;
   }
 
@@ -191,37 +217,20 @@ async function processFile(
 
   const imageData = response.data;
   if (!imageData?.length) {
-    logger.error(`Aucune image reçue pour ${filePath}.`);
+    logger.error(`Aucune image reçue pour ${post.slug}.`);
     return false;
   }
 
   const image = imageData[0]?.b64_json;
   if (!image) {
-    logger.error(`Aucune image reçue pour ${filePath}.`);
+    logger.error(`Aucune image reçue pour ${post.slug}.`);
     return false;
   }
 
-  const { relativePath } = await writeImageFile(slug, image);
-  frontMatter.cover = relativePath;
-  await updateFrontMatter(filePath, frontMatter, parsed.content);
-  logger.success(
-    `Couverture enregistrée (${relativePath}) et front matter mis à jour pour ${filePath}.`
-  );
+  const { relativePath } = await writeImageFile(post.slug, image);
+  await updateCoverInDatabase(pool, post.id, relativePath);
+  logger.success(`Couverture enregistrée (${relativePath}) pour l'article « ${post.slug} ».`);
   return true;
-}
-
-async function gatherMarkdownFiles(directory: string): Promise<string[]> {
-  const entries = await fs.readdir(directory, { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries) {
-    const entryPath = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await gatherMarkdownFiles(entryPath)));
-    } else if (entry.isFile() && /\.mdx?$/.test(entry.name)) {
-      files.push(entryPath);
-    }
-  }
-  return files;
 }
 
 async function main(): Promise<void> {
@@ -232,35 +241,51 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (!(await fsStatSafe(BLOG_DIRECTORY))) {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    logger.error('DATABASE_URL doit être défini pour générer des couvertures depuis la base de données.');
     process.exit(1);
     return;
   }
 
-  const markdownFiles = await gatherMarkdownFiles(BLOG_DIRECTORY);
-  if (markdownFiles.length === 0) {
-    logger.warn(`Aucun article Markdown trouvé dans ${BLOG_DIRECTORY}.`);
-    return;
-  }
+  const useSsl = parseBoolean(process.env.DATABASE_SSL);
+  const pool = new Pool({
+    connectionString: databaseUrl,
+    ssl: useSsl ? { rejectUnauthorized: false } : undefined,
+  });
 
   const client = new OpenAI({ apiKey });
 
-  let generatedCount = 0;
-  for (const filePath of markdownFiles) {
-    try {
-      const generated = await processFile(filePath, client, options);
-      if (generated) {
-        generatedCount += 1;
+  try {
+    const posts = await fetchPosts(pool, options.force);
+    if (posts.length === 0) {
+      if (options.force) {
+        logger.info('Aucun article trouvé dans la base de données.');
+      } else {
+        logger.info('Aucun article sans couverture trouvé dans la base de données.');
       }
-    } catch (error) {
-      logger.error(`Échec lors du traitement de ${filePath} : ${(error as Error).message}`);
+      return;
     }
-  }
 
-  if (!options.dryRun) {
-    logger.info(`\n${generatedCount} couverture(s) générée(s) sur ${markdownFiles.length} fichier(s) analysé(s).`);
-  } else {
-    logger.info(`\nMode simulation terminé : ${markdownFiles.length} fichier(s) analysé(s).`);
+    let generatedCount = 0;
+    for (const post of posts) {
+      try {
+        const generated = await processPost(post, client, pool, options);
+        if (generated) {
+          generatedCount += 1;
+        }
+      } catch (error) {
+        logger.error(`Échec lors du traitement de ${post.slug} : ${(error as Error).message}`);
+      }
+    }
+
+    if (!options.dryRun) {
+      logger.info(`\n${generatedCount} couverture(s) générée(s) sur ${posts.length} article(s) analysé(s).`);
+    } else {
+      logger.info(`\nMode simulation terminé : ${posts.length} article(s) analysé(s).`);
+    }
+  } finally {
+    await pool.end();
   }
 }
 

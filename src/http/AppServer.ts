@@ -535,7 +535,6 @@ export default class AppServer {
     this.blogService =
       blogService ??
       new BlogService({
-        postsDirectory: path.resolve(__dirname, '..', '..', 'content', 'blog'),
         repository: this.blogRepository,
         moderationService: this.blogModerationService,
       });
