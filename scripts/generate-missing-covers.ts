@@ -26,8 +26,6 @@ interface GenerateOptions {
   force: boolean;
 }
 
-type ImageGenerateParams = Parameters<OpenAI['images']['generate']>[0];
-
 interface CliOptions {
   dryRun: boolean;
   size: string;
@@ -225,6 +223,13 @@ async function processPost(
   }
 
   const response = await client.images.generate(requestOptions);
+
+  if (!('data' in response)) {
+    logger.error(
+      `Réponse de génération inattendue pour ${post.slug} : format de flux non pris en charge.`
+    );
+    return false;
+  }
 
   const imageData = response.data;
   if (!imageData?.length) {
