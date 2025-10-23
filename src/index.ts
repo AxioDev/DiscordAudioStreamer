@@ -14,6 +14,7 @@ import BlogRepository from './services/BlogRepository';
 import BlogService from './services/BlogService';
 import BlogSubmissionService from './services/BlogSubmissionService';
 import DailyArticleService from './services/DailyArticleService';
+import BlogModerationService from './services/BlogModerationService';
 import KaldiTranscriptionService from './services/KaldiTranscriptionService';
 import UserPersonaService from './services/UserPersonaService';
 import AdminService from './services/AdminService';
@@ -128,9 +129,12 @@ const blogRepository = config.database.url
     })
   : null;
 
+const blogModerationService = new BlogModerationService();
+
 const blogService = new BlogService({
   postsDirectory: path.resolve(__dirname, '..', 'content', 'blog'),
   repository: blogRepository,
+  moderationService: blogModerationService,
 });
 
 void blogService.initialize().catch((error) => {
@@ -140,6 +144,7 @@ void blogService.initialize().catch((error) => {
 const blogSubmissionService = new BlogSubmissionService({
   repository: blogRepository,
   blogService,
+  moderationService: blogModerationService,
 });
 
 void blogSubmissionService.initialize().catch((error) => {
@@ -167,6 +172,7 @@ const dailyArticleService = new DailyArticleService({
   blogRepository,
   blogService,
   voiceActivityRepository,
+  moderationService: blogModerationService,
 });
 
 const userPersonaService = new UserPersonaService({
@@ -214,6 +220,7 @@ const appServer = new AppServer({
   blogRepository,
   blogService,
   blogSubmissionService,
+  blogModerationService,
   dailyArticleService,
   userPersonaService,
   adminService,

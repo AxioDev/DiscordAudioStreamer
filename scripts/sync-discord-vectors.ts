@@ -6,6 +6,7 @@ import BlogService from '../src/services/BlogService';
 import DiscordVectorIngestionService from '../src/services/DiscordVectorIngestionService';
 import ShopService from '../src/services/ShopService';
 import VoiceActivityRepository from '../src/services/VoiceActivityRepository';
+import BlogModerationService from '../src/services/BlogModerationService';
 
 async function main(): Promise<void> {
   if (!config.database?.url) {
@@ -24,9 +25,12 @@ async function main(): Promise<void> {
       })
     : null;
 
+  const blogModerationService = new BlogModerationService();
+
   const blogService = new BlogService({
     postsDirectory: path.resolve(__dirname, '..', 'content', 'blog'),
     repository: blogRepository,
+    moderationService: blogModerationService,
   });
 
   await blogService.initialize();
