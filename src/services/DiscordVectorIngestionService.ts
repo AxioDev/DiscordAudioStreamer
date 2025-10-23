@@ -186,43 +186,62 @@ export default class DiscordVectorIngestionService {
     const documents: DiscordVectorDocument[] = [];
 
     const range = this.getIngestionRange();
+    this.log('Début de la collecte des documents.', {
+      since: range.since.toISOString(),
+      until: range.until.toISOString(),
+    });
 
     const aboutDocument = this.collectAboutPageDocument();
     if (aboutDocument) {
+      this.log('Document À propos collecté.', {
+        documentId: aboutDocument.id,
+        contentLength: aboutDocument.content.length,
+      });
       documents.push(aboutDocument);
     }
 
     const blogDocuments = await this.collectBlogDocuments();
+    this.log('Documents de blog collectés.', { total: blogDocuments.length });
     documents.push(...blogDocuments);
 
     const jsonDocuments = await this.collectJsonDocuments();
+    this.log('Documents JSON collectés.', { total: jsonDocuments.length });
     documents.push(...jsonDocuments);
 
     const shopDocuments = this.collectShopDocuments();
+    this.log('Documents boutique collectés.', { total: shopDocuments.length });
     documents.push(...shopDocuments);
 
     const userSummaries = await this.loadKnownUsers(range);
+    this.log('Profils utilisateurs chargés.', { totalUsers: userSummaries.length });
     const userMap = new Map<string, UserSummary>();
     for (const user of userSummaries) {
       userMap.set(user.userId, user);
     }
 
     const userDocuments = this.collectUserDocuments(userSummaries);
+    this.log('Documents utilisateur générés.', { total: userDocuments.length });
     documents.push(...userDocuments);
 
     const voiceTranscriptionDocuments = await this.collectVoiceTranscriptionDocuments(range, userMap);
+    this.log('Documents de transcription vocale collectés.', {
+      total: voiceTranscriptionDocuments.length,
+    });
     documents.push(...voiceTranscriptionDocuments);
 
     const messageDocuments = await this.collectMessageDocuments(userSummaries, range);
+    this.log('Documents de messages collectés.', { total: messageDocuments.length });
     documents.push(...messageDocuments);
 
     const voiceActivityDocuments = await this.collectVoiceActivityDocuments(userSummaries, range);
+    this.log('Documents d’activité vocale collectés.', { total: voiceActivityDocuments.length });
     documents.push(...voiceActivityDocuments);
 
     const personaDocuments = await this.collectPersonaDocuments(userSummaries);
+    this.log('Documents persona collectés.', { total: personaDocuments.length });
     documents.push(...personaDocuments);
 
-    return documents
+    const preparedDocuments = documents
       .map((document) => {
         const preparedContent = this.prepareDocumentContent(document.content);
         if (!preparedContent) {
@@ -231,9 +250,13 @@ export default class DiscordVectorIngestionService {
         return { ...document, content: preparedContent };
       })
       .filter((document): document is DiscordVectorDocument => document !== null);
+
+    this.log('Documents prêts pour la fragmentation.', { total: preparedDocuments.length });
+    return preparedDocuments;
   }
 
   private collectAboutPageDocument(): DiscordVectorDocument | null {
+    this.log('Génération du document de la page À propos.');
     const hero = aboutPageContent.hero;
     const highlights = aboutPageContent.highlights;
 
@@ -257,9 +280,14 @@ export default class DiscordVectorIngestionService {
 
     const content = lines.join('\n').trim();
     if (!content) {
+      this.log('Page À propos sans contenu, aucun document généré.');
       return null;
     }
 
+    this.log('Document de la page À propos prêt.', {
+      title: hero.title,
+      highlights: highlights.length,
+    });
     return {
       id: 'page:about',
       title: hero.title,
@@ -286,14 +314,23 @@ export default class DiscordVectorIngestionService {
     }
 
     try {
+      this.log('Collecte des articles de blog démarrée.');
       const listResult = await this.blogService.listPosts({ limit: null, sortOrder: 'asc' });
+      this.log('Liste des articles de blog récupérée.', { totalPosts: listResult.posts.length });
       const documents: DiscordVectorDocument[] = [];
       for (const summary of listResult.posts) {
+        this.log('Récupération du billet de blog.', { slug: summary.slug });
         const detail = await this.blogService.getPost(summary.slug);
         if (!detail) {
+          this.log('Billet de blog introuvable.', { slug: summary.slug });
           continue;
         }
 
+        this.log('Billet de blog synchronisé.', {
+          slug: detail.slug,
+          title: detail.title,
+          contentLength: detail.contentMarkdown.length,
+        });
         documents.push({
           id: `blog:${detail.slug}`,
           title: detail.title,
@@ -309,6 +346,7 @@ export default class DiscordVectorIngestionService {
           },
         });
       }
+      this.log('Collecte des articles de blog terminée.', { total: documents.length });
       return documents;
     } catch (error) {
       console.error('DiscordVectorIngestionService: failed to collect blog documents.', error);
@@ -319,6 +357,7 @@ export default class DiscordVectorIngestionService {
   private async collectJsonDocuments(): Promise<DiscordVectorDocument[]> {
     const documents: DiscordVectorDocument[] = [];
 
+    this.log('Collecte des sources JSON démarrée.', { totalSources: defaultJsonSources.length });
     for (const source of defaultJsonSources) {
       const absolutePath = path.join(this.projectRoot, source.relativePath);
       try {
@@ -326,6 +365,11 @@ export default class DiscordVectorIngestionService {
           fs.readFile(absolutePath, 'utf8'),
           fs.stat(absolutePath),
         ]);
+        this.log('Fichier JSON chargé.', {
+          sourceId: source.id,
+          relativePath: source.relativePath,
+          lastModified: stats.mtime.toISOString(),
+        });
         const parsed = JSON.parse(rawContent) as Record<string, unknown>;
         const summaryLines: string[] = [];
         if (typeof parsed.status === 'string') {
@@ -352,20 +396,31 @@ export default class DiscordVectorIngestionService {
             lastModified: stats.mtime.toISOString(),
           },
         });
+        this.log('Document JSON généré.', {
+          documentId: source.id,
+          category: source.category,
+          contentLength: content.length,
+        });
       } catch (error) {
         if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+          this.log('Source JSON introuvable, passage.', {
+            sourceId: source.id,
+            relativePath: source.relativePath,
+          });
           continue;
         }
         throw error;
       }
     }
 
+    this.log('Collecte des sources JSON terminée.', { total: documents.length });
     return documents;
   }
 
   private collectShopDocuments(): DiscordVectorDocument[] {
     const documents: DiscordVectorDocument[] = [];
 
+    this.log('Collecte du contenu boutique démarrée.');
     const heroLines = [
       SHOP_CONTENT.hero.eyebrow,
       SHOP_CONTENT.hero.title,
@@ -390,6 +445,10 @@ export default class DiscordVectorIngestionService {
         section: 'hero',
       },
     });
+    this.log('Section boutique synchronisée.', {
+      section: 'hero',
+      contentLength: heroLines.join('\n').length,
+    });
 
     const sectionEntries = [
       { key: 'verified-payments', section: SHOP_CONTENT.sections.verifiedPayments },
@@ -408,9 +467,17 @@ export default class DiscordVectorIngestionService {
           section: entry.key,
         },
       });
+      this.log('Section boutique synchronisée.', {
+        section: entry.key,
+        title: entry.section.title,
+        contentLength: `${entry.section.title}\n\n${entry.section.description}`.length,
+      });
     }
 
     if (this.shopService) {
+      this.log('Collecte des produits boutique via service.', {
+        totalProducts: this.shopService.getProducts().length,
+      });
       const products = this.shopService.getProducts();
       for (const product of products) {
         const providerLabels = product.providers.map((provider) => {
@@ -468,9 +535,16 @@ export default class DiscordVectorIngestionService {
             updatedAt: product.updatedAt ?? null,
           },
         });
+        this.log('Produit boutique synchronisé.', {
+          productId: product.id,
+          name: product.name,
+          includes: product.includes.length,
+          providers: providerLabels,
+        });
       }
     }
 
+    this.log('Collecte du contenu boutique terminée.', { total: documents.length });
     return documents;
   }
 
@@ -478,13 +552,29 @@ export default class DiscordVectorIngestionService {
     const chunks: DiscordVectorChunk[] = [];
     const seenContentHashes = new Set<string>();
 
+    this.log('Découpage des documents en fragments.', {
+      totalDocuments: documents.length,
+      maxDocumentContentLength: this.maxDocumentContentLength,
+    });
+
     for (const document of documents) {
+      this.log('Découpage d’un document.', {
+        documentId: document.id,
+        title: document.title,
+        category: document.category,
+        contentLength: document.content.length,
+      });
       const normalizedContent = this.normalizeWhitespace(document.content);
       if (!normalizedContent) {
+        this.log('Document ignoré car contenu normalisé vide.', { documentId: document.id });
         continue;
       }
 
       const parts = this.chunkText(normalizedContent);
+      this.log('Fragments générés pour document.', {
+        documentId: document.id,
+        chunkCount: parts.length,
+      });
       if (parts.length === 0) {
         continue;
       }
@@ -494,6 +584,11 @@ export default class DiscordVectorIngestionService {
         const chunkSourceId = chunkCount > 1 ? `${document.id}#${index + 1}` : document.id;
         const contentHash = this.hashContent(part);
         if (seenContentHashes.has(contentHash)) {
+          this.log('Fragment ignoré car doublon détecté.', {
+            documentId: document.id,
+            chunkIndex: index + 1,
+            chunkSourceId,
+          });
           return;
         }
         seenContentHashes.add(contentHash);
@@ -515,9 +610,16 @@ export default class DiscordVectorIngestionService {
           content: part,
           metadata,
         });
+        this.log('Fragment ajouté à la liste des persistances.', {
+          chunkSourceId,
+          chunkIndex: index + 1,
+          chunkCount,
+          contentLength: part.length,
+        });
       });
     }
 
+    this.log('Découpage terminé.', { totalChunks: chunks.length });
     return chunks;
   }
 
@@ -531,7 +633,14 @@ export default class DiscordVectorIngestionService {
       return [];
     }
 
+    this.log('Découpage d’un texte en fragments internes.', {
+      length: sanitized.length,
+      maxLength,
+      overlap,
+    });
+
     if (sanitized.length <= maxLength) {
+      this.log('Texte plus court que la taille maximale, un seul fragment généré.');
       return [sanitized];
     }
 
@@ -555,6 +664,12 @@ export default class DiscordVectorIngestionService {
       const chunk = sanitized.slice(start, end).trim();
       if (chunk) {
         chunks.push(chunk);
+        this.log('Fragment interne généré.', {
+          index: chunks.length,
+          start,
+          end,
+          length: chunk.length,
+        });
       }
 
       if (end >= sanitized.length) {
@@ -565,23 +680,34 @@ export default class DiscordVectorIngestionService {
       start = nextStart > start ? nextStart : end;
     }
 
+    this.log('Découpage interne terminé.', { chunks: chunks.length });
     return chunks;
   }
 
   private prepareDocumentContent(content: string): string {
     if (typeof content !== 'string') {
+      this.log('Contenu de document ignoré car non textuel.');
       return '';
     }
     const normalized = content.replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
     if (!normalized) {
+      this.log('Contenu de document vide après normalisation.');
       return '';
     }
 
     if (normalized.length <= this.maxDocumentContentLength) {
+      this.log('Contenu de document prêt sans troncature.', {
+        contentLength: normalized.length,
+      });
       return normalized;
     }
 
     const truncated = normalized.slice(0, this.maxDocumentContentLength).trimEnd();
+    this.log('Contenu de document tronqué.', {
+      originalLength: normalized.length,
+      truncatedLength: truncated.length,
+      maxLength: this.maxDocumentContentLength,
+    });
     return `${truncated}…`;
   }
 
@@ -690,10 +816,12 @@ export default class DiscordVectorIngestionService {
 
   private collectUserDocuments(users: readonly UserSummary[]): DiscordVectorDocument[] {
     const documents: DiscordVectorDocument[] = [];
+    this.log('Génération des documents de profil utilisateur.', { userCount: users.length });
 
     for (const user of users) {
       const userId = this.normalizeUserString(user.userId) ?? user.userId;
       if (!userId) {
+        this.log('Utilisateur ignoré lors de la génération de profil (identifiant manquant).');
         continue;
       }
 
@@ -704,6 +832,16 @@ export default class DiscordVectorIngestionService {
       const firstSeenIso = this.toIsoString(user.firstSeenAt);
       const lastSeenIso = this.toIsoString(user.lastSeenAt);
       const guildList = this.formatGuildList(user, null);
+
+      this.log('Document de profil utilisateur généré.', {
+        userId,
+        displayName,
+        username,
+        nickname,
+        pseudo,
+        firstSeenAt: firstSeenIso,
+        lastSeenAt: lastSeenIso,
+      });
 
       const lines = [
         'Profil utilisateur Discord',
@@ -743,6 +881,7 @@ export default class DiscordVectorIngestionService {
       });
     }
 
+    this.log('Documents de profil utilisateur terminés.', { total: documents.length });
     return documents;
   }
 
@@ -752,10 +891,15 @@ export default class DiscordVectorIngestionService {
     }
 
     try {
+      this.log('Chargement des utilisateurs connus depuis le dépôt d’activité vocale.', {
+        since: range.since.toISOString(),
+      });
       const rawUsers = await this.voiceActivityRepository.listKnownUsers({ activeSince: range.since });
       if (!rawUsers || rawUsers.length === 0) {
+        this.log('Aucun utilisateur connu trouvé, utilisation du repli via les utilisateurs actifs.');
         const fallbackIds = await this.listActiveUserIds(range);
         const uniqueFallback = Array.from(new Set(fallbackIds));
+        this.log('Utilisateurs actifs récupérés pour repli.', { total: uniqueFallback.length });
         return uniqueFallback.map((userId) => ({
           userId,
           displayName: null,
@@ -787,6 +931,7 @@ export default class DiscordVectorIngestionService {
       for (const record of rawUsers) {
         const userId = this.normalizeUserString(record.userId) ?? record.userId;
         if (!userId) {
+          this.log('Entrée utilisateur ignorée car identifiant invalide.');
           continue;
         }
 
@@ -809,6 +954,7 @@ export default class DiscordVectorIngestionService {
 
         const existing = summaries.get(userId);
         if (existing) {
+          this.log('Fusion des informations utilisateur existantes.', { userId });
           if (displayName) {
             existing.displayName ??= displayName;
           }
@@ -832,6 +978,13 @@ export default class DiscordVectorIngestionService {
           if (guildId) {
             guildIds.add(guildId);
           }
+          this.log('Nouvel utilisateur connu ajouté.', {
+            userId,
+            displayName,
+            username,
+            nickname,
+            pseudo,
+          });
           summaries.set(userId, {
             userId,
             displayName: displayName ?? null,
@@ -861,6 +1014,7 @@ export default class DiscordVectorIngestionService {
       if (normalizedUsers.length === 0) {
         const fallbackIds = await this.listActiveUserIds(range);
         const uniqueFallback = Array.from(new Set(fallbackIds));
+        this.log('Repli vers les utilisateurs actifs car aucun utilisateur normalisé.');
         return uniqueFallback.map((userId) => ({
           userId,
           displayName: null,
@@ -879,6 +1033,9 @@ export default class DiscordVectorIngestionService {
       console.error('DiscordVectorIngestionService: failed to collect known users.', error);
       const fallbackIds = await this.listActiveUserIds(range);
       const uniqueFallback = Array.from(new Set(fallbackIds));
+      this.log('Erreur lors du chargement des utilisateurs connus, utilisation du repli.', {
+        fallbackTotal: uniqueFallback.length,
+      });
       return uniqueFallback.map((userId) => ({
         userId,
         displayName: null,
@@ -899,7 +1056,13 @@ export default class DiscordVectorIngestionService {
     }
 
     try {
+      this.log('Récupération des utilisateurs actifs pour la période donnée.', {
+        since: range.since.toISOString(),
+        until: range.until.toISOString(),
+        limit: this.maxActiveUsers,
+      });
       const entries = await this.voiceActivityRepository.listActiveUsers({ limit: this.maxActiveUsers });
+      this.log('Utilisateurs actifs récupérés.', { totalEntries: entries.length });
       const sinceTime = range.since.getTime();
       return entries
         .filter((entry) => {
@@ -927,13 +1090,25 @@ export default class DiscordVectorIngestionService {
     }
 
     try {
+      this.log('Collecte des transcriptions vocales.', {
+        since: range.since.toISOString(),
+        until: range.until.toISOString(),
+        limit: this.maxVoiceTranscriptions,
+      });
       const records = await this.voiceActivityRepository.listVoiceTranscriptionsForRange({
         since: range.since,
         until: range.until,
         limit: this.maxVoiceTranscriptions,
       });
+      this.log('Transcriptions vocales récupérées.', { totalRecords: records.length });
 
       return records.map((record) => {
+        this.log('Transformation d’une transcription vocale.', {
+          transcriptionId: record.id,
+          userId: record.userId,
+          guildId: record.guildId,
+          channelId: record.channelId,
+        });
         const user = record.userId ? userMap.get(record.userId) ?? null : null;
         const userLabel = this.formatUserLabel(record.userId ?? null, user ?? null);
         const guildList = this.formatGuildList(user ?? null, record.guildId ?? null);
@@ -994,6 +1169,12 @@ export default class DiscordVectorIngestionService {
     }
 
     const documents: DiscordVectorDocument[] = [];
+    this.log('Collecte des messages texte Discord.', {
+      since: range.since.toISOString(),
+      until: range.until.toISOString(),
+      userCount: users.length,
+      maxMessagesPerUser: this.maxMessagesPerUser,
+    });
 
     for (const user of users) {
       const userId = user.userId;
@@ -1002,18 +1183,37 @@ export default class DiscordVectorIngestionService {
       }
 
       try {
+        this.log('Récupération des messages pour un utilisateur.', { userId });
         const entries = await this.voiceActivityRepository.listUserMessageActivity({
           userId,
           since: range.since,
           until: range.until,
         });
+        this.log('Messages récupérés pour utilisateur.', {
+          userId,
+          totalEntries: entries.length,
+        });
         const limitedEntries = entries.length > this.maxMessagesPerUser
           ? entries.slice(entries.length - this.maxMessagesPerUser)
           : entries;
+        if (entries.length > this.maxMessagesPerUser) {
+          this.log('Limitation des messages pour utilisateur.', {
+            userId,
+            keptEntries: limitedEntries.length,
+            discardedEntries: entries.length - limitedEntries.length,
+          });
+        }
 
         for (const entry of limitedEntries) {
           const timestampIso = this.toIsoString(entry.timestamp);
           const messageContent = this.formatMultiline(entry.content, '(contenu vide)');
+          this.log('Transformation d’un message texte.', {
+            userId,
+            messageId: entry.messageId,
+            guildId: entry.guildId,
+            channelId: entry.channelId,
+            timestamp: timestampIso,
+          });
           const userLabel = this.formatUserLabel(userId, user);
           const guildList = this.formatGuildList(user, entry.guildId ?? null);
           const displayName =
@@ -1067,6 +1267,7 @@ export default class DiscordVectorIngestionService {
       }
     }
 
+    this.log('Collecte des messages texte terminée.', { totalDocuments: documents.length });
     return documents;
   }
 
@@ -1079,6 +1280,11 @@ export default class DiscordVectorIngestionService {
     }
 
     const documents: DiscordVectorDocument[] = [];
+    this.log('Collecte des activités vocales Discord.', {
+      since: range.since.toISOString(),
+      until: range.until.toISOString(),
+      userCount: users.length,
+    });
 
     for (const user of users) {
       const userId = user.userId;
@@ -1087,6 +1293,7 @@ export default class DiscordVectorIngestionService {
       }
 
       try {
+        this.log('Récupération des segments vocaux pour un utilisateur.', { userId });
         const [activitySegments, presenceSegments] = await Promise.all([
           this.voiceActivityRepository.listUserVoiceActivity({
             userId,
@@ -1099,6 +1306,11 @@ export default class DiscordVectorIngestionService {
             until: range.until,
           }),
         ]);
+        this.log('Segments vocaux récupérés.', {
+          userId,
+          activitySegmentCount: activitySegments.length,
+          presenceSegmentCount: presenceSegments.length,
+        });
 
         const userLabel = this.formatUserLabel(userId, user);
         const displayName =
@@ -1118,6 +1330,13 @@ export default class DiscordVectorIngestionService {
         for (const segment of activitySegments) {
           const startedAtIso = this.toIsoString(segment.startedAt);
           const durationMs = segment.durationMs;
+          this.log('Transformation d’un segment d’activité vocale.', {
+            userId,
+            channelId: segment.channelId,
+            guildId: segment.guildId,
+            startedAt: startedAtIso,
+            durationMs,
+          });
           const durationMinutes = Number.isFinite(durationMs)
             ? (durationMs / 60000).toFixed(2)
             : '0';
@@ -1166,6 +1385,13 @@ export default class DiscordVectorIngestionService {
         for (const presence of presenceSegments) {
           const joinedAtIso = this.toIsoString(presence.joinedAt);
           const leftAtIso = this.toIsoString(presence.leftAt ?? null);
+          this.log('Transformation d’un segment de présence vocale.', {
+            userId,
+            channelId: presence.channelId,
+            guildId: presence.guildId,
+            joinedAt: joinedAtIso,
+            leftAt: leftAtIso,
+          });
           const guildList = this.formatGuildList(user, presence.guildId ?? null);
           const content = [
             'Présence vocale Discord',
@@ -1208,6 +1434,7 @@ export default class DiscordVectorIngestionService {
       }
     }
 
+    this.log('Collecte des activités vocales terminée.', { totalDocuments: documents.length });
     return documents;
   }
 
@@ -1217,6 +1444,7 @@ export default class DiscordVectorIngestionService {
     }
 
     const documents: DiscordVectorDocument[] = [];
+    this.log('Collecte des profils persona Discord.', { userCount: users.length });
 
     for (const user of users) {
       const userId = user.userId;
@@ -1225,13 +1453,16 @@ export default class DiscordVectorIngestionService {
       }
 
       try {
+        this.log('Récupération du profil persona pour un utilisateur.', { userId });
         const profile = await this.voiceActivityRepository.getUserPersonaProfile({ userId });
         if (!profile) {
+          this.log('Aucun profil persona disponible pour cet utilisateur.', { userId });
           continue;
         }
 
         const persona = profile.persona;
         if (!persona) {
+          this.log('Profil persona sans données persona, passage.', { userId });
           continue;
         }
         const sections: string[] = [];
@@ -1340,6 +1571,11 @@ export default class DiscordVectorIngestionService {
             inputCharacterCount: profile.inputCharacterCount,
           },
         });
+        this.log('Profil persona synchronisé.', {
+          userId,
+          guildId: profile.guildId,
+          sections: sections.length,
+        });
       } catch (error) {
         console.error(
           `DiscordVectorIngestionService: failed to collect persona profile for user ${userId}.`,
@@ -1348,6 +1584,7 @@ export default class DiscordVectorIngestionService {
       }
     }
 
+    this.log('Collecte des profils persona terminée.', { totalDocuments: documents.length });
     return documents;
   }
 
@@ -1363,6 +1600,7 @@ export default class DiscordVectorIngestionService {
 
     this.log('Préparation de la persistance des fragments.', { requestedChunks: chunks.length });
     const existingRows = await listDiscordVectorMetadata();
+    this.log('Métadonnées existantes récupérées.', { totalExistingRows: existingRows.length });
     const existingMap = new Map<string, { id: number; hash: string | null }>();
     const idsToDelete = new Set<number>();
     for (const row of existingRows) {
@@ -1374,6 +1612,11 @@ export default class DiscordVectorIngestionService {
       const duplicate = existingMap.get(sourceId);
       if (duplicate) {
         idsToDelete.add(duplicate.id);
+        this.log('Doublon détecté parmi les fragments existants.', {
+          sourceId,
+          duplicateId: duplicate.id,
+          currentId: row.id,
+        });
       }
       existingMap.set(sourceId, { id: row.id, hash: contentHash });
     }
@@ -1381,6 +1624,10 @@ export default class DiscordVectorIngestionService {
     const desiredChunks = new Map<string, DiscordVectorChunk>();
     for (const chunk of chunks) {
       desiredChunks.set(chunk.sourceId, chunk);
+      this.log('Fragment souhaité enregistré pour comparaison.', {
+        sourceId: chunk.sourceId,
+        contentHash: chunk.metadata.contentHash,
+      });
     }
 
     const chunksToInsert: DiscordVectorChunk[] = [];
@@ -1389,12 +1636,21 @@ export default class DiscordVectorIngestionService {
       const existing = existingMap.get(sourceId);
       if (!existing) {
         chunksToInsert.push(chunk);
+        this.log('Nouveau fragment détecté, prévu pour insertion.', {
+          sourceId,
+          contentLength: chunk.content.length,
+        });
         continue;
       }
 
       if (existing.hash !== chunk.metadata.contentHash) {
         idsToDelete.add(existing.id);
         chunksToInsert.push(chunk);
+        this.log('Fragment modifié détecté, mise à jour requise.', {
+          sourceId,
+          previousHash: existing.hash,
+          newHash: chunk.metadata.contentHash,
+        });
       }
 
       existingMap.delete(sourceId);
@@ -1402,6 +1658,7 @@ export default class DiscordVectorIngestionService {
 
     for (const entry of existingMap.values()) {
       idsToDelete.add(entry.id);
+      this.log('Fragment obsolète marqué pour suppression.', { rowId: entry.id });
     }
 
     if (idsToDelete.size > 0) {
@@ -1419,9 +1676,17 @@ export default class DiscordVectorIngestionService {
     });
     const rows = [];
     for (const chunk of chunksToInsert) {
+      this.log('Génération de l’embedding pour un fragment.', {
+        sourceId: chunk.sourceId,
+        contentLength: chunk.content.length,
+      });
       const embedding = await getEmbedding(chunk.content);
       const vectorLiteral = buildVectorLiteral(embedding);
       rows.push({ content: chunk.content, metadata: chunk.metadata, vectorLiteral });
+      this.log('Fragment prêt pour insertion.', {
+        sourceId: chunk.sourceId,
+        vectorDimensions: embedding.length,
+      });
     }
 
     await insertDiscordVectors(rows);
