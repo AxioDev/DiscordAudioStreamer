@@ -32,13 +32,6 @@ interface DiscordVectorChunk {
   metadata: Record<string, unknown>;
 }
 
-interface MarkdownSource {
-  id: string;
-  relativePath: string;
-  title: string;
-  category: string;
-}
-
 interface JsonSource {
   id: string;
   relativePath: string;
@@ -64,27 +57,6 @@ export interface DiscordVectorIngestionServiceOptions {
   shopService: ShopService | null;
   voiceActivityRepository: VoiceActivityRepository | null;
 }
-
-const defaultMarkdownSources: MarkdownSource[] = [
-  {
-    id: 'doc:seo-report',
-    relativePath: path.join('docs', 'rapport-seo.md'),
-    title: 'Rapport d\'optimisation SEO',
-    category: 'documentation',
-  },
-  {
-    id: 'doc:supabase-troubleshooting',
-    relativePath: path.join('docs', 'supabase-auth-troubleshooting.md'),
-    title: 'Guide de dépannage Supabase',
-    category: 'documentation',
-  },
-  {
-    id: 'doc:lighthouse-summary',
-    relativePath: path.join('docs', 'performance', 'lighthouse-summary.md'),
-    title: 'Synthèse Lighthouse',
-    category: 'documentation',
-  },
-];
 
 const defaultJsonSources: JsonSource[] = [];
 
@@ -206,9 +178,6 @@ export default class DiscordVectorIngestionService {
     const blogDocuments = await this.collectBlogDocuments();
     documents.push(...blogDocuments);
 
-    const markdownDocuments = await this.collectMarkdownDocuments();
-    documents.push(...markdownDocuments);
-
     const jsonDocuments = await this.collectJsonDocuments();
     documents.push(...jsonDocuments);
 
@@ -328,40 +297,6 @@ export default class DiscordVectorIngestionService {
       console.error('DiscordVectorIngestionService: failed to collect blog documents.', error);
       return [];
     }
-  }
-
-  private async collectMarkdownDocuments(): Promise<DiscordVectorDocument[]> {
-    const documents: DiscordVectorDocument[] = [];
-
-    for (const source of defaultMarkdownSources) {
-      const absolutePath = path.join(this.projectRoot, source.relativePath);
-      try {
-        const [rawContent, stats] = await Promise.all([
-          fs.readFile(absolutePath, 'utf8'),
-          fs.stat(absolutePath),
-        ]);
-        const content = this.normalizeMarkdown(rawContent);
-        documents.push({
-          id: source.id,
-          title: source.title,
-          category: source.category,
-          content,
-          metadata: {
-            source: source.category,
-            path: source.relativePath,
-            type: 'markdown',
-            lastModified: stats.mtime.toISOString(),
-          },
-        });
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
-          continue;
-        }
-        throw error;
-      }
-    }
-
-    return documents;
   }
 
   private async collectJsonDocuments(): Promise<DiscordVectorDocument[]> {
@@ -520,11 +455,6 @@ export default class DiscordVectorIngestionService {
     }
 
     return documents;
-  }
-
-  private normalizeMarkdown(raw: string): string {
-    const withoutFrontMatter = raw.replace(/^---\s*\n[\s\S]*?\n---\s*/u, '');
-    return withoutFrontMatter.replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   }
 
   private chunkDocuments(documents: readonly DiscordVectorDocument[]): DiscordVectorChunk[] {

@@ -47,7 +47,6 @@ async function main(): Promise<void> {
   const stubbedService = ingestionService as unknown as {
     collectDocuments: () => Promise<any[]>;
     collectBlogDocuments: () => Promise<any[]>;
-    collectMarkdownDocuments: () => Promise<any[]>;
     collectJsonDocuments: () => Promise<any[]>;
     loadKnownUsers: () => Promise<any[]>;
     collectVoiceTranscriptionDocuments: () => Promise<any[]>;
@@ -57,7 +56,6 @@ async function main(): Promise<void> {
   };
 
   stubbedService.collectBlogDocuments = async () => [];
-  stubbedService.collectMarkdownDocuments = async () => [];
   stubbedService.collectJsonDocuments = async () => [];
   stubbedService.loadKnownUsers = async () => [];
   (stubbedService as any).collectUserDocuments = () => [];
