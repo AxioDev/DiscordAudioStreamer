@@ -85,6 +85,14 @@ export default class DiscordVectorIngestionService {
 
   private syncInterval: NodeJS.Timeout | null = null;
 
+  private log(message: string, context?: Record<string, unknown>): void {
+    if (context && Object.keys(context).length > 0) {
+      console.log(`[DiscordVectorIngestionService] ${message}`, context);
+      return;
+    }
+    console.log(`[DiscordVectorIngestionService] ${message}`);
+  }
+
   constructor(options: DiscordVectorIngestionServiceOptions) {
     this.blogService = options.blogService;
     this.projectRoot = options.projectRoot;
@@ -142,8 +150,12 @@ export default class DiscordVectorIngestionService {
       return;
     }
 
+    this.log('Début de la synchronisation manuelle.');
+
     try {
+      this.log('Vérification du schéma de la table discord_vectors…');
       await ensureDiscordVectorSchema();
+      this.log('Schéma discord_vectors prêt.');
     } catch (error) {
       if (error instanceof PgvectorExtensionRequiredError) {
         console.error(
@@ -158,11 +170,16 @@ export default class DiscordVectorIngestionService {
 
     const documents = await this.collectDocuments();
     if (documents.length === 0) {
+      this.log('Aucun document collecté, fin de la synchronisation.');
       return;
     }
 
+    this.log('Documents collectés.', { totalDocuments: documents.length });
+
     const chunks = this.chunkDocuments(documents);
+    this.log('Fragments générés à partir des documents.', { totalChunks: chunks.length });
     await this.persistChunks(chunks);
+    this.log('Synchronisation terminée avec succès.');
   }
 
   private async collectDocuments(): Promise<DiscordVectorDocument[]> {
@@ -1340,9 +1357,11 @@ export default class DiscordVectorIngestionService {
 
   private async persistChunks(chunks: readonly DiscordVectorChunk[]): Promise<void> {
     if (chunks.length === 0) {
+      this.log('Aucun fragment à persister, rien à mettre à jour.');
       return;
     }
 
+    this.log('Préparation de la persistance des fragments.', { requestedChunks: chunks.length });
     const existingRows = await listDiscordVectorMetadata();
     const existingMap = new Map<string, { id: number; hash: string | null }>();
     const idsToDelete = new Set<number>();
@@ -1387,12 +1406,17 @@ export default class DiscordVectorIngestionService {
 
     if (idsToDelete.size > 0) {
       await deleteDiscordVectorsByIds([...idsToDelete]);
+      this.log('Fragments obsolètes supprimés.', { deletedRows: idsToDelete.size });
     }
 
     if (chunksToInsert.length === 0) {
+      this.log('Aucun nouveau fragment à insérer.');
       return;
     }
 
+    this.log('Génération des embeddings pour les nouveaux fragments.', {
+      chunksToInsert: chunksToInsert.length,
+    });
     const rows = [];
     for (const chunk of chunksToInsert) {
       const embedding = await getEmbedding(chunk.content);
@@ -1401,5 +1425,6 @@ export default class DiscordVectorIngestionService {
     }
 
     await insertDiscordVectors(rows);
+    this.log('Nouveaux fragments insérés dans la base.', { insertedRows: rows.length });
   }
 }
