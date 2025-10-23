@@ -110,6 +110,38 @@ export async function listDiscordVectorMetadata(): Promise<DiscordVectorExisting
   return result.rows;
 }
 
+export async function getDiscordVectorCount(): Promise<number> {
+  try {
+    const result = await query<{ count: string | number | bigint }>(
+      `SELECT COUNT(*)::bigint AS count FROM discord_vectors;`,
+    );
+    const rawCount = result.rows[0]?.count ?? 0;
+    if (typeof rawCount === 'number' && Number.isFinite(rawCount)) {
+      return Math.max(0, Math.floor(rawCount));
+    }
+    if (typeof rawCount === 'bigint') {
+      return Math.max(0, Number(rawCount));
+    }
+    if (typeof rawCount === 'string') {
+      const parsed = Number.parseInt(rawCount, 10);
+      if (Number.isFinite(parsed)) {
+        return Math.max(0, parsed);
+      }
+    }
+    const fallback = Number(rawCount);
+    if (Number.isFinite(fallback)) {
+      return Math.max(0, Math.floor(fallback));
+    }
+    return 0;
+  } catch (error) {
+    const postgresError = error as PostgresError;
+    if (postgresError?.code === '42P01') {
+      return 0;
+    }
+    throw error;
+  }
+}
+
 export async function deleteDiscordVectorsByIds(ids: readonly number[]): Promise<void> {
   if (!ids.length) {
     return;

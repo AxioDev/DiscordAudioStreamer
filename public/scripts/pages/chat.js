@@ -27,6 +27,11 @@ export const ChatPage = () => {
   const [draft, setDraft] = useState('');
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [vectorStatus, setVectorStatus] = useState(() => ({
+    state: 'loading',
+    count: null,
+    error: null,
+  }));
   const scrollContainerRef = useRef(null);
   const pendingRequestRef = useRef(null);
 
@@ -44,6 +49,78 @@ export const ChatPage = () => {
       if (pendingRequestRef.current) {
         pendingRequestRef.current.abort();
         pendingRequestRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    setVectorStatus({ state: 'loading', count: null, error: null });
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+
+    const loadStatus = async () => {
+      try {
+        const response = await fetch('/api/chat/status', { signal: controller?.signal });
+        const contentType = response.headers?.get('Content-Type') ?? '';
+        const isJson = contentType.includes('application/json');
+        const payload = isJson ? await response.json() : null;
+
+        if (!response.ok) {
+          const message =
+            payload && typeof payload.message === 'string' && payload.message.trim().length > 0
+              ? payload.message.trim()
+              : 'La base documentaire est momentanément indisponible.';
+          throw new Error(message);
+        }
+
+        const rawCount = payload?.vectorCount;
+        const numericCount =
+          typeof rawCount === 'number'
+            ? rawCount
+            : typeof rawCount === 'string'
+              ? Number.parseInt(rawCount, 10)
+              : typeof rawCount === 'bigint'
+                ? Number(rawCount)
+                : Number(rawCount);
+
+        if (!Number.isFinite(numericCount) || numericCount < 0) {
+          throw new Error('INVALID_COUNT');
+        }
+
+        if (!isMounted) {
+          return;
+        }
+
+        setVectorStatus({
+          state: 'ready',
+          count: Math.max(0, Math.round(numericCount)),
+          error: null,
+        });
+      } catch (statusError) {
+        if (controller?.signal?.aborted || !isMounted) {
+          return;
+        }
+
+        const fallback = 'La base documentaire est momentanément indisponible.';
+        const friendlyMessage =
+          statusError instanceof Error && statusError.message !== 'INVALID_COUNT'
+            ? statusError.message
+            : fallback;
+
+        setVectorStatus({
+          state: 'error',
+          count: null,
+          error: friendlyMessage,
+        });
+      }
+    };
+
+    void loadStatus();
+
+    return () => {
+      isMounted = false;
+      if (controller) {
+        controller.abort();
       }
     };
   }, []);
@@ -181,6 +258,35 @@ export const ChatPage = () => {
     [sendMessage],
   );
 
+  const vectorCardState = vectorStatus.state;
+  const vectorCardClass = [
+    'rounded-2xl border px-4 py-3 text-sm transition',
+    vectorCardState === 'error'
+      ? 'border-amber-400/50 bg-amber-500/15 text-amber-100 shadow-inner shadow-amber-500/20'
+      : 'border-emerald-400/40 bg-emerald-500/10 text-emerald-100 shadow-inner shadow-emerald-500/20',
+  ].join(' ');
+  const vectorTitle =
+    vectorCardState === 'error' ? 'Base documentaire indisponible' : 'Sources vérifiées';
+  const vectorDescriptionClass =
+    vectorCardState === 'error' ? 'text-amber-50/80' : 'text-emerald-50/80';
+  const vectorDescription = (() => {
+    switch (vectorCardState) {
+      case 'loading':
+        return 'Chargement des extraits indexés…';
+      case 'error':
+        return vectorStatus.error || 'La base documentaire est momentanément indisponible.';
+      default: {
+        const count = typeof vectorStatus.count === 'number' ? vectorStatus.count : 0;
+        if (count === 0) {
+          return 'Aucun passage indexé pour le moment. La prochaine synchronisation alimentera la base.';
+        }
+        const formatted = count.toLocaleString('fr-FR');
+        const label = count > 1 ? 'passages indexés' : 'passage indexé';
+        return `${formatted} ${label} dans la base communautaire.`;
+      }
+    }
+  })();
+
   return html`
     <section class="chat-page flex flex-col gap-8">
       <header class="rounded-3xl border border-white/10 bg-slate-900/70 px-6 py-6 shadow-lg shadow-black/30 backdrop-blur">
@@ -197,9 +303,9 @@ export const ChatPage = () => {
               </p>
             </div>
           </div>
-          <div class="rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100 shadow-inner shadow-emerald-500/20">
-            <p class="font-medium">Sources vérifiées</p>
-            <p class="text-emerald-50/80">Chaque réponse s’appuie sur les informations vérifiées de la communauté.</p>
+          <div class=${vectorCardClass}>
+            <p class="font-medium">${vectorTitle}</p>
+            <p class=${vectorDescriptionClass}>${vectorDescription}</p>
           </div>
         </div>
       </header>

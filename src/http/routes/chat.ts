@@ -5,6 +5,7 @@ import { generateAnswer, getEmbedding } from '../../lib/openai';
 import {
   buildVectorLiteral,
   ensureDiscordVectorSchema,
+  getDiscordVectorCount,
   PgvectorExtensionRequiredError,
 } from '../../services/DiscordVectorRepository';
 
@@ -27,6 +28,42 @@ function buildContextFromRows(rows: readonly DiscordVectorRow[]): string {
 }
 
 export function registerChatRoute(app: Application): void {
+  app.get('/api/chat/status', async (_req: Request, res: Response) => {
+    if (!config.database?.url) {
+      res.status(503).json({
+        error: 'DATABASE_UNAVAILABLE',
+        message: "La base de données n'est pas configurée.",
+      });
+      return;
+    }
+
+    try {
+      await ensureDiscordVectorSchema();
+      const vectorCount = await getDiscordVectorCount();
+      res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
+      res.status(200).json({ vectorCount });
+    } catch (error) {
+      if (error instanceof PgvectorExtensionRequiredError) {
+        console.error(
+          'Pgvector extension is required for /api/chat/status request',
+          error.originalError ?? error,
+        );
+        res.status(503).json({
+          error: error.reason,
+          message:
+            "L'extension PostgreSQL pgvector doit être installée et accessible pour activer la fonctionnalité de chat.",
+        });
+        return;
+      }
+
+      console.error('Failed to compute /api/chat/status response', error);
+      res.status(500).json({
+        error: 'CHAT_STATUS_UNAVAILABLE',
+        message: 'Impossible de vérifier la base documentaire pour le moment.',
+      });
+    }
+  });
+
   app.post('/api/chat', async (req: Request, res: Response) => {
     if (!config.database?.url) {
       res.status(503).json({
