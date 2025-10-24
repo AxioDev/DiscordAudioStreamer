@@ -269,7 +269,7 @@ async function main(): Promise<void> {
   logInfo('Anciennes entrées supprimées.');
 
   logStep(5, 'Récupération des membres actifs et de leurs personas…');
-  const activeMembers = await loadActiveMemberProfiles(10);
+  const activeMembers = await loadActiveMemberProfiles(365);
   if (activeMembers.length === 0) {
     throw new Error("Impossible de charger les profils des membres actifs : aucune persona disponible.");
   }
