@@ -27,6 +27,37 @@ function parseStringList(value: string | undefined): string[] {
     .filter((entry) => entry.length > 0);
 }
 
+const VALID_LOG_LEVELS: readonly LoggingConfig['level'][] = [
+  'error',
+  'warn',
+  'info',
+  'http',
+  'verbose',
+  'debug',
+  'silly',
+  'silent',
+];
+
+function parseLogLevel(value: string | undefined): LoggingConfig['level'] {
+  const defaultLevel: LoggingConfig['level'] =
+    process.env.NODE_ENV === 'production' ? 'info' : 'debug';
+
+  if (!value) {
+    return defaultLevel;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return defaultLevel;
+  }
+
+  if (VALID_LOG_LEVELS.includes(normalized as LoggingConfig['level'])) {
+    return normalized as LoggingConfig['level'];
+  }
+
+  return defaultLevel;
+}
+
 const outputFormat = (process.env.OUT_FORMAT || 'opus').toLowerCase();
 
 const defaultExcludedUserIds = ['1419381362116268112', '1282959031207596066'];
@@ -132,6 +163,10 @@ export interface VectorIngestionConfig {
   lookbackWeeks: number;
 }
 
+export interface LoggingConfig {
+  level: string;
+}
+
 export interface Config {
   botToken: string;
   guildId?: string;
@@ -166,6 +201,7 @@ export interface Config {
   admin: AdminConfig;
   secretArticleTrigger: SecretArticleTriggerConfig;
   privacy: PrivacyConfig;
+  logging: LoggingConfig;
 }
 
 const config: Config = {
@@ -326,6 +362,9 @@ const config: Config = {
         return trimmed.length > 0 ? trimmed : undefined;
       })(),
     },
+  },
+  logging: {
+    level: parseLogLevel(process.env.LOG_LEVEL),
   },
 };
 
