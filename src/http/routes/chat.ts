@@ -1,7 +1,7 @@
 import type { Application, Request, Response } from 'express';
 import config from '../../config';
 import { query } from '../../lib/db';
-import { generateAnswer, getEmbedding } from '../../lib/openai';
+import { generateAnswer, getEmbedding, type ConversationMessage } from '../../lib/openai';
 import {
   buildVectorLiteral,
   ensureDiscordVectorSchema,
@@ -14,17 +14,132 @@ interface DiscordVectorRow {
   metadata: Record<string, unknown> | null;
 }
 
+const VECTOR_RESULT_LIMIT = 8;
+
+function sanitizeMetadata(metadata: Record<string, unknown> | null): string {
+  if (!metadata) {
+    return '';
+  }
+
+  const lines: string[] = [];
+  const stringFields: Array<[keyof Record<string, unknown>, string]> = [
+    ['source', 'Source'],
+    ['title', 'Titre'],
+    ['channel', 'Salon'],
+    ['channelName', 'Salon'],
+    ['author', 'Auteur'],
+    ['username', 'Auteur'],
+    ['messageUrl', 'Lien'],
+    ['url', 'Lien'],
+  ];
+
+  const normalizedMetadata: Record<string, unknown> = { ...metadata };
+  for (const [key, label] of stringFields) {
+    const value = normalizedMetadata[key];
+    if (typeof value === 'string' && value.trim()) {
+      lines.push(`${label} : ${value}`);
+      delete normalizedMetadata[key];
+    }
+  }
+
+  const arrayFields: Array<[keyof Record<string, unknown>, string]> = [
+    ['tags', 'Mots-clés'],
+    ['roles', 'Rôles'],
+  ];
+
+  for (const [key, label] of arrayFields) {
+    const value = normalizedMetadata[key];
+    if (Array.isArray(value) && value.length > 0) {
+      const formatted = value
+        .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+        .filter(Boolean)
+        .join(', ');
+      if (formatted) {
+        lines.push(`${label} : ${formatted}`);
+      }
+      delete normalizedMetadata[key];
+    }
+  }
+
+  if (typeof normalizedMetadata.createdAt === 'string') {
+    lines.push(`Créé le : ${normalizedMetadata.createdAt}`);
+    delete normalizedMetadata.createdAt;
+  }
+
+  if (typeof normalizedMetadata.updatedAt === 'string') {
+    lines.push(`Mis à jour le : ${normalizedMetadata.updatedAt}`);
+    delete normalizedMetadata.updatedAt;
+  }
+
+  const remainingKeys = Object.keys(normalizedMetadata).filter((key) => normalizedMetadata[key] != null);
+  if (remainingKeys.length > 0) {
+    lines.push(`Autres métadonnées : ${JSON.stringify(normalizedMetadata)}`);
+  }
+
+  return lines.join('\n');
+}
+
 function buildContextFromRows(rows: readonly DiscordVectorRow[]): string {
   if (rows.length === 0) {
     return '';
   }
 
+  const seenContents = new Set<string>();
+
   return rows
-    .map((row, index) => {
-      const metadataLabel = row.metadata ? `\nMETADONNÉES : ${JSON.stringify(row.metadata)}` : '';
-      return `Passage ${index + 1} :\n${row.content.trim()}${metadataLabel}`.trim();
+    .map((row) => ({
+      content: row.content.trim(),
+      metadata: sanitizeMetadata(row.metadata),
+    }))
+    .filter(({ content }) => {
+      const normalized = content.toLowerCase();
+      if (seenContents.has(normalized)) {
+        return false;
+      }
+      seenContents.add(normalized);
+      return Boolean(content);
+    })
+    .map(({ content, metadata }, index) => {
+      const metadataBlock = metadata ? `\n${metadata}` : '';
+      return `Passage ${index + 1} :\n${content}${metadataBlock}`.trim();
     })
     .join('\n\n');
+}
+
+function normalizeConversation(rawConversation: unknown): ConversationMessage[] {
+  if (!Array.isArray(rawConversation)) {
+    return [];
+  }
+
+  const normalized: ConversationMessage[] = [];
+  for (const entry of rawConversation) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+
+    const { role } = entry as Partial<ConversationMessage>;
+    const rawContent = (entry as Partial<ConversationMessage>).content;
+    const content = typeof rawContent === 'string' ? rawContent.trim() : '';
+
+    if ((role === 'user' || role === 'assistant') && content) {
+      normalized.push({ role, content });
+    }
+  }
+
+  return normalized.slice(-10);
+}
+
+function buildEmbeddingInput(message: string, conversation: ConversationMessage[]): string {
+  if (conversation.length === 0) {
+    return message;
+  }
+
+  const historySnippet = conversation
+    .slice(-6)
+    .map((entry) => `${entry.role === 'assistant' ? 'Assistant' : 'Utilisateur'} : ${entry.content}`)
+    .join('\n');
+
+  return `${historySnippet}\nQuestion actuelle : ${message}`.trim();
 }
 
 export function registerChatRoute(app: Application): void {
@@ -82,6 +197,7 @@ export function registerChatRoute(app: Application): void {
     }
 
     const messageRaw = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
+    const conversation = normalizeConversation(req.body?.conversation);
     if (!messageRaw) {
       res.status(400).json({
         error: 'MESSAGE_REQUIRED',
@@ -92,15 +208,16 @@ export function registerChatRoute(app: Application): void {
 
     try {
       await ensureDiscordVectorSchema();
-      const embedding = await getEmbedding(messageRaw);
+      const embeddingInput = buildEmbeddingInput(messageRaw, conversation);
+      const embedding = await getEmbedding(embeddingInput);
       const vectorLiteral = buildVectorLiteral(embedding);
       const result = await query<DiscordVectorRow>(
-        `SELECT content, metadata FROM discord_vectors ORDER BY embedding <-> $1 LIMIT 5;`,
+        `SELECT content, metadata FROM discord_vectors ORDER BY embedding <-> $1 LIMIT ${VECTOR_RESULT_LIMIT};`,
         [vectorLiteral],
       );
 
       const context = buildContextFromRows(result.rows);
-      const answer = await generateAnswer(context, messageRaw);
+      const answer = await generateAnswer(context, messageRaw, conversation);
 
       res.status(200).json({ answer });
     } catch (error) {
