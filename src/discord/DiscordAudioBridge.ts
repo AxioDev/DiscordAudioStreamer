@@ -366,6 +366,55 @@ export default class DiscordAudioBridge {
       return;
     }
 
+    if (content === '!join') {
+      const memberVoiceChannelId = message.member?.voice?.channelId ?? null;
+
+      const fallbackGuildId = this.currentGuildId ?? this.config.guildId ?? null;
+      const fallbackChannelId = this.currentVoiceChannelId ?? this.config.voiceChannelId ?? null;
+
+      let targetGuildId: Snowflake | null = null;
+      let targetChannelId: Snowflake | null = null;
+
+      if (memberVoiceChannelId && message.guildId) {
+        targetGuildId = message.guildId;
+        targetChannelId = memberVoiceChannelId;
+      } else if (fallbackGuildId && fallbackChannelId) {
+        targetGuildId = fallbackGuildId;
+        targetChannelId = fallbackChannelId;
+      }
+
+      if (!targetGuildId || !targetChannelId) {
+        await message.reply(
+          'Je ne sais pas quel salon vocal rejoindre. Utilise `!joinVoice <guildId> <voiceChannelId>` pour spécifier une destination.',
+        );
+        return;
+      }
+
+      const isAlreadyConnected =
+        this.voiceConnection?.state.status === VoiceConnectionStatus.Ready
+        && this.currentGuildId === targetGuildId
+        && this.currentVoiceChannelId === targetChannelId;
+
+      if (isAlreadyConnected) {
+        await message.reply('Je suis déjà connecté à ce salon vocal. ✅');
+        return;
+      }
+
+      if (this.voiceConnection) {
+        this.leaveVoice();
+      }
+
+      try {
+        await this.joinVoice(targetGuildId, targetChannelId);
+        const channelMention = message.guildId === targetGuildId ? `<#${targetChannelId}>` : 'le salon vocal configuré';
+        await message.reply(`Connexion à ${channelMention} effectuée ✅`);
+      } catch (error) {
+        console.error('Failed to join voice channel via !join', error);
+        await message.reply('Impossible de rejoindre le salon vocal demandé.');
+      }
+      return;
+    }
+
     if (content.startsWith('!joinVoice')) {
       const parts = content.split(/\s+/);
       const guildId = (parts[1] as Snowflake | undefined) || message.guildId || undefined;
