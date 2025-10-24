@@ -9,6 +9,7 @@ import {
   MessageSquare,
   RefreshCcw,
 } from '../core/deps.js';
+import { renderMarkdown } from '../utils/markdown.js';
 
 const createMessageId = (prefix) =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -322,6 +323,7 @@ export const ChatPage = () => {
               const isUser = message.role === 'user';
               const isErrorTone = message.tone === 'error';
               const isIntro = message.tone === 'intro';
+              const isAssistant = message.role === 'assistant';
               const timestamp = typeof message.timestamp === 'number' ? message.timestamp : Date.now();
               const formattedTime = timeFormatter.format(new Date(timestamp));
               const Icon = isUser ? MessageSquare : Sparkles;
@@ -358,6 +360,13 @@ export const ChatPage = () => {
                     : 'text-slate-400'
               }`;
 
+              const contentNode = isAssistant
+                ? html`<div
+                    class="chat-markdown"
+                    dangerouslySetInnerHTML=${{ __html: renderMarkdown(message.content) }}
+                  />`
+                : html`<p class="whitespace-pre-wrap text-sm leading-relaxed text-left">${message.content}</p>`;
+
               return html`
                 <article key=${message.id} class=${containerClass}>
                   <div class=${`flex max-w-[90%] flex-col gap-2 ${isUser ? 'items-end text-right' : 'items-start text-left'}`}>
@@ -372,7 +381,7 @@ export const ChatPage = () => {
                       <span class=${iconWrapperClass}>
                         <${Icon} class="h-4 w-4" aria-hidden="true" />
                       </span>
-                      <p class="whitespace-pre-wrap text-sm leading-relaxed text-left">${message.content}</p>
+                      ${contentNode}
                     </div>
                   </div>
                 </article>
