@@ -22,15 +22,13 @@ import { ShopError, type ShopProvider, type PublicProduct } from '../services/Sh
 import type VoiceActivityRepository from '../services/VoiceActivityRepository';
 import ListenerStatsService, {
   type ListenerStatsEntry,
-  type ListenerStatsUpdate,
 } from '../services/ListenerStatsService';
 import BlogService, {
-  type BlogListOptions,
   type BlogPostDetail,
   type BlogPostSummary,
 } from '../services/BlogService';
-import BlogRepository, { type BlogPostRow } from '../services/BlogRepository';
-import BlogSubmissionService, { BlogSubmissionError } from '../services/BlogSubmissionService';
+import BlogRepository from '../services/BlogRepository';
+import BlogSubmissionService from '../services/BlogSubmissionService';
 import BlogModerationService from '../services/BlogModerationService';
 import type {
   CommunityPulseSnapshot,
@@ -61,10 +59,17 @@ import type { UserPersonaServiceStatus } from '../services/UserPersonaService';
 import SitemapLastModStore from './SitemapLastModStore';
 import StatisticsService, {
   type CommunityStatisticsSnapshot,
-  type StatisticsQueryOptions,
 } from '../services/StatisticsService';
 import type UserAudioRecorder from '../services/UserAudioRecorder';
 import { registerChatRoute } from './routes/chat';
+import { createShopRouter } from './routes/shop';
+import { createBlogRouter } from './routes/blog';
+import { createStatsRouter } from './routes/stats';
+import { createAdminRouter } from './routes/admin';
+import { parseTimestamp, parseVoiceTranscriptionCursor, serializeVoiceTranscriptionCursor } from './utils/time';
+import { normalizeRecordingFileName, getRecordingContentType } from './utils/recordings';
+import { buildStreamInitialState, subscribeToListenerUpdates } from './utils/sse';
+import { parseStatisticsQuery } from './utils/statistics';
 import { getDatabasePool } from '../lib/db';
 import DatabaseCache from '../services/DatabaseCache';
 
@@ -160,29 +165,6 @@ interface ListenerStatsBootstrap {
   count: number;
   history: ListenerStatsEntry[];
 }
-
-interface AdminBlogPostRecord {
-  id: string;
-  slug: string;
-  title: string;
-  excerpt: string | null;
-  contentMarkdown: string;
-  coverImageUrl: string | null;
-  tags: string[];
-  seoDescription: string | null;
-  publishedAt: string | null;
-  updatedAt: string | null;
-}
-
-interface AdminListRequestParams {
-  page: number;
-  perPage: number;
-  sortField: string | null;
-  sortOrder: 'asc' | 'desc';
-  filters: Record<string, unknown>;
-}
-
-type AdminHiddenMemberRecord = HiddenMemberRecord & { id: string };
 
 interface HomePulseMetricPresentation {
   id: 'voice' | 'members' | 'messages';
@@ -515,9 +497,12 @@ export default class AppServer {
         })
       : null;
     this.listenerStatsService = listenerStatsService;
-    this.unsubscribeListenerStats = this.listenerStatsService.onUpdate((update) =>
-      this.handleListenerStatsUpdate(update),
-    );
+    this.unsubscribeListenerStats = subscribeToListenerUpdates({
+      sseService: this.sseService,
+      listenerStatsService: this.listenerStatsService,
+      speakerTracker: this.speakerTracker,
+      anonymousSpeechManager: this.anonymousSpeechManager,
+    });
 
     this.blogRepository =
       blogRepository ??
@@ -614,299 +599,6 @@ export default class AppServer {
 
     this.configureMiddleware();
     this.registerRoutes();
-  }
-
-  private handleListenerStatsUpdate(update: ListenerStatsUpdate | null): void {
-    if (!update) {
-      return;
-    }
-
-    this.sseService.broadcast('listeners', {
-      count: update.count,
-      timestamp: update.entry.timestamp,
-      reason: update.reason,
-      delta: update.delta,
-      entry: update.entry,
-      inserted: update.inserted,
-    });
-  }
-
-  private parseTimestamp(value: unknown): Date | null {
-    if (value instanceof Date) {
-      return Number.isNaN(value.getTime()) ? null : value;
-    }
-
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      const candidate = new Date(value);
-      return Number.isNaN(candidate.getTime()) ? null : candidate;
-    }
-
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      if (!trimmed) {
-        return null;
-      }
-
-      const numeric = Number(trimmed);
-      if (Number.isFinite(numeric)) {
-        const fromNumber = new Date(numeric);
-        if (!Number.isNaN(fromNumber.getTime())) {
-          return fromNumber;
-        }
-      }
-
-      const fromString = new Date(trimmed);
-      if (!Number.isNaN(fromString.getTime())) {
-        return fromString;
-      }
-    }
-
-    return null;
-  }
-
-  private buildRecordingDownloadName(userId: string, fileName: string): string {
-    const normalizedUserId = typeof userId === 'string' && userId.trim().length > 0 ? userId.trim() : 'membre';
-    const parsed = path.parse(typeof fileName === 'string' && fileName.trim().length > 0 ? fileName : 'enregistrement.wav');
-    const base = `${normalizedUserId}-${parsed.name || 'enregistrement'}`;
-    const sanitizedBase = base
-      .normalize('NFKD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-zA-Z0-9._-]+/g, '_')
-      .replace(/_+/g, '_')
-      .replace(/^_+/, '')
-      .replace(/_+$/, '');
-    const safeBase = sanitizedBase.length > 0 ? sanitizedBase : 'enregistrement';
-    const extension = parsed.ext && parsed.ext.length <= 10 ? parsed.ext.toLowerCase() : '.wav';
-    const normalizedExtension = extension.startsWith('.') ? extension : `.${extension}`;
-    return `${safeBase}${normalizedExtension}`;
-  }
-
-  private getRecordingContentType(fileName: string): string {
-    if (typeof fileName !== 'string') {
-      return 'audio/wav';
-    }
-    const lower = fileName.toLowerCase();
-    if (lower.endsWith('.mp3')) {
-      return 'audio/mpeg';
-    }
-    if (lower.endsWith('.ogg')) {
-      return 'audio/ogg';
-    }
-    return 'audio/wav';
-  }
-
-  private parseVoiceTranscriptionCursor(value: unknown): VoiceTranscriptionCursor | null {
-    if (typeof value !== 'string') {
-      return null;
-    }
-
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return null;
-    }
-
-    const parts = trimmed.split(':');
-    if (parts.length !== 2) {
-      return null;
-    }
-
-    const [timestampPart, idPart] = parts;
-    const timestampMs = Number(timestampPart);
-    const idValue = Number(idPart);
-
-    if (!Number.isFinite(timestampMs) || !Number.isFinite(idValue)) {
-      return null;
-    }
-
-    const timestamp = new Date(Math.floor(timestampMs));
-    if (Number.isNaN(timestamp.getTime())) {
-      return null;
-    }
-
-    return { timestamp, id: Math.floor(idValue) };
-  }
-
-  private serializeVoiceTranscriptionCursor(cursor: VoiceTranscriptionCursor | null): string | null {
-    if (!cursor) {
-      return null;
-    }
-
-    const timestamp = cursor.timestamp instanceof Date ? cursor.timestamp : new Date(cursor.timestamp);
-    const timestampMs = timestamp.getTime();
-    const idValue = Number(cursor.id);
-
-    if (!Number.isFinite(timestampMs) || Number.isNaN(timestampMs) || !Number.isFinite(idValue)) {
-      return null;
-    }
-
-    return `${Math.floor(timestampMs)}:${Math.floor(idValue)}`;
-  }
-
-  private parseBlogListOptions(query: Request['query']): BlogListOptions {
-    const options: BlogListOptions = {};
-
-    const rawSearch = this.extractString(query?.search);
-    if (rawSearch) {
-      options.search = rawSearch;
-    }
-
-    const tags = this.extractStringArray(query?.tag ?? query?.tags);
-    if (tags.length > 0) {
-      options.tags = tags;
-    }
-
-    const rawSort = this.extractString(query?.sort ?? query?.sortBy);
-    if (rawSort) {
-      if (rawSort === 'title') {
-        options.sortBy = 'title';
-      } else if (rawSort === 'date' || rawSort === 'recent' || rawSort === 'published_at') {
-        options.sortBy = 'date';
-      }
-    }
-
-    const rawOrder = this.extractString(query?.order ?? query?.sortOrder);
-    if (rawOrder === 'asc' || rawOrder === 'desc') {
-      options.sortOrder = rawOrder;
-    }
-
-    const rawLimit = this.extractString(query?.limit ?? query?.pageSize ?? query?.perPage);
-    if (rawLimit) {
-      const numericLimit = Number(rawLimit);
-      if (Number.isFinite(numericLimit) && numericLimit > 0) {
-        options.limit = Math.floor(numericLimit);
-      }
-    }
-
-    return options;
-  }
-
-  private parseStatisticsQuery(query: Request['query']): StatisticsQueryOptions {
-    const source = (query && typeof query === 'object' ? query : {}) as Record<string, unknown>;
-
-    const extractString = (value: unknown): string | null => {
-      if (Array.isArray(value)) {
-        for (const entry of value) {
-          const candidate = extractString(entry);
-          if (candidate) {
-            return candidate;
-          }
-        }
-        return null;
-      }
-      if (typeof value === 'string') {
-        const trimmed = value.trim();
-        return trimmed.length > 0 ? trimmed : null;
-      }
-      if (typeof value === 'number' && Number.isFinite(value)) {
-        return String(value);
-      }
-      return null;
-    };
-
-    const extractStringArray = (value: unknown): string[] => {
-      const result: string[] = [];
-      const visit = (input: unknown): void => {
-        if (Array.isArray(input)) {
-          for (const item of input) {
-            visit(item);
-          }
-          return;
-        }
-        if (typeof input === 'string') {
-          input
-            .split(/[;,]/)
-            .map((segment) => segment.trim())
-            .filter((segment) => segment.length > 0)
-            .forEach((segment) => {
-              if (!result.includes(segment)) {
-                result.push(segment);
-              }
-            });
-        }
-      };
-      visit(value);
-      return result;
-    };
-
-    const parseDate = (value: string | null): Date | null => {
-      if (!value) {
-        return null;
-      }
-      const parsed = new Date(value);
-      return Number.isNaN(parsed.getTime()) ? null : parsed;
-    };
-
-    const parseNumber = (value: string | null): number | null => {
-      if (!value) {
-        return null;
-      }
-      const numeric = Number(value);
-      return Number.isFinite(numeric) ? numeric : null;
-    };
-
-    const parseBoolean = (value: string | null): boolean | null => {
-      if (!value) {
-        return null;
-      }
-      const normalized = value.trim().toLowerCase();
-      if (['true', '1', 'yes', 'on', 'vrai'].includes(normalized)) {
-        return true;
-      }
-      if (['false', '0', 'no', 'off', 'faux'].includes(normalized)) {
-        return false;
-      }
-      return null;
-    };
-
-    const sinceRaw = extractString(source.since ?? source.from ?? source.start);
-    const untilRaw = extractString(source.until ?? source.to ?? source.end);
-    const granularity = extractString(source.granularity ?? source.range ?? source.interval ?? source.bucket);
-
-    const activityTypes = extractStringArray(source.activity ?? source.activities ?? source.type ?? source.types);
-    const channelIds = extractStringArray(source.channel ?? source.channelId ?? source.channels);
-    const retentionValues = extractStringArray(source.retention ?? source.retentionDays ?? source.retention_window);
-    const retentionWindows = retentionValues
-      .map((value) => Number(value))
-      .filter((value) => Number.isFinite(value) && value > 0);
-
-    const limitTopMembers = parseNumber(extractString(source.limitTop ?? source.top ?? source.limit));
-    const limitChannels = parseNumber(
-      extractString(source.limitChannels ?? source.channelsLimit ?? source.limitChannelsTop),
-    );
-
-    const includeHeatmap = parseBoolean(extractString(source.heatmap ?? source.includeHeatmap));
-    const includeHypeHistory = parseBoolean(
-      extractString(source.hype ?? source.includeHype ?? source.hypeHistory),
-    );
-
-    const userSearch = extractString(source.userSearch ?? source.searchUser ?? source.search);
-    const userId = extractString(source.userId ?? source.member ?? source.user);
-
-    const options: StatisticsQueryOptions = {
-      since: parseDate(sinceRaw),
-      until: parseDate(untilRaw),
-      granularity: granularity ?? undefined,
-      activityTypes: activityTypes.length > 0 ? activityTypes : undefined,
-      channelIds: channelIds.length > 0 ? channelIds : undefined,
-      userId: userId ?? undefined,
-      retentionWindowDays: retentionWindows.length > 0 ? retentionWindows : undefined,
-      userSearch: userSearch ?? undefined,
-    };
-
-    if (Number.isFinite(limitTopMembers)) {
-      options.limitTopMembers = limitTopMembers ?? undefined;
-    }
-    if (Number.isFinite(limitChannels)) {
-      options.limitChannels = limitChannels ?? undefined;
-    }
-    if (includeHeatmap !== null) {
-      options.includeHeatmap = includeHeatmap;
-    }
-    if (includeHypeHistory !== null) {
-      options.includeHypeHistory = includeHypeHistory;
-    }
-
-    return options;
   }
 
   private extractString(value: unknown): string | null {
@@ -1572,290 +1264,6 @@ export default class AppServer {
     }
     lines.push('</urlset>');
     return lines.join('\n');
-  }
-
-  private parseAdminListRequest(req: Request): AdminListRequestParams {
-    const extractSingle = (value: unknown): string | null => {
-      if (Array.isArray(value)) {
-        return value.length > 0 ? extractSingle(value[0]) : null;
-      }
-      if (typeof value === 'string') {
-        const trimmed = value.trim();
-        return trimmed.length > 0 ? trimmed : null;
-      }
-      if (typeof value === 'number' && Number.isFinite(value)) {
-        return String(value);
-      }
-      return null;
-    };
-
-    const rawPage = extractSingle(req.query?.page);
-    const parsedPage = rawPage ? Number.parseInt(rawPage, 10) : NaN;
-    const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
-
-    const rawPerPage = extractSingle(req.query?.perPage);
-    const parsedPerPage = rawPerPage ? Number.parseInt(rawPerPage, 10) : NaN;
-    const perPage = Math.min(Math.max(Number.isFinite(parsedPerPage) && parsedPerPage > 0 ? parsedPerPage : 25, 1), 100);
-
-    const rawSort = extractSingle(req.query?.sort);
-    const sortField = rawSort && rawSort.length > 0 ? rawSort : null;
-
-    const rawOrder = extractSingle(req.query?.order);
-    const normalizedOrder = rawOrder ? rawOrder.toLowerCase() : null;
-    const sortOrder = normalizedOrder === 'asc' ? 'asc' : 'desc';
-
-    const rawFilter = extractSingle(req.query?.filter);
-    let filters: Record<string, unknown> = {};
-    if (rawFilter) {
-      try {
-        const parsed = JSON.parse(rawFilter);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          filters = parsed as Record<string, unknown>;
-        }
-      } catch (error) {
-        console.warn('Failed to parse admin filter query', error);
-      }
-    }
-
-    return { page, perPage, sortField, sortOrder, filters };
-  }
-
-  private extractAdminSearchFilter(filters: Record<string, unknown>): string | null {
-    const candidates = ['q', 'query', 'search'];
-    for (const key of candidates) {
-      const value = filters?.[key];
-      if (typeof value === 'string') {
-        const trimmed = value.trim();
-        if (trimmed.length > 0) {
-          return trimmed;
-        }
-      }
-    }
-    return null;
-  }
-
-  private extractAdminTagsFilter(filters: Record<string, unknown>): string[] | null {
-    const raw = filters?.tags;
-    if (!raw) {
-      return null;
-    }
-
-    const normalize = (value: unknown): string | null => {
-      if (typeof value !== 'string') {
-        return null;
-      }
-      const trimmed = value.trim();
-      return trimmed.length > 0 ? trimmed : null;
-    };
-
-    if (Array.isArray(raw)) {
-      const tags = raw.map((entry) => normalize(entry)).filter((entry): entry is string => Boolean(entry));
-      return tags.length > 0 ? tags : null;
-    }
-
-    if (typeof raw === 'string') {
-      const tags = raw
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0);
-      return tags.length > 0 ? tags : null;
-    }
-
-    return null;
-  }
-
-  private extractAdminOnlyPublishedFilter(filters: Record<string, unknown>): boolean {
-    const raw = filters?.onlyPublished;
-    if (typeof raw === 'boolean') {
-      return raw;
-    }
-    if (typeof raw === 'string') {
-      const normalized = raw.trim().toLowerCase();
-      return normalized === 'true' || normalized === '1';
-    }
-    return false;
-  }
-
-  private parseAdminBlogPostInput(
-    raw: unknown,
-    options: { slugFallback?: string | null; allowSlugOverride?: boolean } = {},
-  ): {
-    ok: true;
-    data: {
-      slug: string;
-      title: string;
-      excerpt: string | null;
-      contentMarkdown: string;
-      coverImageUrl: string | null;
-      tags: string[];
-      seoDescription: string | null;
-      publishedAt: Date;
-      updatedAt: Date;
-    };
-  } | {
-    ok: false;
-    status: number;
-    error: string;
-    message: string;
-  } {
-    const body = (raw && typeof raw === 'object') ? (raw as Record<string, unknown>) : {};
-
-    const slugSource =
-      options.allowSlugOverride && typeof body.slug === 'string'
-        ? body.slug
-        : typeof body.slug === 'string' && options.slugFallback == null
-          ? body.slug
-          : options.slugFallback ?? (typeof body.slug === 'string' ? body.slug : null);
-
-    const slug = this.normalizeSlug(slugSource);
-    if (!slug) {
-      return {
-        ok: false,
-        status: 400,
-        error: 'SLUG_REQUIRED',
-        message: 'Un slug valide est requis pour cet article.',
-      };
-    }
-
-    const title = typeof body.title === 'string' ? body.title.trim() : '';
-    if (!title) {
-      return {
-        ok: false,
-        status: 400,
-        error: 'TITLE_REQUIRED',
-        message: "Le titre de l’article est obligatoire.",
-      };
-    }
-
-    const contentMarkdown = typeof body.contentMarkdown === 'string' ? body.contentMarkdown : '';
-    if (!contentMarkdown || contentMarkdown.trim().length === 0) {
-      return {
-        ok: false,
-        status: 400,
-        error: 'CONTENT_REQUIRED',
-        message: "Le contenu de l’article est obligatoire.",
-      };
-    }
-
-    const excerpt = typeof body.excerpt === 'string' ? body.excerpt.trim() : null;
-    const coverImageUrl = typeof body.coverImageUrl === 'string' ? body.coverImageUrl.trim() || null : null;
-    const seoDescription = typeof body.seoDescription === 'string' ? body.seoDescription.trim() || null : null;
-    const tags = this.normalizeAdminTags(body.tags);
-    const publishedAt = this.parseDateInput(body.publishedAt) ?? new Date();
-    const updatedAt = this.parseDateInput(body.updatedAt) ?? new Date();
-
-    return {
-      ok: true,
-      data: {
-        slug,
-        title,
-        excerpt,
-        contentMarkdown,
-        coverImageUrl,
-        tags,
-        seoDescription,
-        publishedAt,
-        updatedAt,
-      },
-    };
-  }
-
-  private normalizeAdminTags(input: unknown): string[] {
-    if (!input) {
-      return [];
-    }
-    if (Array.isArray(input)) {
-      return input
-        .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
-        .filter((entry) => entry.length > 0);
-    }
-    if (typeof input === 'string') {
-      return input
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0);
-    }
-    return [];
-  }
-
-  private parseDateInput(value: unknown): Date | null {
-    if (value instanceof Date && !Number.isNaN(value.getTime())) {
-      return value;
-    }
-
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      const fromNumber = new Date(value);
-      return Number.isNaN(fromNumber.getTime()) ? null : fromNumber;
-    }
-
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      if (!trimmed) {
-        return null;
-      }
-      const numeric = Number(trimmed);
-      if (Number.isFinite(numeric)) {
-        const fromNumeric = new Date(numeric);
-        if (!Number.isNaN(fromNumeric.getTime())) {
-          return fromNumeric;
-        }
-      }
-      const fromString = new Date(trimmed);
-      return Number.isNaN(fromString.getTime()) ? null : fromString;
-    }
-
-    return null;
-  }
-
-  private normalizeSlug(value: string | null | undefined): string | null {
-    if (typeof value !== 'string') {
-      return null;
-    }
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return null;
-    }
-    const lowered = trimmed.toLowerCase().replace(/\s+/g, '-');
-    const sanitized = lowered.replace(/[^a-z0-9\-_/]+/g, '-').replace(/-{2,}/g, '-').replace(/^[-_]+|[-_]+$/g, '');
-    return sanitized.length > 0 ? sanitized : null;
-  }
-
-  private mapBlogPostRowToAdmin(row: BlogPostRow): AdminBlogPostRecord {
-    const toIso = (value: Date | string | null | undefined): string | null => {
-      if (!value) {
-        return null;
-      }
-      if (value instanceof Date) {
-        return Number.isNaN(value.getTime()) ? null : value.toISOString();
-      }
-      const parsed = new Date(value);
-      return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-    };
-
-    const normalizeArray = (value: string[] | null | undefined): string[] =>
-      Array.isArray(value)
-        ? value.map((entry) => (typeof entry === 'string' ? entry.trim() : '')).filter((entry) => entry.length > 0)
-        : [];
-
-    return {
-      id: row.slug,
-      slug: row.slug,
-      title: row.title,
-      excerpt: row.excerpt ?? null,
-      contentMarkdown: row.content_markdown,
-      coverImageUrl: row.cover_image_url ?? null,
-      tags: normalizeArray(row.tags),
-      seoDescription: row.seo_description ?? null,
-      publishedAt: toIso(row.published_at),
-      updatedAt: toIso(row.updated_at),
-    };
-  }
-
-  private mapHiddenMemberRecord(record: HiddenMemberRecord): AdminHiddenMemberRecord {
-    return {
-      ...record,
-      id: record.userId,
-    };
   }
 
   private renderAdminAppShell(): string | null {
@@ -4678,8 +4086,6 @@ export default class AppServer {
   }
 
   private registerRoutes(): void {
-    const adminRouter = express.Router();
-
     this.app.get('/sitemap.xml', async (_req, res) => {
       try {
         const entries = await this.buildSitemapEntries();
@@ -4692,366 +4098,44 @@ export default class AppServer {
       }
     });
 
-    this.app.get('/admin', (req, res, next) => {
-      const accept = req.header('accept') ?? req.header('Accept') ?? '';
-      if (typeof accept === 'string' && accept.toLowerCase().includes('application/json')) {
-        next();
-        return;
-      }
+    this.app.use(
+      '/admin',
+      createAdminRouter({
+        requireAdminAuth: this.requireAdminAuth,
+        renderAdminAppShell: () => this.renderAdminAppShell(),
+        buildAdminOverview: () => this.buildAdminOverview(),
+        blogRepository: this.blogRepository,
+        adminService: this.adminService,
+        dailyArticleService: this.dailyArticleService,
+      }),
+    );
 
-      if (!this.requireAdminAuth(req, res)) {
-        return;
-      }
+    this.app.use(
+      '/api/blog',
+      createBlogRouter({
+        blogService: this.blogService,
+        blogSubmissionService: this.blogSubmissionService,
+        dailyArticleService: this.dailyArticleService,
+      }),
+    );
 
-      const html = this.renderAdminAppShell();
-      if (!html) {
-        res
-          .status(503)
-          .type('text/plain')
-          .send('ADMIN_ASSETS_UNAVAILABLE');
-        return;
-      }
+    this.app.use(
+      '/api/shop',
+      createShopRouter({
+        shopService: this.shopService,
+        toAbsoluteUrl: (path) => this.toAbsoluteUrl(path),
+      }),
+    );
 
-      res.type('text/html').send(html);
-    });
+    this.app.use(
+      '/api',
+      createStatsRouter({
+        voiceActivityRepository: this.voiceActivityRepository,
+        statisticsService: this.statisticsService,
+        buildHomePulsePresentation: (snapshot) => this.buildHomePulsePresentation(snapshot),
+      }),
+    );
 
-    adminRouter.use((req, res, next) => {
-      if (!this.requireAdminAuth(req, res)) {
-        return;
-      }
-      next();
-    });
-
-    adminRouter.get('/', async (_req, res) => {
-      try {
-        const overview = await this.buildAdminOverview();
-        res.json(overview);
-      } catch (error) {
-        console.error('Failed to build admin overview', error);
-        res.status(500).json({
-          error: 'ADMIN_OVERVIEW_FAILED',
-          message: "Impossible de charger les informations d'administration.",
-        });
-      }
-    });
-
-    adminRouter.get('/blog/posts', async (req, res) => {
-      if (!this.blogRepository) {
-        res.status(503).json({
-          error: 'BLOG_REPOSITORY_DISABLED',
-          message: "La gestion des articles est indisponible sur ce serveur.",
-        });
-        return;
-      }
-
-      const listRequest = this.parseAdminListRequest(req);
-      const sortFieldMap: Record<string, string> = {
-        publishedAt: 'published_at',
-        updatedAt: 'updated_at',
-        title: 'title',
-        slug: 'slug',
-      };
-      const sortBy = (sortFieldMap[listRequest.sortField ?? ''] ?? 'published_at') as 'published_at' | 'updated_at' | 'title' | 'slug';
-      const searchFilter = this.extractAdminSearchFilter(listRequest.filters);
-      const tagsFilter = this.extractAdminTagsFilter(listRequest.filters);
-      const onlyPublished = this.extractAdminOnlyPublishedFilter(listRequest.filters);
-      const limit = listRequest.perPage;
-      const offset = (listRequest.page - 1) * listRequest.perPage;
-
-      try {
-        const [rows, total] = await Promise.all([
-          this.blogRepository.listPosts({
-            search: searchFilter,
-            tags: tagsFilter,
-            limit,
-            offset,
-            sortBy,
-            sortOrder: listRequest.sortOrder,
-            onlyPublished,
-          }),
-          this.blogRepository.countPosts({
-            search: searchFilter,
-            tags: tagsFilter,
-            onlyPublished,
-          }),
-        ]);
-
-        res.json({
-          data: rows.map((row) => this.mapBlogPostRowToAdmin(row)),
-          total,
-        });
-      } catch (error) {
-        console.error('Failed to list admin blog posts', error);
-        res.status(500).json({
-          error: 'ADMIN_BLOG_POSTS_LIST_FAILED',
-          message: "Impossible de récupérer les articles du blog.",
-        });
-      }
-    });
-
-    adminRouter.get('/blog/posts/:slug', async (req, res) => {
-      if (!this.blogRepository) {
-        res.status(503).json({
-          error: 'BLOG_REPOSITORY_DISABLED',
-          message: "La gestion des articles est indisponible sur ce serveur.",
-        });
-        return;
-      }
-
-      const slug = this.normalizeSlug(typeof req.params.slug === 'string' ? req.params.slug : null);
-      if (!slug) {
-        res.status(400).json({ error: 'SLUG_REQUIRED', message: 'Le slug de l’article est requis.' });
-        return;
-      }
-
-      try {
-        const row = await this.blogRepository.getPostBySlug(slug);
-        if (!row) {
-          res.status(404).json({ error: 'ADMIN_BLOG_POST_NOT_FOUND', message: "Article introuvable." });
-          return;
-        }
-        res.json({ data: this.mapBlogPostRowToAdmin(row) });
-      } catch (error) {
-        console.error('Failed to retrieve admin blog post', error);
-        res.status(500).json({
-          error: 'ADMIN_BLOG_POST_LOAD_FAILED',
-          message: "Impossible de charger cet article.",
-        });
-      }
-    });
-
-    adminRouter.post('/blog/posts', async (req, res) => {
-      if (!this.blogRepository) {
-        res.status(503).json({
-          error: 'BLOG_REPOSITORY_DISABLED',
-          message: "La gestion des articles est indisponible sur ce serveur.",
-        });
-        return;
-      }
-
-      const parsed = this.parseAdminBlogPostInput(req.body, { allowSlugOverride: true });
-      if (!parsed.ok) {
-        res.status(parsed.status).json({ error: parsed.error, message: parsed.message });
-        return;
-      }
-
-      try {
-        const existing = await this.blogRepository.getPostBySlug(parsed.data.slug);
-        if (existing) {
-          res.status(409).json({ error: 'ADMIN_BLOG_POST_CONFLICT', message: 'Un article utilise déjà ce slug.' });
-          return;
-        }
-
-        await this.blogRepository.upsertPost(parsed.data);
-        const saved = await this.blogRepository.getPostBySlug(parsed.data.slug);
-        if (!saved) {
-          throw new Error('BLOG_POST_NOT_FOUND_AFTER_CREATE');
-        }
-        res.status(201).json({ data: this.mapBlogPostRowToAdmin(saved) });
-      } catch (error) {
-        console.error('Failed to create admin blog post', error);
-        res.status(500).json({
-          error: 'ADMIN_BLOG_POST_CREATE_FAILED',
-          message: "Impossible de créer l’article.",
-        });
-      }
-    });
-
-    adminRouter.put('/blog/posts/:slug', async (req, res) => {
-      if (!this.blogRepository) {
-        res.status(503).json({
-          error: 'BLOG_REPOSITORY_DISABLED',
-          message: "La gestion des articles est indisponible sur ce serveur.",
-        });
-        return;
-      }
-
-      const slugParam = this.normalizeSlug(typeof req.params.slug === 'string' ? req.params.slug : null);
-      if (!slugParam) {
-        res.status(400).json({ error: 'SLUG_REQUIRED', message: 'Le slug de l’article est requis.' });
-        return;
-      }
-
-      const parsed = this.parseAdminBlogPostInput(req.body, { slugFallback: slugParam });
-      if (!parsed.ok) {
-        res.status(parsed.status).json({ error: parsed.error, message: parsed.message });
-        return;
-      }
-
-      if (parsed.data.slug !== slugParam) {
-        res.status(400).json({
-          error: 'ADMIN_BLOG_POST_SLUG_IMMUTABLE',
-          message: 'Le slug ne peut pas être modifié via cette opération.',
-        });
-        return;
-      }
-
-      try {
-        const existing = await this.blogRepository.getPostBySlug(slugParam);
-        if (!existing) {
-          res.status(404).json({ error: 'ADMIN_BLOG_POST_NOT_FOUND', message: "Article introuvable." });
-          return;
-        }
-
-        await this.blogRepository.upsertPost(parsed.data);
-        const saved = await this.blogRepository.getPostBySlug(slugParam);
-        if (!saved) {
-          throw new Error('BLOG_POST_NOT_FOUND_AFTER_UPDATE');
-        }
-        res.json({ data: this.mapBlogPostRowToAdmin(saved) });
-      } catch (error) {
-        console.error('Failed to update admin blog post', error);
-        res.status(500).json({
-          error: 'ADMIN_BLOG_POST_UPDATE_FAILED',
-          message: "Impossible de mettre à jour l’article.",
-        });
-      }
-    });
-
-    adminRouter.delete('/blog/posts/:slug', async (req, res) => {
-      if (!this.blogRepository) {
-        res.status(503).json({
-          error: 'BLOG_REPOSITORY_DISABLED',
-          message: "La gestion des articles est indisponible sur ce serveur.",
-        });
-        return;
-      }
-
-      const slug = this.normalizeSlug(typeof req.params.slug === 'string' ? req.params.slug : null);
-      if (!slug) {
-        res.status(400).json({ error: 'SLUG_REQUIRED', message: 'Le slug de l’article est requis.' });
-        return;
-      }
-
-      try {
-        const deleted = await this.blogRepository.deletePostBySlug(slug);
-        if (!deleted) {
-          res.status(404).json({ error: 'ADMIN_BLOG_POST_NOT_FOUND', message: "Article introuvable." });
-          return;
-        }
-        res.json({ data: { id: slug } });
-      } catch (error) {
-        console.error('Failed to delete admin blog post', error);
-        res.status(500).json({
-          error: 'ADMIN_BLOG_POST_DELETE_FAILED',
-          message: "Impossible de supprimer l’article.",
-        });
-      }
-    });
-
-    adminRouter.get('/members/hidden', async (_req, res) => {
-      try {
-        const members = await this.adminService.listHiddenMembers();
-        const mapped = members.map((record) => this.mapHiddenMemberRecord(record));
-        res.json({ data: mapped, total: mapped.length });
-      } catch (error) {
-        console.error('Failed to list hidden members', error);
-        res.status(500).json({
-          error: 'ADMIN_HIDDEN_MEMBERS_LIST_FAILED',
-          message: 'Impossible de récupérer les membres masqués.',
-        });
-      }
-    });
-
-    adminRouter.get('/members/hidden/:userId', async (req, res) => {
-      const userId = typeof req.params.userId === 'string' ? req.params.userId.trim() : '';
-      if (!userId) {
-        res.status(400).json({ error: 'USER_ID_REQUIRED', message: "L'identifiant utilisateur est requis." });
-        return;
-      }
-
-      try {
-        const members = await this.adminService.listHiddenMembers();
-        const match = members.find((member) => member.userId === userId);
-        if (!match) {
-          res.status(404).json({ error: 'MEMBER_NOT_HIDDEN', message: 'Ce membre est visible.' });
-          return;
-        }
-        res.json({ data: this.mapHiddenMemberRecord(match) });
-      } catch (error) {
-        console.error('Failed to load hidden member', error);
-        res.status(500).json({
-          error: 'ADMIN_HIDDEN_MEMBER_LOAD_FAILED',
-          message: 'Impossible de récupérer ce membre.',
-        });
-      }
-    });
-
-    adminRouter.post('/members/:userId/hide', async (req, res) => {
-      const rawUserId = typeof req.params.userId === 'string' ? req.params.userId.trim() : '';
-      if (!rawUserId) {
-        res.status(400).json({ error: 'USER_ID_REQUIRED', message: "L'identifiant utilisateur est requis." });
-        return;
-      }
-
-      const idea = typeof req.body?.idea === 'string' ? req.body.idea : null;
-
-      try {
-        const record = await this.adminService.hideMember(rawUserId, idea);
-        res.status(201).json({ data: this.mapHiddenMemberRecord(record) });
-      } catch (error) {
-        if ((error as Error)?.message === 'USER_ID_REQUIRED') {
-          res.status(400).json({ error: 'USER_ID_REQUIRED', message: "L'identifiant utilisateur est requis." });
-          return;
-        }
-        console.error('Failed to hide member profile', error);
-        res.status(500).json({
-          error: 'HIDE_MEMBER_FAILED',
-          message: 'Impossible de masquer ce membre.',
-        });
-      }
-    });
-
-    adminRouter.delete('/members/:userId/hide', async (req, res) => {
-      const rawUserId = typeof req.params.userId === 'string' ? req.params.userId.trim() : '';
-      if (!rawUserId) {
-        res.status(400).json({ error: 'USER_ID_REQUIRED', message: "L'identifiant utilisateur est requis." });
-        return;
-      }
-
-      try {
-        const removed = await this.adminService.unhideMember(rawUserId);
-        if (!removed) {
-          res.status(404).json({ error: 'MEMBER_NOT_HIDDEN', message: 'Ce membre est déjà visible.' });
-          return;
-        }
-        res.json({ data: { id: rawUserId } });
-      } catch (error) {
-        if ((error as Error)?.message === 'USER_ID_REQUIRED') {
-          res.status(400).json({ error: 'USER_ID_REQUIRED', message: "L'identifiant utilisateur est requis." });
-          return;
-        }
-        console.error('Failed to unhide member profile', error);
-        res.status(500).json({
-          error: 'UNHIDE_MEMBER_FAILED',
-          message: 'Impossible de rendre ce membre visible.',
-        });
-      }
-    });
-
-    adminRouter.post('/articles/daily', async (_req, res) => {
-      if (!this.dailyArticleService) {
-        res.status(503).json({
-          error: 'DAILY_ARTICLE_DISABLED',
-          message: "La génération d'articles automatiques est désactivée.",
-        });
-        return;
-      }
-
-      try {
-        const result = await this.dailyArticleService.triggerManualGeneration();
-        const status = result.status === 'failed' ? 500 : 200;
-        res.status(status).json({ result });
-      } catch (error) {
-        console.error('Failed to trigger daily article generation', error);
-        res.status(500).json({
-          error: 'DAILY_ARTICLE_FAILED',
-          message: "Impossible de lancer la génération de l'article.",
-        });
-      }
-    });
-
-    this.app.use('/admin', adminRouter);
 
     if (this.secretArticleTrigger) {
       this.app.post(this.secretArticleTrigger.path, async (req, res) => {
@@ -5097,14 +4181,12 @@ export default class AppServer {
 
     this.app.get('/events', (req, res) => {
       this.sseService.handleRequest(req, res, {
-        initialState: () => ({
-          ...this.speakerTracker.getInitialState(),
-          anonymousSlot: this.anonymousSpeechManager.getPublicState(),
-          listeners: {
-            count: this.listenerStatsService.getCurrentCount(),
-            history: this.listenerStatsService.getHistory(),
-          },
-        }),
+        initialState: () =>
+          buildStreamInitialState({
+            speakerTracker: this.speakerTracker,
+            anonymousSpeechManager: this.anonymousSpeechManager,
+            listenerStatsService: this.listenerStatsService,
+          }),
       });
     });
 
@@ -5123,42 +4205,6 @@ export default class AppServer {
     this.app.get('/api/pages/about', (_req, res) => {
       res.setHeader('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
       res.json(aboutPageContent);
-    });
-
-    this.app.get('/api/shop/products', (_req, res) => {
-      res.json({
-        currency: this.shopService.getCurrency(),
-        products: this.shopService.getProducts(),
-      });
-    });
-
-    this.app.post('/api/shop/checkout', async (req, res) => {
-      const { productId, provider, successUrl, cancelUrl, customerEmail } = req.body ?? {};
-
-      if (typeof productId !== 'string' || productId.trim().length === 0) {
-        res.status(400).json({ error: 'PRODUCT_REQUIRED', message: 'Le produit est obligatoire.' });
-        return;
-      }
-
-      const normalizedProvider = this.normalizeShopProvider(provider);
-      if (!normalizedProvider) {
-        res.status(400).json({ error: 'PROVIDER_REQUIRED', message: 'Le fournisseur de paiement est obligatoire.' });
-        return;
-      }
-
-      try {
-        const session = await this.shopService.createCheckoutSession({
-          productId: productId.trim(),
-          provider: normalizedProvider,
-          successUrl: typeof successUrl === 'string' ? successUrl : undefined,
-          cancelUrl: typeof cancelUrl === 'string' ? cancelUrl : undefined,
-          customerEmail: typeof customerEmail === 'string' ? customerEmail : undefined,
-        });
-        const termsUrl = this.toAbsoluteUrl('/cgv-vente');
-        res.status(201).json({ ...session, termsUrl });
-      } catch (error) {
-        this.handleShopError(res, error);
-      }
     });
 
     this.app.get('/anonymous-slot', (_req, res) => {
@@ -5597,227 +4643,13 @@ export default class AppServer {
           message: 'Impossible de transmettre la demande pour le moment.',
         });
       }
-    });
-
-    this.app.get('/api/community/pulse', async (_req, res) => {
-      if (!this.voiceActivityRepository) {
-        res.status(503).json({
-          error: 'PULSE_UNAVAILABLE',
-          message: 'Le suivi de l’activité communautaire est désactivé sur ce serveur.',
-        });
-        return;
-      }
-
-      try {
-        const snapshot = await this.voiceActivityRepository.getCommunityPulse({ windowMinutes: 15 });
-        const pulse = this.buildHomePulsePresentation(snapshot);
-        res.setHeader('Cache-Control', 'public, max-age=15, stale-while-revalidate=45');
-        res.json({ pulse: pulse ?? null });
-      } catch (error) {
-        console.error('Failed to compute community pulse', error);
-        res.status(500).json({
-          error: 'COMMUNITY_PULSE_FAILED',
-          message: 'Impossible de calculer le pouls communautaire.',
-        });
-      }
-    });
-
-    this.app.get('/api/statistiques', async (req, res) => {
-      try {
-        const options = this.parseStatisticsQuery(req.query);
-        const snapshot = await this.statisticsService.getStatistics(options);
-        res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=90');
-        res.json({ statistics: snapshot });
-      } catch (error) {
-        console.error('Failed to build statistics snapshot', error);
-        res.status(500).json({
-          error: 'STATISTICS_FAILED',
-          message: 'Impossible de charger les statistiques communautaires.',
-        });
-      }
-    });
-
-    this.app.get('/api/blog/posts', async (req, res) => {
-      try {
-        const options = this.parseBlogListOptions(req.query);
-        const { posts, availableTags } = await this.blogService.listPosts(options);
-        res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=60');
-        res.json({ posts, tags: availableTags });
-      } catch (error) {
-        console.error('Failed to list blog posts', error);
-        res.status(500).json({
-          error: 'BLOG_LIST_FAILED',
-          message: 'Impossible de récupérer les articles du blog.',
-        });
-      }
-    });
-
-    this.app.get('/api/blog/posts/:slug', async (req, res) => {
-      const rawSlug = typeof req.params.slug === 'string' ? req.params.slug.trim() : '';
-      if (!rawSlug) {
-        res.status(400).json({
-          error: 'SLUG_REQUIRED',
-          message: "Le lien de l'article est requis.",
-        });
-        return;
-      }
-
-      try {
-        const post = await this.blogService.getPost(rawSlug);
-        if (!post) {
-          res.status(404).json({
-            error: 'POST_NOT_FOUND',
-            message: "Impossible de trouver l'article demandé.",
-          });
-          return;
-        }
-        res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=60');
-        res.json({ post });
-      } catch (error) {
-        console.error('Failed to load blog post', error);
-        res.status(500).json({
-          error: 'BLOG_POST_FAILED',
-          message: "Impossible de récupérer cet article.",
-        });
-      }
-    });
-
-    this.app.post('/api/blog/submissions', async (req, res) => {
-      const payload = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
-
-      const tagsRaw = payload.tags;
-      let tags: string[] = [];
-      if (Array.isArray(tagsRaw)) {
-        tags = tagsRaw.filter((tag): tag is string => typeof tag === 'string');
-      } else if (typeof tagsRaw === 'string') {
-        tags = tagsRaw
-          .split(',')
-          .map((entry) => entry.trim())
-          .filter((entry) => entry.length > 0);
-      }
-
-      try {
-        const result = await this.blogSubmissionService.publish({
-          title: typeof payload.title === 'string' ? payload.title : '',
-          slug: typeof payload.slug === 'string' ? payload.slug : null,
-          excerpt: typeof payload.excerpt === 'string' ? payload.excerpt : null,
-          contentMarkdown: typeof payload.contentMarkdown === 'string' ? payload.contentMarkdown : '',
-          coverImageUrl: typeof payload.coverImageUrl === 'string' ? payload.coverImageUrl : null,
-          tags,
-          seoDescription: typeof payload.seoDescription === 'string' ? payload.seoDescription : null,
-        });
-
-        res.status(201).json({
-          message: 'Merci ! Ton article est désormais publié sur le blog.',
-          article: result,
-        });
-      } catch (error) {
-        if (error instanceof BlogSubmissionError) {
-          const status =
-            error.code === 'VALIDATION_ERROR'
-              ? 400
-              : error.code === 'CONFLICT'
-              ? 409
-              : error.code === 'UNAVAILABLE'
-              ? 503
-              : 500;
-          res.status(status).json({
-            error: error.code,
-            message: error.message,
-            details: error.details ?? null,
-          });
-          return;
-        }
-
-        console.error('Failed to publish community article', error);
-        res.status(500).json({
-          error: 'BLOG_SUBMISSION_FAILED',
-          message: "Impossible de publier l’article pour le moment.",
-        });
-      }
-    });
-
-    this.app.post('/api/blog/manual-generate', async (_req, res) => {
-      if (!this.dailyArticleService) {
-        res.status(503).json({
-          error: 'DAILY_ARTICLE_DISABLED',
-          message: "La génération d'articles automatiques est désactivée.",
-        });
-        return;
-      }
-
-      try {
-        const result = await this.dailyArticleService.triggerManualGeneration();
-        const status = result.status === 'failed' ? 500 : 200;
-
-        let message = 'Génération traitée.';
-        if (result.status === 'generated') {
-          const publicationNote = result.publishedAt
-            ? ` (publié le ${new Date(result.publishedAt).toLocaleString('fr-FR')})`
-            : '';
-          message = `Un article a été généré et publié${publicationNote}.`;
-        } else if (result.status === 'skipped') {
-          switch (result.reason) {
-            case 'ALREADY_RUNNING':
-              message = 'Une génération est déjà en cours. Réessaie dans quelques instants.';
-              break;
-            case 'MISSING_DEPENDENCIES':
-              message = 'La génération est indisponible (dépendances manquantes).';
-              break;
-            case 'DISABLED':
-              message = "La génération automatique est désactivée.";
-              break;
-            case 'ALREADY_EXISTS':
-              message = 'Un article existe déjà pour cette date.';
-              break;
-            case 'NO_TRANSCRIPTS':
-              message = 'Aucune transcription exploitable pour la période demandée.';
-              break;
-            default:
-              message = 'La génération a été ignorée.';
-              break;
-          }
-        } else if (result.status === 'failed') {
-          message = "La génération de l'article a échoué. Consulte les logs serveur.";
-        }
-
-        res.status(status).json({ result, message });
-      } catch (error) {
-        console.error('Failed to trigger manual blog generation', error);
-        res.status(500).json({
-          error: 'MANUAL_ARTICLE_FAILED',
-          message: "Impossible de lancer la génération de l'article.",
-        });
-      }
-    });
+      });
 
     this.app.get('/api/voice-activity/history', async (req, res) => {
       if (!this.voiceActivityRepository) {
         res.json({ segments: [] });
         return;
       }
-
-      const parseTimestamp = (value: unknown): Date | null => {
-        if (typeof value !== 'string') {
-          return null;
-        }
-        const trimmed = value.trim();
-        if (!trimmed) {
-          return null;
-        }
-        const numeric = Number(trimmed);
-        if (!Number.isNaN(numeric)) {
-          const fromNumber = new Date(numeric);
-          if (!Number.isNaN(fromNumber.getTime())) {
-            return fromNumber;
-          }
-        }
-        const fromString = new Date(trimmed);
-        if (!Number.isNaN(fromString.getTime())) {
-          return fromString;
-        }
-        return null;
-      };
 
       const since = parseTimestamp(Array.isArray(req.query.since) ? req.query.since[0] : req.query.since);
       const until = parseTimestamp(Array.isArray(req.query.until) ? req.query.until[0] : req.query.until);
@@ -5872,8 +4704,8 @@ export default class AppServer {
       const untilParam = Array.isArray(req.query.until) ? req.query.until[0] : req.query.until;
 
       const now = new Date();
-      const untilCandidate = this.parseTimestamp(untilParam) ?? now;
-      const sinceCandidate = this.parseTimestamp(sinceParam)
+      const untilCandidate = parseTimestamp(untilParam) ?? now;
+      const sinceCandidate = parseTimestamp(sinceParam)
         ?? new Date(untilCandidate.getTime() - 30 * 24 * 60 * 60 * 1000);
 
       if (Number.isNaN(sinceCandidate.getTime()) || Number.isNaN(untilCandidate.getTime())) {
@@ -6136,8 +4968,8 @@ export default class AppServer {
       const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
 
       const now = new Date();
-      const untilCandidate = this.parseTimestamp(untilParam) ?? now;
-      const sinceCandidate = this.parseTimestamp(sinceParam)
+      const untilCandidate = parseTimestamp(untilParam) ?? now;
+      const sinceCandidate = parseTimestamp(sinceParam)
         ?? new Date(untilCandidate.getTime() - 7 * 24 * 60 * 60 * 1000);
 
       if (Number.isNaN(sinceCandidate.getTime()) || Number.isNaN(untilCandidate.getTime())) {
@@ -6238,8 +5070,8 @@ export default class AppServer {
           return;
         }
 
-        const downloadName = this.buildRecordingDownloadName(rawUserId, metadata.fileName);
-        const contentType = this.getRecordingContentType(metadata.fileName);
+        const downloadName = normalizeRecordingFileName(rawUserId, metadata.fileName);
+        const contentType = getRecordingContentType(metadata.fileName);
 
         res.setHeader('Content-Type', contentType);
         res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
@@ -6321,8 +5153,8 @@ export default class AppServer {
           return;
         }
 
-        const inlineName = this.buildRecordingDownloadName(rawUserId, metadata.fileName);
-        const contentType = this.getRecordingContentType(metadata.fileName);
+        const inlineName = normalizeRecordingFileName(rawUserId, metadata.fileName);
+        const contentType = getRecordingContentType(metadata.fileName);
         const totalSize =
           Number.isFinite(metadata.sizeBytes) && metadata.sizeBytes >= 0 ? metadata.sizeBytes : null;
 
@@ -6458,7 +5290,7 @@ export default class AppServer {
 
       let cursor: VoiceTranscriptionCursor | null = null;
       if (typeof cursorParam === 'string' && cursorParam.trim().length > 0) {
-        cursor = this.parseVoiceTranscriptionCursor(cursorParam);
+        cursor = parseVoiceTranscriptionCursor(cursorParam);
         if (!cursor) {
           res
             .status(400)
@@ -6474,7 +5306,7 @@ export default class AppServer {
           before: cursor,
         });
 
-        const serializedCursor = this.serializeVoiceTranscriptionCursor(result.nextCursor);
+        const serializedCursor = serializeVoiceTranscriptionCursor(result.nextCursor);
 
         res.json({
           entries: result.entries.map((entry) => ({
@@ -6854,7 +5686,7 @@ export default class AppServer {
       };
 
       try {
-        const options = this.parseStatisticsQuery(req.query);
+        const options = parseStatisticsQuery(req.query);
         const snapshot = await this.statisticsService.getStatistics(options);
         const preloadState: AppPreloadState = {
           route: { name: 'statistiques', params: {} },
@@ -8741,29 +7573,6 @@ export default class AppServer {
 
     console.error('Unhandled anonymous slot error', error);
     res.status(500).json({ error: 'UNKNOWN', message: 'Une erreur inattendue est survenue.' });
-  };
-
-  private readonly handleShopError = (res: Response, error: unknown): void => {
-    if (error instanceof ShopError) {
-      res.status(error.status).json({ error: error.code, message: error.message });
-      return;
-    }
-
-    console.error('Unhandled shop error', error);
-    res.status(500).json({ error: 'SHOP_UNKNOWN', message: 'Impossible de finaliser la commande.' });
-  };
-
-  private readonly normalizeShopProvider = (raw: unknown): ShopProvider | null => {
-    if (typeof raw !== 'string') {
-      return null;
-    }
-
-    const normalized = raw.trim().toLowerCase();
-    if (normalized === 'stripe' || normalized === 'coingate' || normalized === 'paypal') {
-      return normalized;
-    }
-
-    return null;
   };
 
   private readonly extractSecretArticlePassword = (req: Request): string | null => {
