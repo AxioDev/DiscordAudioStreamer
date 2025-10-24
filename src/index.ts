@@ -1,5 +1,6 @@
 import path from 'path';
-import config from './config';
+import type { Pool } from 'pg';
+import config, { type Config } from './config';
 import AudioMixer from './audio/AudioMixer';
 import FfmpegTranscoder from './audio/FfmpegTranscoder';
 import AppServer from './http/AppServer';
@@ -24,306 +25,631 @@ import AudioStreamHealthService from './services/AudioStreamHealthService';
 import DiscordVectorIngestionService from './services/DiscordVectorIngestionService';
 import UserDataRetentionService from './services/UserDataRetentionService';
 import { getDatabasePool } from './lib/db';
+import LoggerService from './lib/logger';
 
-const consoleNoop = (..._args: unknown[]): void => {
-  // Intentionally left blank to silence non-error console output.
+interface ServiceContext {
+  container: ServiceContainer;
+  resolve<T>(key: string): T;
+  registerShutdown(handler: ShutdownHandler): void;
+}
+
+type ShutdownHandler = () => Promise<void> | void;
+
+type ServiceFactory<T> = (context: ServiceContext) => T;
+
+type ServiceLifecycle<T> = {
+  start?: (service: T, context: ServiceContext) => Promise<void> | void;
+  stop?: (service: T, context: ServiceContext) => Promise<void> | void;
 };
 
-console.log = consoleNoop;
-console.info = consoleNoop;
-console.debug = consoleNoop;
-console.trace = consoleNoop;
-console.warn = consoleNoop;
+interface ServiceDefinition<T> extends ServiceLifecycle<T> {
+  factory: ServiceFactory<T>;
+  eager?: boolean;
+}
 
-const mixer = new AudioMixer({
-  frameBytes: config.audio.frameBytes,
-  mixFrameMs: config.mixFrameMs,
-  bytesPerSample: config.audio.bytesPerSample,
-});
-mixer.start();
+class ServiceContainer {
+  private readonly definitions = new Map<string, ServiceDefinition<unknown>>();
 
-const transcoder = new FfmpegTranscoder({
-  ffmpegPath: config.ffmpegPath,
-  outputFormat: config.outputFormat,
-  opusBitrate: config.opusBitrate,
-  mp3Bitrate: config.mp3Bitrate,
-  sampleRate: config.audio.sampleRate,
-  channels: config.audio.channels,
-  headerBufferMaxBytes: config.headerBufferMaxBytes,
-  mixFrameMs: config.mixFrameMs,
-});
-transcoder.start(mixer);
+  private readonly instances = new Map<string, unknown>();
 
-const sseService = new SseService({
-  streamInfoProvider: () => ({
-    format: config.outputFormat,
-    path: config.streamEndpoint,
-    mimeType: config.mimeTypes[config.outputFormat] || 'application/octet-stream',
-  }),
-  keepAliveInterval: config.keepAliveInterval,
-});
+  private readonly registrationOrder: string[] = [];
 
-const listenerStatsService = new ListenerStatsService();
+  private readonly startPromises = new Map<string, Promise<void>>();
 
-const sharedDatabasePool = config.database.url ? getDatabasePool() : null;
+  private readonly shutdownHandlers: ShutdownHandler[] = [];
 
-const voiceActivityRepository = new VoiceActivityRepository({
-  url: config.database.url,
-  ssl: config.database.ssl,
-  debug: config.database.logQueries,
-  pool: sharedDatabasePool ?? undefined,
-});
+  private readonly overrides = new Map<string, unknown>();
 
-const statisticsService = new StatisticsService({
-  repository: voiceActivityRepository,
-  config,
-});
+  private shutdownPromise: Promise<void> | null = null;
 
-let userAudioRecorder: UserAudioRecorder | null = null;
+  public register<T>(key: string, definition: ServiceDefinition<T>): void {
+    if (this.definitions.has(key)) {
+      throw new Error(`Service "${key}" is already registered.`);
+    }
+    this.definitions.set(key, definition as ServiceDefinition<unknown>);
+    this.registrationOrder.push(key);
+  }
 
-let audioStreamHealthService: AudioStreamHealthService | null = null;
+  public setOverride<T>(key: string, instance: T): void {
+    this.overrides.set(key, instance);
+  }
 
-let userDataRetentionService: UserDataRetentionService | null = null;
+  public resolve<T>(key: string): T {
+    if (this.overrides.has(key)) {
+      return this.overrides.get(key) as T;
+    }
 
-if (config.recordingsRetentionDays > 0) {
-  try {
-    userAudioRecorder = new UserAudioRecorder({
-      baseDirectory: config.recordingsDirectory,
-      sampleRate: config.audio.sampleRate,
-      channels: config.audio.channels,
-      bytesPerSample: config.audio.bytesPerSample,
-      retentionPeriodMs: config.recordingsRetentionDays * 24 * 60 * 60 * 1000,
-    });
-  } catch (error) {
-    console.error('Failed to initialize user audio recorder', error);
+    const definition = this.definitions.get(key);
+    if (!definition) {
+      throw new Error(`Service "${key}" is not registered.`);
+    }
+
+    if (!this.instances.has(key)) {
+      const context = this.createContext();
+      const instance = (definition.factory as ServiceFactory<T>)(context);
+      this.instances.set(key, instance);
+
+      if (definition.stop) {
+        this.registerShutdown(async () => {
+          try {
+            await definition.stop!(instance, this.createContext());
+          } catch (error) {
+            console.error(`Error while stopping service "${key}"`, error);
+          }
+        });
+      }
+    }
+
+    return this.instances.get(key) as T;
+  }
+
+  public async start(): Promise<void> {
+    for (const key of this.registrationOrder) {
+      const definition = this.definitions.get(key);
+      if (definition?.eager) {
+        await this.ensureStarted(key, definition);
+      }
+    }
+  }
+
+  public registerShutdown(handler: ShutdownHandler): void {
+    this.shutdownHandlers.push(handler);
+  }
+
+  public async shutdown(): Promise<void> {
+    if (this.shutdownPromise) {
+      return this.shutdownPromise;
+    }
+
+    this.shutdownPromise = (async () => {
+      for (const handler of [...this.shutdownHandlers].reverse()) {
+        try {
+          await handler();
+        } catch (error) {
+          console.error('Shutdown handler failed', error);
+        }
+      }
+    })();
+
+    return this.shutdownPromise;
+  }
+
+  private async ensureStarted(key: string, definition: ServiceDefinition<unknown>): Promise<void> {
+    if (this.startPromises.has(key)) {
+      await this.startPromises.get(key);
+      return;
+    }
+
+    const instance = this.resolve<unknown>(key);
+    if (!definition.start) {
+      this.startPromises.set(key, Promise.resolve());
+      return;
+    }
+
+    const startPromise = Promise.resolve(definition.start(instance, this.createContext()));
+    this.startPromises.set(key, startPromise);
+    await startPromise;
+  }
+
+  private createContext(): ServiceContext {
+    return {
+      container: this,
+      resolve: <T>(serviceKey: string) => this.resolve<T>(serviceKey),
+      registerShutdown: (handler: ShutdownHandler) => this.registerShutdown(handler),
+    };
   }
 }
 
-const kaldiTranscriptionService =
-  config.kaldi.enabled && Boolean(config.database.url)
-    ? new KaldiTranscriptionService({
-        host: config.kaldi.host,
-        port: config.kaldi.port,
-        sampleRate: config.kaldi.sampleRate,
-        voiceActivityRepository,
-        inputSampleRate: config.audio.sampleRate,
-        inputChannels: config.audio.channels,
-      })
-    : null;
-
-if (config.kaldi.enabled && !kaldiTranscriptionService) {
-  console.error('Kaldi transcription service is enabled but no database is configured; disabling transcription.');
-}
-
-const speakerTracker = new SpeakerTracker({
-  sseService,
-  voiceActivityRepository,
-});
-
-const blogRepository = config.database.url
-  ? new BlogRepository({
-      url: config.database.url,
-      ssl: config.database.ssl,
-      debug: config.database.logQueries,
-      pool: sharedDatabasePool ?? undefined,
-    })
-  : null;
-
-const blogModerationService = new BlogModerationService();
-
-const blogService = new BlogService({
-  repository: blogRepository,
-  moderationService: blogModerationService,
-});
-
-void blogService.initialize().catch((error) => {
-  console.error('BlogService initialization failed', error);
-});
-
-const blogSubmissionService = new BlogSubmissionService({
-  repository: blogRepository,
-  blogService,
-  moderationService: blogModerationService,
-});
-
-void blogSubmissionService.initialize().catch((error) => {
-  console.error('BlogSubmissionService initialization failed', error);
-});
-
-const shopService = new ShopService({ config });
-
-const discordVectorIngestionService = new DiscordVectorIngestionService({
-  blogService,
-  projectRoot: path.resolve(__dirname, '..'),
-  shopService,
-  voiceActivityRepository,
-});
-
-discordVectorIngestionService.startScheduledSynchronization();
-
-userDataRetentionService = new UserDataRetentionService({
-  voiceActivityRepository,
-});
-userDataRetentionService.start();
-
-const dailyArticleService = new DailyArticleService({
-  config,
-  blogRepository,
-  blogService,
-  voiceActivityRepository,
-  moderationService: blogModerationService,
-});
-
-const userPersonaService = new UserPersonaService({
-  config,
-  voiceActivityRepository,
-});
-
-const adminService = new AdminService({
-  storageDirectory: path.resolve(__dirname, '..', 'content', 'admin'),
-});
-
-void adminService.initialize().catch((error) => {
-  console.error('AdminService initialization failed', error);
-});
-
-const discordBridge = new DiscordAudioBridge({
-  config,
-  mixer,
-  speakerTracker,
-  voiceActivityRepository,
-  transcriptionService: kaldiTranscriptionService,
-  audioRecorder: userAudioRecorder,
-});
-
-discordBridge.login().catch((error) => {
-  console.error('Discord login failed', error);
-  process.exit(1);
-});
-
-const anonymousSpeechManager = new AnonymousSpeechManager({
-  discordBridge,
-  sseService,
-});
-
-const appServer = new AppServer({
-  config,
-  transcoder,
-  speakerTracker,
-  sseService,
-  anonymousSpeechManager,
-  discordBridge,
-  shopService,
-  voiceActivityRepository,
-  listenerStatsService,
-  blogRepository,
-  blogService,
-  blogSubmissionService,
-  blogModerationService,
-  dailyArticleService,
-  userPersonaService,
-  adminService,
-  statisticsService,
-  userAudioRecorder,
-});
-appServer.start();
-
-if (config.streamHealth.enabled) {
-  audioStreamHealthService = new AudioStreamHealthService({
-    transcoder,
-    discordBridge,
-    guildId: config.guildId,
-    voiceChannelId: config.voiceChannelId,
-    checkIntervalMs: config.streamHealth.checkIntervalMs,
-    maxSilenceMs: config.streamHealth.maxSilenceMs,
-    restartCooldownMs: config.streamHealth.restartCooldownMs,
-    streamRetryDelayMs: config.streamHealth.streamRetryDelayMs,
+function registerServices(container: ServiceContainer): void {
+  container.register<Config>('config', {
+    factory: () => config,
   });
-  audioStreamHealthService.start();
+
+  container.register<LoggerService>('logger', {
+    factory: (ctx) => {
+      const cfg = ctx.resolve<Config>('config');
+      return new LoggerService({
+        level: cfg.logging.level,
+        defaultMeta: { service: 'DiscordAudioStreamer' },
+      });
+    },
+    start: (logger) => {
+      logger.bindToConsole();
+      const log = logger.forContext('Bootstrap');
+      log.info('Logger initialized at level %s', logger.getLevel());
+    },
+    stop: (logger) => {
+      logger.close();
+    },
+    eager: true,
+  });
+
+  container.register<Pool | null>('databasePool', {
+    factory: (ctx) => {
+      const cfg = ctx.resolve<Config>('config');
+      if (!cfg.database.url) {
+        return null;
+      }
+      return getDatabasePool();
+    },
+    stop: async (pool) => {
+      if (pool) {
+        await pool.end().catch((error: unknown) => {
+          console.error('Failed to close database pool', error);
+        });
+      }
+    },
+  });
+
+  container.register<AudioMixer>('audioMixer', {
+    factory: (ctx) => {
+      const cfg = ctx.resolve<Config>('config');
+      return new AudioMixer({
+        frameBytes: cfg.audio.frameBytes,
+        mixFrameMs: cfg.mixFrameMs,
+        bytesPerSample: cfg.audio.bytesPerSample,
+      });
+    },
+    start: (mixer) => {
+      mixer.start();
+    },
+    stop: (mixer) => {
+      mixer.stop();
+    },
+    eager: true,
+  });
+
+  container.register<FfmpegTranscoder>('transcoder', {
+    factory: (ctx) => {
+      const cfg = ctx.resolve<Config>('config');
+      return new FfmpegTranscoder({
+        ffmpegPath: cfg.ffmpegPath,
+        outputFormat: cfg.outputFormat,
+        opusBitrate: cfg.opusBitrate,
+        mp3Bitrate: cfg.mp3Bitrate,
+        sampleRate: cfg.audio.sampleRate,
+        channels: cfg.audio.channels,
+        headerBufferMaxBytes: cfg.headerBufferMaxBytes,
+        mixFrameMs: cfg.mixFrameMs,
+      });
+    },
+    start: (transcoder, ctx) => {
+      const mixer = ctx.resolve<AudioMixer>('audioMixer');
+      transcoder.start(mixer);
+    },
+    stop: (transcoder) => {
+      transcoder.stop();
+    },
+    eager: true,
+  });
+
+  container.register<SseService>('sseService', {
+    factory: (ctx) => {
+      const cfg = ctx.resolve<Config>('config');
+      return new SseService({
+        streamInfoProvider: () => ({
+          format: cfg.outputFormat,
+          path: cfg.streamEndpoint,
+          mimeType: cfg.mimeTypes[cfg.outputFormat] || 'application/octet-stream',
+        }),
+        keepAliveInterval: cfg.keepAliveInterval,
+      });
+    },
+    stop: (sse) => {
+      sse.closeAll();
+    },
+    eager: true,
+  });
+
+  container.register<ListenerStatsService>('listenerStatsService', {
+    factory: () => new ListenerStatsService(),
+    stop: (service) => {
+      service.stop();
+    },
+    eager: true,
+  });
+
+  container.register<BlogModerationService>('blogModerationService', {
+    factory: () => new BlogModerationService(),
+  });
+
+  container.register<BlogRepository | null>('blogRepository', {
+    factory: (ctx) => {
+      const cfg = ctx.resolve<Config>('config');
+      const pool = ctx.resolve<Pool | null>('databasePool') ?? undefined;
+      if (!cfg.database.url) {
+        return null;
+      }
+      return new BlogRepository({
+        url: cfg.database.url,
+        ssl: cfg.database.ssl,
+        debug: cfg.database.logQueries,
+        pool,
+      });
+    },
+    stop: async (repository) => {
+      if (repository) {
+        await repository.close().catch((error: unknown) => {
+          console.error('Failed to close blog repository', error);
+        });
+      }
+    },
+  });
+
+  container.register<BlogService>('blogService', {
+    factory: (ctx) => {
+      const repository = ctx.resolve<BlogRepository | null>('blogRepository');
+      const moderation = ctx.resolve<BlogModerationService>('blogModerationService');
+      return new BlogService({
+        repository: repository ?? null,
+        moderationService: moderation,
+      });
+    },
+    start: async (service, ctx) => {
+      try {
+        await service.initialize();
+      } catch (error) {
+        const logger = ctx.resolve<LoggerService>('logger').forContext('BlogService');
+        logger.error('BlogService initialization failed', error);
+      }
+    },
+    eager: true,
+  });
+
+  container.register<BlogSubmissionService>('blogSubmissionService', {
+    factory: (ctx) => {
+      const repository = ctx.resolve<BlogRepository | null>('blogRepository');
+      const blogService = ctx.resolve<BlogService>('blogService');
+      const moderation = ctx.resolve<BlogModerationService>('blogModerationService');
+      return new BlogSubmissionService({
+        repository: repository ?? null,
+        blogService,
+        moderationService: moderation,
+      });
+    },
+    start: async (service, ctx) => {
+      try {
+        await service.initialize();
+      } catch (error) {
+        const logger = ctx.resolve<LoggerService>('logger').forContext('BlogSubmissionService');
+        logger.error('BlogSubmissionService initialization failed', error);
+      }
+    },
+    eager: true,
+  });
+
+  container.register<ShopService>('shopService', {
+    factory: (ctx) => new ShopService({ config: ctx.resolve<Config>('config') }),
+  });
+
+  container.register<VoiceActivityRepository>('voiceActivityRepository', {
+    factory: (ctx) => {
+      const cfg = ctx.resolve<Config>('config');
+      const pool = cfg.database.url ? ctx.resolve<Pool | null>('databasePool') ?? undefined : undefined;
+      return new VoiceActivityRepository({
+        url: cfg.database.url,
+        ssl: cfg.database.ssl,
+        debug: cfg.database.logQueries,
+        pool,
+      });
+    },
+    stop: async (repository) => {
+      await repository.close().catch((error: unknown) => {
+        console.error('Error while closing voice activity repository', error);
+      });
+    },
+  });
+
+  container.register<StatisticsService>('statisticsService', {
+    factory: (ctx) =>
+      new StatisticsService({
+        repository: ctx.resolve<VoiceActivityRepository>('voiceActivityRepository'),
+        config: ctx.resolve<Config>('config'),
+      }),
+  });
+
+  container.register<UserAudioRecorder | null>('userAudioRecorder', {
+    factory: (ctx) => {
+      const cfg = ctx.resolve<Config>('config');
+      if (cfg.recordingsRetentionDays <= 0) {
+        return null;
+      }
+
+      try {
+        return new UserAudioRecorder({
+          baseDirectory: cfg.recordingsDirectory,
+          sampleRate: cfg.audio.sampleRate,
+          channels: cfg.audio.channels,
+          bytesPerSample: cfg.audio.bytesPerSample,
+          retentionPeriodMs: cfg.recordingsRetentionDays * 24 * 60 * 60 * 1000,
+        });
+      } catch (error) {
+        const logger = ctx.resolve<LoggerService>('logger').forContext('UserAudioRecorder');
+        logger.error('Failed to initialize user audio recorder', error);
+        return null;
+      }
+    },
+    stop: (recorder) => {
+      recorder?.stop();
+    },
+  });
+
+  container.register<KaldiTranscriptionService | null>('kaldiTranscriptionService', {
+    factory: (ctx) => {
+      const cfg = ctx.resolve<Config>('config');
+      const repository = ctx.resolve<VoiceActivityRepository>('voiceActivityRepository');
+      if (!cfg.kaldi.enabled || !cfg.database.url) {
+        if (cfg.kaldi.enabled && !cfg.database.url) {
+          console.error(
+            'Kaldi transcription service is enabled but no database is configured; disabling transcription.',
+          );
+        }
+        return null;
+      }
+
+      return new KaldiTranscriptionService({
+        host: cfg.kaldi.host,
+        port: cfg.kaldi.port,
+        sampleRate: cfg.kaldi.sampleRate,
+        voiceActivityRepository: repository,
+        inputSampleRate: cfg.audio.sampleRate,
+        inputChannels: cfg.audio.channels,
+      });
+    },
+  });
+
+  container.register<SpeakerTracker>('speakerTracker', {
+    factory: (ctx) => {
+      const cfg = ctx.resolve<Config>('config');
+      const repository = ctx.resolve<VoiceActivityRepository>('voiceActivityRepository');
+      return new SpeakerTracker({
+        sseService: ctx.resolve<SseService>('sseService'),
+        voiceActivityRepository: cfg.database.url ? repository : null,
+      });
+    },
+  });
+
+  container.register<DailyArticleService>('dailyArticleService', {
+    factory: (ctx) => {
+      const cfg = ctx.resolve<Config>('config');
+      const repository = ctx.resolve<VoiceActivityRepository>('voiceActivityRepository');
+      return new DailyArticleService({
+        config: cfg,
+        blogRepository: ctx.resolve<BlogRepository | null>('blogRepository'),
+        blogService: ctx.resolve<BlogService>('blogService'),
+        voiceActivityRepository: cfg.database.url ? repository : null,
+        moderationService: ctx.resolve<BlogModerationService>('blogModerationService'),
+      });
+    },
+    stop: (service) => {
+      service.stop();
+    },
+  });
+
+  container.register<UserPersonaService>('userPersonaService', {
+    factory: (ctx) => {
+      const cfg = ctx.resolve<Config>('config');
+      const repository = ctx.resolve<VoiceActivityRepository>('voiceActivityRepository');
+      return new UserPersonaService({
+        config: cfg,
+        voiceActivityRepository: cfg.database.url ? repository : null,
+      });
+    },
+    stop: (service) => {
+      service.stop();
+    },
+  });
+
+  container.register<AdminService>('adminService', {
+    factory: () =>
+      new AdminService({
+        storageDirectory: path.resolve(__dirname, '..', 'content', 'admin'),
+      }),
+    start: async (service, ctx) => {
+      try {
+        await service.initialize();
+      } catch (error) {
+        const logger = ctx.resolve<LoggerService>('logger').forContext('AdminService');
+        logger.error('AdminService initialization failed', error);
+      }
+    },
+    eager: true,
+  });
+
+  container.register<DiscordAudioBridge>('discordBridge', {
+    factory: (ctx) => {
+      const cfg = ctx.resolve<Config>('config');
+      const repository = ctx.resolve<VoiceActivityRepository>('voiceActivityRepository');
+      return new DiscordAudioBridge({
+        config: cfg,
+        mixer: ctx.resolve<AudioMixer>('audioMixer'),
+        speakerTracker: ctx.resolve<SpeakerTracker>('speakerTracker'),
+        voiceActivityRepository: cfg.database.url ? repository : null,
+        transcriptionService: ctx.resolve<KaldiTranscriptionService | null>('kaldiTranscriptionService'),
+        audioRecorder: ctx.resolve<UserAudioRecorder | null>('userAudioRecorder'),
+      });
+    },
+    start: async (bridge) => {
+      await bridge.login();
+    },
+    stop: async (bridge) => {
+      await bridge.destroy();
+    },
+    eager: true,
+  });
+
+  container.register<AnonymousSpeechManager>('anonymousSpeechManager', {
+    factory: (ctx) =>
+      new AnonymousSpeechManager({
+        discordBridge: ctx.resolve<DiscordAudioBridge>('discordBridge'),
+        sseService: ctx.resolve<SseService>('sseService'),
+      }),
+  });
+
+  container.register<DiscordVectorIngestionService>('discordVectorIngestionService', {
+    factory: (ctx) => {
+      const cfg = ctx.resolve<Config>('config');
+      const repository = ctx.resolve<VoiceActivityRepository>('voiceActivityRepository');
+      return new DiscordVectorIngestionService({
+        blogService: ctx.resolve<BlogService>('blogService'),
+        projectRoot: path.resolve(__dirname, '..'),
+        shopService: ctx.resolve<ShopService>('shopService'),
+        voiceActivityRepository: cfg.database.url ? repository : null,
+      });
+    },
+    start: (service, ctx) => {
+      try {
+        service.startScheduledSynchronization();
+      } catch (error) {
+        const logger = ctx.resolve<LoggerService>('logger').forContext('DiscordVectorIngestionService');
+        logger.error('Failed to start Discord vector ingestion schedule', error);
+      }
+    },
+    stop: (service) => {
+      service.stopScheduledSynchronization();
+    },
+    eager: true,
+  });
+
+  container.register<UserDataRetentionService>('userDataRetentionService', {
+    factory: (ctx) => {
+      const cfg = ctx.resolve<Config>('config');
+      const repository = ctx.resolve<VoiceActivityRepository>('voiceActivityRepository');
+      return new UserDataRetentionService({
+        voiceActivityRepository: cfg.database.url ? repository : null,
+      });
+    },
+    start: (service) => {
+      service.start();
+    },
+    stop: (service) => {
+      service.stop();
+    },
+    eager: true,
+  });
+
+  container.register<AudioStreamHealthService | null>('audioStreamHealthService', {
+    factory: (ctx) => {
+      const cfg = ctx.resolve<Config>('config');
+      if (!cfg.streamHealth.enabled) {
+        return null;
+      }
+      return new AudioStreamHealthService({
+        transcoder: ctx.resolve<FfmpegTranscoder>('transcoder'),
+        discordBridge: ctx.resolve<DiscordAudioBridge>('discordBridge'),
+        guildId: cfg.guildId,
+        voiceChannelId: cfg.voiceChannelId,
+        checkIntervalMs: cfg.streamHealth.checkIntervalMs,
+        maxSilenceMs: cfg.streamHealth.maxSilenceMs,
+        restartCooldownMs: cfg.streamHealth.restartCooldownMs,
+        streamRetryDelayMs: cfg.streamHealth.streamRetryDelayMs,
+      });
+    },
+    start: (service) => {
+      service?.start();
+    },
+    stop: (service) => {
+      service?.stop();
+    },
+    eager: true,
+  });
+
+  container.register<AppServer>('appServer', {
+    factory: (ctx) => {
+      const cfg = ctx.resolve<Config>('config');
+      const repository = ctx.resolve<VoiceActivityRepository>('voiceActivityRepository');
+      return new AppServer({
+        config: cfg,
+        transcoder: ctx.resolve<FfmpegTranscoder>('transcoder'),
+        speakerTracker: ctx.resolve<SpeakerTracker>('speakerTracker'),
+        sseService: ctx.resolve<SseService>('sseService'),
+        anonymousSpeechManager: ctx.resolve<AnonymousSpeechManager>('anonymousSpeechManager'),
+        discordBridge: ctx.resolve<DiscordAudioBridge>('discordBridge'),
+        shopService: ctx.resolve<ShopService>('shopService'),
+        voiceActivityRepository: cfg.database.url ? repository : null,
+        listenerStatsService: ctx.resolve<ListenerStatsService>('listenerStatsService'),
+        blogRepository: ctx.resolve<BlogRepository | null>('blogRepository'),
+        blogService: ctx.resolve<BlogService>('blogService'),
+        blogSubmissionService: ctx.resolve<BlogSubmissionService>('blogSubmissionService'),
+        blogModerationService: ctx.resolve<BlogModerationService>('blogModerationService'),
+        dailyArticleService: ctx.resolve<DailyArticleService>('dailyArticleService'),
+        userPersonaService: ctx.resolve<UserPersonaService>('userPersonaService'),
+        adminService: ctx.resolve<AdminService>('adminService'),
+        statisticsService: ctx.resolve<StatisticsService>('statisticsService'),
+        userAudioRecorder: ctx.resolve<UserAudioRecorder | null>('userAudioRecorder'),
+      });
+    },
+    start: (server) => {
+      server.start();
+    },
+    stop: (server) => {
+      server.stop();
+    },
+    eager: true,
+  });
 }
 
-function shutdown(): void {
-  try {
-    mixer.stop();
-  } catch (error) {
-    console.error('Error while stopping mixer', error);
-  }
+async function bootstrap(): Promise<void> {
+  const container = new ServiceContainer();
+  registerServices(container);
 
   try {
-    userAudioRecorder?.stop();
+    await container.start();
   } catch (error) {
-    console.error('Error while stopping user audio recorder', error);
+    console.error('Failed to bootstrap application', error);
+    await container.shutdown();
+    process.exit(1);
   }
 
-  try {
-    audioStreamHealthService?.stop();
-  } catch (error) {
-    console.error('Error while stopping audio stream health service', error);
-  }
+  const loggerService = container.resolve<LoggerService>('logger');
+  const logger = loggerService.forContext('Bootstrap');
+  logger.info('Application started on port %d', config.port);
 
-  try {
-    transcoder.stop();
-  } catch (error) {
-    console.error('Error while stopping transcoder', error);
-  }
+  let shutdownInitiated = false;
+  const initiateShutdown = (reason: string, exitCode = 0): void => {
+    if (shutdownInitiated) {
+      return;
+    }
+    shutdownInitiated = true;
 
-  try {
-    sseService.closeAll();
-  } catch (error) {
-    console.error('Error while closing SSE connections', error);
-  }
+    const shutdownLogger = loggerService.forContext('Shutdown');
+    shutdownLogger.info('Shutting down due to %s', reason);
 
-  try {
-    listenerStatsService.stop();
-  } catch (error) {
-    console.error('Error while stopping listener stats service', error);
-  }
+    container
+      .shutdown()
+      .then(() => {
+        shutdownLogger.info('Shutdown complete');
+        process.exit(exitCode);
+      })
+      .catch((shutdownError) => {
+        shutdownLogger.error('Shutdown encountered an error', shutdownError);
+        process.exit(1);
+      });
+  };
 
-  try {
-    userDataRetentionService?.stop();
-  } catch (error) {
-    console.error('Error while stopping user data retention service', error);
-  }
-
-  try {
-    userPersonaService.stop();
-  } catch (error) {
-    console.error('Error while stopping user persona service', error);
-  }
-
-  try {
-    speakerTracker.clear();
-  } catch (error) {
-    console.error('Error while clearing speaker tracker', error);
-  }
-
-  voiceActivityRepository
-    .close()
-    .catch((error) => console.error('Error while closing voice activity repository', error));
-
-  try {
-    appServer.stop();
-  } catch (error) {
-    console.error('Error while stopping HTTP server', error);
-  }
-
-  try {
-    dailyArticleService.stop();
-  } catch (error) {
-    console.error('Error while stopping daily article service', error);
-  }
-
-  discordBridge
-    .destroy()
-    .catch((error) => console.error('Error while destroying Discord bridge', error))
-    .finally(() => process.exit(0));
+  process.once('SIGINT', () => initiateShutdown('SIGINT'));
+  process.once('SIGTERM', () => initiateShutdown('SIGTERM'));
+  process.once('beforeExit', () => initiateShutdown('beforeExit'));
 }
 
-process.on('beforeExit', () => {
-  if (typeof dailyArticleService?.stop === 'function') {
-    dailyArticleService.stop();
-  }
-});
-
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+void bootstrap();
