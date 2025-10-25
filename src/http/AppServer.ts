@@ -6190,54 +6190,6 @@ export default class AppServer {
         this.respondWithAppShell(res, metadata, { appHtml, preloadState });
       });
 
-    this.app.get(['/assistant', '/assistant-ia', '/chat'], (req, res) => {
-      if (req.path !== '/assistant') {
-        res.redirect(301, '/assistant');
-        return;
-      }
-
-      const metadata: SeoPageMetadata = {
-        title: `${this.config.siteName} · Assistant IA communautaire`,
-        description:
-          'Discute avec l’assistant IA Libre Antenne pour retrouver les moments clés, résumés et tendances issus des données Discord archivées.',
-        path: '/assistant',
-        canonicalUrl: this.toAbsoluteUrl('/assistant'),
-        keywords: this.combineKeywords(
-          this.config.siteName,
-          'assistant IA Libre Antenne',
-          'recherche vocale Discord',
-          'radio libre',
-          'assistant IA communautaire',
-        ),
-        openGraphType: 'website',
-        breadcrumbs: [
-          { name: 'Accueil', path: '/' },
-          { name: 'Assistant IA', path: '/assistant' },
-        ],
-        structuredData: [
-          {
-            '@context': 'https://schema.org',
-            '@type': 'WebApplication',
-            name: `${this.config.siteName} – Assistant IA`,
-            description:
-              'Interface de questions/réponses alimentée par les transcriptions, messages et statistiques Discord de Libre Antenne.',
-            applicationCategory: 'BusinessApplication',
-            operatingSystem: 'Web',
-            url: this.toAbsoluteUrl('/assistant'),
-            inLanguage: this.config.siteLanguage,
-            creator: {
-              '@type': 'Organization',
-              name: this.config.siteName,
-              url: this.config.publicBaseUrl,
-            },
-          },
-        ],
-      };
-
-      const preloadState: AppPreloadState = { route: { name: 'chat', params: {} } };
-      this.respondWithAppShell(res, metadata, { preloadState });
-    });
-
     this.app.get('/blog', async (req, res) => {
       const tags = this.extractStringArray(req.query?.tag ?? req.query?.tags ?? null);
       const tagSnippet = tags.length > 0 ? `Focus sur ${tags.join(', ')}.` : '';
