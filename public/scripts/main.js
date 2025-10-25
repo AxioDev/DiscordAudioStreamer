@@ -17,7 +17,6 @@ import {
   Hash,
   MessageSquare,
   Activity,
-  Sparkles,
 } from './core/deps.js';
 import {
   DEFAULT_WINDOW_MINUTES,
@@ -49,7 +48,6 @@ const ROUTE_LOADERS = {
   cgu: () => import('./pages/cgu.js').then((module) => module?.CguPage ?? null),
   'cgv-vente': () =>
     import('./pages/cgv-vente.js').then((module) => module?.CgvVentePage ?? null),
-  chat: () => import('./pages/chat.js').then((module) => module?.ChatPage ?? null),
   'mentions-legales': () =>
     import('./pages/mentions-legales.js').then((module) => module?.MentionsLegalesPage ?? null),
   salons: () => import('./pages/salons.js').then((module) => module?.SalonsPage ?? null),
@@ -67,7 +65,6 @@ const NAV_LINKS = [
   { label: 'Salons', route: 'salons', href: '/salons', icon: Hash },
   { label: 'Statistiques', route: 'statistiques', href: '/statistiques', icon: Activity },
   { label: 'Blog', route: 'blog', href: '/blog', icon: MessageSquare },
-  { label: 'Assistant IA', route: 'chat', href: '/assistant', icon: Sparkles },
 ];
 
 const PRERENDER_CLASS_TOKENS = [
@@ -1928,8 +1925,6 @@ const App = () => {
                       scrollToTop: options.scrollToTop ?? false,
                     }),
                 })
-              : route.name === 'chat'
-              ? renderAsyncPage('chat')
               : route.name === 'salons'
               ? renderAsyncPage('salons', { bootstrap: BOOTSTRAP_PAGES.salons ?? null })
               : renderAsyncPage('home', {

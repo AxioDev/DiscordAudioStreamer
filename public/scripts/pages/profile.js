@@ -8,7 +8,6 @@ import {
   useState,
   ArrowLeft,
   RefreshCcw,
-  Sparkles,
 } from '../core/deps.js';
 import {
   PROFILE_RANGE_PRESETS,
@@ -23,7 +22,6 @@ import {
 } from '../utils/index.js';
 import {
   ProfileIdentityCard,
-  ProfilePersonaCard,
   ProfileSummaryCards,
   ProfileActivityTimeline,
   DailyBreakdown,
@@ -53,19 +51,6 @@ const ProfileLoadingSkeleton = () =>
           </div>
         </div>
       </section>
-
-      <section
-        class="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-slate-950/40 backdrop-blur-xl"
-        aria-hidden="true"
-      >
-        <div class="space-y-4">
-          <div class="h-3 w-40 rounded-full bg-white/10 animate-pulse"></div>
-          <div class="h-6 w-2/3 rounded-full bg-white/10 animate-pulse"></div>
-          <div class="h-20 rounded-2xl bg-white/10 animate-pulse"></div>
-          <div class="h-4 w-1/3 rounded-full bg-white/10 animate-pulse"></div>
-        </div>
-      </section>
-
       <section
         class="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-slate-950/40 backdrop-blur-xl"
         aria-hidden="true"
@@ -129,7 +114,6 @@ const ProfilePage = ({ params, onNavigateHome, onUpdateRange }) => {
   const [formError, setFormError] = useState('');
   const [state, setState] = useState({ status: 'idle', data: null, error: null });
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const [personaGeneration, setPersonaGeneration] = useState({ status: 'idle', message: '' });
   const previousUserRef = useRef(userId);
 
   useEffect(() => {
@@ -149,10 +133,6 @@ const ProfilePage = ({ params, onNavigateHome, onUpdateRange }) => {
     setDraftSince(toInputValue(range.sinceMs));
     setDraftUntil(toInputValue(range.untilMs));
   }, [range.sinceMs, range.untilMs]);
-
-  useEffect(() => {
-    setPersonaGeneration({ status: 'idle', message: '' });
-  }, [userId]);
 
   useEffect(() => {
     if (!userId) {
@@ -276,62 +256,6 @@ const ProfilePage = ({ params, onNavigateHome, onUpdateRange }) => {
     setRefreshNonce((value) => value + 1);
   }, []);
 
-  const handleGeneratePersona = useCallback(async () => {
-    if (!userId) {
-      return;
-    }
-
-    setPersonaGeneration({ status: 'loading', message: '' });
-    try {
-      const response = await fetch(`/api/users/${encodeURIComponent(userId)}/persona/generate`, {
-        method: 'POST',
-      });
-      let payload = null;
-      try {
-        payload = await response.json();
-      } catch (error) {
-        payload = null;
-      }
-
-      if (!response.ok) {
-        const isSkipped =
-          response.status === 409
-          || (payload && typeof payload.status === 'string' && payload.status.trim().toLowerCase() === 'skipped');
-        const message =
-          typeof payload?.message === 'string' && payload.message.trim().length > 0
-            ? payload.message.trim()
-            : isSkipped
-            ? 'Pas assez de contenu récent pour générer la fiche de ce membre.'
-            : 'La génération de la fiche a échoué.';
-        setPersonaGeneration({ status: isSkipped ? 'warning' : 'error', message });
-        return;
-      }
-
-      const resultStatus =
-        typeof payload?.status === 'string' && payload.status.trim().length > 0
-          ? payload.status.trim().toLowerCase()
-          : 'generated';
-      const message =
-        typeof payload?.message === 'string' && payload.message.trim().length > 0
-          ? payload.message.trim()
-          : 'La fiche a été régénérée avec succès.';
-
-      if (resultStatus === 'skipped') {
-        setPersonaGeneration({ status: 'warning', message });
-        return;
-      }
-
-      setPersonaGeneration({ status: 'success', message });
-      handleRefresh();
-    } catch (error) {
-      const detail = error instanceof Error && error.message ? error.message : '';
-      setPersonaGeneration({
-        status: 'error',
-        message: `La génération de la fiche a échoué${detail ? ` : ${detail}` : '.'}`,
-      });
-    }
-  }, [handleRefresh, userId]);
-
   const isLoading = state.status === 'loading';
   const errorMessage = state.status === 'error' ? state.error : null;
   const data = state.data;
@@ -339,10 +263,6 @@ const ProfilePage = ({ params, onNavigateHome, onUpdateRange }) => {
   const activeDuration = Number.isFinite(range.untilMs) && Number.isFinite(range.sinceMs)
     ? Math.abs(range.untilMs - range.sinceMs)
     : null;
-  const personaGenerationStatus = personaGeneration.status;
-  const personaGenerationMessage =
-    typeof personaGeneration.message === 'string' ? personaGeneration.message : '';
-  const isGeneratingPersona = personaGenerationStatus === 'loading';
 
   return html`
     <${Fragment}>
@@ -379,49 +299,6 @@ const ProfilePage = ({ params, onNavigateHome, onUpdateRange }) => {
                 ? html`<${ProfileLoadingSkeleton} />`
                 : html`
                     <${ProfileIdentityCard} profile=${data?.profile ?? null} userId=${userId} />
-                    <${ProfilePersonaCard} persona=${data?.persona ?? null} />
-                    <section class="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-slate-950/40 backdrop-blur-xl">
-                      <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                        <div>
-                          <p class="text-xs uppercase tracking-[0.35em] text-indigo-200/80">Mise à jour IA</p>
-                          <h2 class="text-2xl font-semibold text-white">Régénérer la fiche</h2>
-                          <p class="text-sm text-slate-300">
-                            Relance la génération manuelle si le portrait ne reflète plus l’activité récente.
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick=${handleGeneratePersona}
-                          class=${[
-                            'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition',
-                            isGeneratingPersona
-                              ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-100 opacity-80'
-                              : 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white',
-                          ].join(' ')}
-                          disabled=${isGeneratingPersona || !userId}
-                        >
-                          <${Sparkles}
-                            class=${`h-4 w-4 ${isGeneratingPersona ? 'animate-spin text-indigo-200' : ''}`}
-                            aria-hidden="true"
-                          />
-                          ${isGeneratingPersona ? 'Génération en cours…' : 'Régénérer la fiche'}
-                        </button>
-                      </div>
-                      ${personaGenerationMessage
-                        ? html`<p
-                            class=${[
-                              'mt-4 rounded-2xl border px-4 py-2 text-xs',
-                              personaGenerationStatus === 'success'
-                                ? 'border-emerald-400/50 bg-emerald-500/10 text-emerald-100'
-                                : personaGenerationStatus === 'warning'
-                                ? 'border-amber-400/60 bg-amber-500/10 text-amber-100'
-                                : 'border-rose-400/40 bg-rose-500/10 text-rose-100',
-                            ].join(' ')}
-                          >
-                            ${personaGenerationMessage}
-                          </p>`
-                        : null}
-                    </section>
 
                     <section class="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-slate-950/40 backdrop-blur-xl">
                       <div class="flex flex-col gap-6">
