@@ -23,10 +23,7 @@ import type VoiceActivityRepository from '../services/VoiceActivityRepository';
 import ListenerStatsService, {
   type ListenerStatsEntry,
 } from '../services/ListenerStatsService';
-import BlogService, {
-  type BlogPostDetail,
-  type BlogPostSummary,
-} from '../services/BlogService';
+import BlogService from '../services/BlogService';
 import BlogRepository from '../services/BlogRepository';
 import BlogSubmissionService from '../services/BlogSubmissionService';
 import BlogModerationService from '../services/BlogModerationService';
@@ -43,7 +40,6 @@ import type {
   VoiceTranscriptionCursor,
 } from '../services/VoiceActivityRepository';
 import HypeLeaderboardService, {
-  type HypeLeaderWithTrend,
   type HypeLeaderboardResult,
   type NormalizedHypeLeaderboardQueryOptions,
 } from '../services/HypeLeaderboardService';
@@ -142,9 +138,7 @@ interface SitemapEntry {
 }
 
 interface SitemapComputationContext {
-  latestBlogPostDate: string | null;
   latestProfileActivityAt: string | null;
-  latestClassementsSnapshot: string | null;
   shopCatalogUpdatedAt: string | null;
 }
 
@@ -211,46 +205,6 @@ interface HomePageBootstrap {
   pulse?: HomePulseData | null;
 }
 
-interface BlogPageBootstrap {
-  posts?: BlogPostSummary[];
-  availableTags?: string[];
-  selectedTags?: string[];
-  activePost?: BlogPostDetail | null;
-}
-
-interface ClassementLeaderBootstrap {
-  userId: string;
-  displayName: string | null;
-  username: string | null;
-  rank: number;
-  absoluteRank: number | null;
-  avatar: string | null;
-  avatarUrl: string | null;
-  profileAvatar: string | null;
-  activityScore: number;
-  arrivalEffect: number;
-  departureEffect: number;
-  schScoreNorm: number;
-  retentionMinutes: number;
-  sessions: number;
-  positionTrend: {
-    movement: string;
-    delta: number | null;
-    comparedAt: string | null;
-  } | null;
-}
-
-interface ClassementsPageBootstrap {
-  query: {
-    search: string;
-    sortBy: HypeLeaderboardSortBy;
-    sortOrder: HypeLeaderboardSortOrder;
-    period: string;
-  };
-  leaders: ClassementLeaderBootstrap[];
-  snapshot: { bucketStart: string | null; comparedTo: string | null } | null;
-}
-
 interface ShopPageBootstrap {
   products: PublicProduct[];
 }
@@ -301,8 +255,6 @@ interface AppPreloadState {
   listenerStats?: ListenerStatsBootstrap;
   pages?: {
     home?: HomePageBootstrap;
-    blog?: BlogPageBootstrap;
-    classements?: ClassementsPageBootstrap;
     shop?: ShopPageBootstrap;
     statistiques?: StatisticsPageBootstrap;
     salons?: SalonsPageBootstrap;
@@ -601,38 +553,6 @@ export default class AppServer {
     this.registerRoutes();
   }
 
-  private extractString(value: unknown): string | null {
-    if (typeof value !== 'string') {
-      return null;
-    }
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  }
-
-  private extractStringArray(value: unknown): string[] {
-    if (Array.isArray(value)) {
-      return value
-        .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
-        .filter((entry) => entry.length > 0);
-    }
-
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      if (!trimmed) {
-        return [];
-      }
-      if (trimmed.includes(',')) {
-        return trimmed
-          .split(',')
-          .map((entry) => entry.trim())
-          .filter((entry) => entry.length > 0);
-      }
-      return [trimmed];
-    }
-
-    return [];
-  }
-
   private normalizeMemberSearchQuery(value: string | null | undefined): string {
     if (!value) {
       return '';
@@ -701,6 +621,22 @@ export default class AppServer {
       console.error('Failed to render SEO page', error);
       res.status(500).sendFile(path.resolve(__dirname, '..', '..', 'public', 'index.html'));
     }
+  }
+
+  private respondWithPageRemoved(res: Response, path: string): void {
+    const normalizedPath = path.startsWith('/') ? path : `/${path.replace(/^\/+/, '')}`;
+    const metadata: SeoPageMetadata = {
+      title: `Page indisponible · ${this.config.siteName}`,
+      description: `La page ${normalizedPath} n'est plus disponible sur ${this.config.siteName}.`,
+      path: normalizedPath,
+      canonicalUrl: this.toAbsoluteUrl(normalizedPath),
+      robots: 'noindex,follow',
+      breadcrumbs: [
+        { name: 'Accueil', path: '/' },
+      ],
+    };
+    const preloadState: AppPreloadState = { route: { name: 'home', params: {} } };
+    this.respondWithAppShell(res, metadata, { status: 404, preloadState });
   }
 
   private toAbsoluteUrl(pathname: string): string {
@@ -924,13 +860,8 @@ export default class AppServer {
   }> {
     return [
       { path: '/', changeFreq: 'daily', priority: 1 },
-      { path: '/membres', changeFreq: 'daily', priority: 0.8 },
-      { path: '/members', changeFreq: 'daily', priority: 0.8 },
       { path: '/boutique', changeFreq: 'weekly', priority: 0.6 },
       { path: '/statistiques', changeFreq: 'hourly', priority: 0.75 },
-      { path: '/classements', changeFreq: 'hourly', priority: 0.7 },
-      { path: '/blog', changeFreq: 'daily', priority: 0.7 },
-      { path: '/blog/publier', changeFreq: 'monthly', priority: 0.5 },
       { path: '/about', changeFreq: 'monthly', priority: 0.5 },
       { path: '/cgu', changeFreq: 'yearly', priority: 0.4 },
       { path: '/cgv-vente', changeFreq: 'yearly', priority: 0.35 },
@@ -951,11 +882,6 @@ export default class AppServer {
       } satisfies SitemapEntry;
     });
 
-    const blogEntries = await this.buildBlogSitemapEntries();
-    for (const entry of blogEntries) {
-      entries.push(entry);
-    }
-
     const profileEntries = await this.buildProfileSitemapEntries();
     for (const entry of profileEntries) {
       entries.push(entry);
@@ -967,34 +893,13 @@ export default class AppServer {
   }
 
   private async buildSitemapContext(): Promise<SitemapComputationContext> {
-    const [latestBlogPostDate, latestProfileActivityAt, latestClassementsSnapshot] = await Promise.all([
-      this.resolveLatestBlogPostDate(),
-      this.resolveLatestProfileActivityAt(),
-      this.resolveLatestClassementsSnapshot(),
-    ]);
-
+    const latestProfileActivityAt = await this.resolveLatestProfileActivityAt();
     const shopCatalogUpdatedAt = this.shopService.getCatalogUpdatedAt();
 
     return {
-      latestBlogPostDate: this.formatSitemapDate(latestBlogPostDate),
       latestProfileActivityAt: this.formatSitemapDate(latestProfileActivityAt),
-      latestClassementsSnapshot: this.formatSitemapDate(latestClassementsSnapshot),
       shopCatalogUpdatedAt: this.formatSitemapDate(shopCatalogUpdatedAt),
     };
-  }
-
-  private async resolveLatestBlogPostDate(): Promise<string | null> {
-    try {
-      const { posts } = await this.blogService.listPosts({ limit: 1, sortBy: 'date', sortOrder: 'desc' });
-      if (!posts || posts.length === 0) {
-        return null;
-      }
-      const [latest] = posts;
-      return latest?.updatedAt ?? latest?.date ?? null;
-    } catch (error) {
-      console.warn('Failed to resolve latest blog post date for sitemap', error);
-      return null;
-    }
   }
 
   private async resolveLatestProfileActivityAt(): Promise<string | null> {
@@ -1023,57 +928,16 @@ export default class AppServer {
     }
   }
 
-  private async resolveLatestClassementsSnapshot(): Promise<string | null> {
-    const service = this.hypeLeaderboardService;
-    if (!service) {
-      return null;
-    }
-
-    try {
-      const defaultOptions = service.getDefaultOptions();
-      const options: NormalizedHypeLeaderboardQueryOptions = {
-        ...defaultOptions,
-        limit: 1,
-      };
-      const result = await this.withTimeout(
-        this.getCachedHypeLeaders(options),
-        AppServer.sitemapQueryTimeoutMs,
-        'hype-leaderboard:snapshot',
-      );
-      return result.snapshot?.bucketStart?.toISOString?.() ?? null;
-    } catch (error) {
-      if (this.isTimeoutError(error)) {
-        console.warn(
-          'Timed out while resolving hype leaderboard snapshot for sitemap after %dms',
-          AppServer.sitemapQueryTimeoutMs,
-        );
-      } else {
-        console.warn('Failed to resolve hype leaderboard snapshot for sitemap', error);
-      }
-      return null;
-    }
-  }
-
   private getStaticPageLastMod(path: string, context: SitemapComputationContext): string | null {
     const candidates: Array<string | null> = (() => {
       switch (path) {
         case '/':
           return [
-            context.latestBlogPostDate,
-            context.latestClassementsSnapshot,
             context.latestProfileActivityAt,
             context.shopCatalogUpdatedAt,
           ];
-        case '/membres':
-        case '/members':
-          return [context.latestProfileActivityAt];
         case '/boutique':
-          return [context.shopCatalogUpdatedAt, context.latestClassementsSnapshot];
-        case '/classements':
-          return [context.latestClassementsSnapshot];
-        case '/blog':
-        case '/blog/publier':
-          return [context.latestBlogPostDate];
+          return [context.shopCatalogUpdatedAt];
         case '/salons':
           return [context.latestProfileActivityAt];
         case '/about':
@@ -1124,32 +988,6 @@ export default class AppServer {
     }
 
     return new Date(latestMs).toISOString();
-  }
-
-  private async buildBlogSitemapEntries(): Promise<SitemapEntry[]> {
-    try {
-      const { posts } = await this.blogService.listPosts({
-        limit: 500,
-        sortBy: 'date',
-        sortOrder: 'desc',
-      });
-
-      return posts
-        .filter((post) => typeof post?.slug === 'string' && post.slug.trim().length > 0)
-        .map((post) => {
-          const slug = post.slug.trim();
-          const lastMod = this.formatSitemapDate(post.updatedAt ?? post.date);
-          return {
-            loc: this.toAbsoluteUrl(`/blog/${slug}`),
-            lastMod,
-            changeFreq: 'monthly',
-            priority: 0.6,
-          } satisfies SitemapEntry;
-        });
-    } catch (error) {
-      console.error('Failed to list blog posts for sitemap', error);
-      return [];
-    }
   }
 
   private async buildProfileSitemapEntries(): Promise<SitemapEntry[]> {
@@ -1522,114 +1360,6 @@ export default class AppServer {
     const total = Array.from(seedString).reduce((acc, char) => acc + char.charCodeAt(0), 0);
     const index = Math.abs(total) % palette.length;
     return palette[index] ?? palette[0];
-  }
-
-  private selectClassementsAvatar(leader: ClassementLeaderBootstrap): string | null {
-    const candidates = [leader.avatarUrl, leader.avatar, leader.profileAvatar];
-    for (const candidate of candidates) {
-      if (candidate && typeof candidate === 'string' && candidate.trim().length > 0) {
-        return candidate.trim();
-      }
-    }
-    return null;
-  }
-
-  private computeClassementAvatarSeed(leader: ClassementLeaderBootstrap, rank: number): number {
-    if (leader.userId && leader.userId.length > 0) {
-      return Array.from(leader.userId).reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    }
-    return Math.max(1, rank);
-  }
-
-  private getClassementLeaderInitials(leader: ClassementLeaderBootstrap): string {
-    const displayName = leader.displayName?.trim() ?? '';
-    const username = leader.username?.trim().replace(/^@/, '') ?? '';
-    const source = displayName || username;
-    if (!source) {
-      return '∅';
-    }
-    const parts = source.split(/\s+/).filter(Boolean);
-    if (parts.length === 1) {
-      return parts[0].slice(0, 2).toUpperCase();
-    }
-    const first = parts[0]?.[0] ?? '';
-    const last = parts[parts.length - 1]?.[0] ?? '';
-    const initials = `${first}${last}`.trim();
-    return initials ? initials.toUpperCase() : source.slice(0, 2).toUpperCase();
-  }
-
-  private describeClassementTrend(trend: ClassementLeaderBootstrap['positionTrend']): {
-    icon: string;
-    label: string;
-    className: string;
-    delta: string;
-  } {
-    const movement = trend?.movement ?? 'same';
-    const deltaValue = Number.isFinite(trend?.delta ?? null) ? Number(trend?.delta ?? 0) : null;
-    switch (movement) {
-      case 'up':
-        return {
-          icon: '↑',
-          label: 'Monte',
-          className: 'text-emerald-300',
-          delta: deltaValue !== null && deltaValue !== 0 ? `+${deltaValue}` : '+0',
-        };
-      case 'down':
-        return {
-          icon: '↓',
-          label: 'Descend',
-          className: 'text-rose-300',
-          delta: deltaValue !== null && deltaValue !== 0 ? `${deltaValue}` : '0',
-        };
-      case 'new':
-        return {
-          icon: '★',
-          label: 'Nouveau',
-          className: 'text-amber-300',
-          delta: '—',
-        };
-      default:
-        return {
-          icon: '→',
-          label: 'Stable',
-          className: 'text-slate-300',
-          delta: '0',
-        };
-    }
-  }
-
-  private buildClassementsMetaLabel(
-    leaderCount: number,
-    snapshot: { bucketStart: string | null; comparedTo: string | null } | null,
-  ): string {
-    const count = Math.min(Math.max(leaderCount, 0), 100);
-    const bucketDate = snapshot?.bucketStart ? new Date(snapshot.bucketStart) : new Date();
-    const formatter = new Intl.DateTimeFormat('fr-FR', {
-      hour: '2-digit',
-      minute: '2-digit',
-      day: '2-digit',
-      month: 'long',
-    });
-    const formattedDate = formatter.format(bucketDate);
-
-    let comparisonSegment = '';
-    if (snapshot?.comparedTo) {
-      const comparedDate = new Date(snapshot.comparedTo);
-      if (!Number.isNaN(comparedDate.getTime())) {
-        const diffMs = bucketDate.getTime() - comparedDate.getTime();
-        const diffHours = diffMs / 3_600_000;
-        if (Number.isFinite(diffHours)) {
-          const relativeFormatter = new Intl.RelativeTimeFormat('fr-FR', { numeric: 'auto' });
-          const rounded = Math.round(diffHours);
-          comparisonSegment =
-            rounded === 0
-              ? ' · Variations sur l’heure en cours'
-              : ` · Variations ${relativeFormatter.format(-rounded, 'hour')}`;
-        }
-      }
-    }
-
-    return `${count} profils · Mise à jour ${formattedDate}${comparisonSegment}`;
   }
 
   private truncateText(value: string, maxLength = 240): string {
@@ -2062,213 +1792,6 @@ export default class AppServer {
     return parts.join('');
   }
 
-  private buildMembersPageHtml(data: {
-    search: string | null;
-    members: Array<{
-      id: string;
-      displayName: string;
-      username: string | null;
-      avatarUrl: string | null;
-      joinedAt: string | null;
-      highlightMessage: { content: string; timestamp: string | null } | null;
-    }>;
-  }): string {
-    const parts: string[] = [];
-    const searchTerm = data.search ? data.search.trim() : '';
-    parts.push('<main class="members-prerender mx-auto max-w-6xl space-y-12 px-4 py-16">');
-    parts.push('<section class="rounded-3xl border border-slate-800/60 bg-slate-950/70 p-8">');
-    parts.push('<h1 class="text-3xl font-bold text-white">Membres actifs de Libre Antenne</h1>');
-    if (searchTerm) {
-      parts.push(
-        `<p class="mt-4 text-sm text-slate-300">Résultats filtrés pour « ${this.escapeHtml(searchTerm)} ». Explore les profils les plus actifs de ces 90 derniers jours.</p>`,
-      );
-    } else {
-      parts.push(
-        '<p class="mt-4 text-sm text-slate-300">Découvre qui anime la radio libre : temps de présence, prises de parole marquantes et derniers messages publics.</p>',
-      );
-    }
-    parts.push('</section>');
-
-    parts.push('<section class="space-y-6">');
-    if (data.members.length === 0) {
-      parts.push(
-        '<p class="rounded-3xl border border-slate-800/60 bg-slate-950/60 p-6 text-sm text-slate-400">Aucun membre ne correspond à ta recherche pour le moment. Essaye avec un pseudo, un sujet ou reviens après une soirée en direct.</p>',
-      );
-    } else {
-      parts.push('<div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">');
-      for (const member of data.members) {
-        const rawName = typeof member.displayName === 'string' && member.displayName.trim().length > 0
-          ? member.displayName.trim()
-          : 'Membre Libre Antenne';
-        const name = this.escapeHtml(rawName);
-        const username = member.username ? `@${this.escapeHtml(member.username)}` : null;
-        const joinedLabel = this.formatDateLabel(member.joinedAt) ?? null;
-        parts.push('<article class="flex h-full flex-col justify-between rounded-2xl border border-slate-800/40 bg-slate-950/60 p-6">');
-        parts.push('<div class="flex items-center gap-4">');
-        parts.push(
-          this.renderAvatarOrFallback({
-            avatarUrl: member.avatarUrl,
-            alt: `Avatar de ${rawName}`,
-            displayName: rawName,
-            seed: member.id ?? rawName,
-            sizeClass: 'h-14 w-14',
-            className: 'flex-none rounded-full border border-slate-800',
-            textClass: 'text-lg font-semibold text-white/90',
-            loading: 'lazy',
-            decoding: 'async',
-          }),
-        );
-        parts.push('<div class="min-w-0 flex-1">');
-        parts.push(`<p class="truncate text-base font-semibold text-white">${name}</p>`);
-        if (username) {
-          parts.push(`<p class="truncate text-xs uppercase tracking-[0.2em] text-slate-500">${username}</p>`);
-        }
-        if (joinedLabel) {
-          parts.push(`<p class="mt-1 text-xs text-slate-400">Membre depuis ${this.escapeHtml(joinedLabel)}</p>`);
-        }
-        parts.push('</div>');
-        parts.push('</div>');
-
-        if (member.highlightMessage) {
-          const message = this.escapeHtml(this.truncateText(member.highlightMessage.content, 180));
-          const messageDate = this.formatDateLabel(member.highlightMessage.timestamp, {
-            dateStyle: 'medium',
-            timeStyle: 'short',
-          });
-          parts.push('<div class="mt-5 rounded-2xl bg-slate-900/70 p-4">');
-          parts.push('<p class="text-xs uppercase tracking-[0.18em] text-amber-300">Vu sur le Discord</p>');
-          parts.push(`<p class="mt-2 text-sm text-slate-200">${message}</p>`);
-          if (messageDate) {
-            parts.push(`<p class="mt-2 text-xs text-slate-500">${this.escapeHtml(messageDate)}</p>`);
-          }
-          parts.push('</div>');
-        }
-
-        parts.push(
-          `<a class="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-amber-300 hover:text-amber-200" href="/profil/${encodeURIComponent(
-            member.id,
-          )}">Consulter le profil →</a>`,
-        );
-        parts.push('</article>');
-      }
-      parts.push('</div>');
-    }
-    parts.push('</section>');
-
-    parts.push('</main>');
-    return parts.join('');
-  }
-
-  private buildBlogListingHtml(data: {
-    tags: string[];
-    posts: Array<{ title: string; slug: string; excerpt: string | null; date: string | null; author?: string | null }>;
-    availableTags: string[];
-  }): string {
-    const parts: string[] = [];
-    const activeTags = data.tags.filter((tag) => typeof tag === 'string' && tag.trim().length > 0);
-    const tagDescription = activeTags.length > 0
-      ? 'Sélection de chroniques correspondant à ta recherche.'
-      : 'Histoires de nuit, coulisses et conseils pour rejoindre Libre Antenne.';
-
-    parts.push('<main class="blog-prerender mx-auto max-w-5xl space-y-12 px-4 py-16">');
-    parts.push('<section class="rounded-3xl border border-slate-800/60 bg-slate-950/70 p-8">');
-    parts.push('<h1 class="text-3xl font-bold text-white">Chroniques Libre Antenne</h1>');
-    parts.push(`<p class="mt-4 text-sm text-slate-300">${this.escapeHtml(tagDescription)}</p>`);
-    parts.push('</section>');
-
-    if (data.posts.length === 0) {
-      parts.push(
-        '<p class="rounded-3xl border border-slate-800/60 bg-slate-950/60 p-6 text-sm text-slate-400">Aucun article ne correspond à ces filtres pour le moment. N’hésite pas à publier un article ou à explorer d’autres tags.</p>',
-      );
-    } else {
-      parts.push('<section class="space-y-6">');
-      for (const post of data.posts) {
-        const title = this.escapeHtml(post.title);
-        const excerpt = post.excerpt ? this.escapeHtml(this.truncateText(post.excerpt, 240)) : 'Un nouveau récit de la communauté.';
-        const dateLabel = this.formatDateLabel(post.date, { dateStyle: 'long' });
-        const author = post.author ? this.escapeHtml(post.author) : null;
-        parts.push('<article class="rounded-3xl border border-slate-800/40 bg-slate-950/60 p-6">');
-        parts.push(`<h2 class="text-2xl font-semibold text-white"><a class="hover:text-amber-200" href="/blog/${encodeURIComponent(post.slug)}">${title}</a></h2>`);
-        if (dateLabel || author) {
-          parts.push('<p class="mt-2 text-xs uppercase tracking-[0.18em] text-slate-500">');
-          if (dateLabel) {
-            parts.push(this.escapeHtml(dateLabel));
-          }
-          if (author) {
-            parts.push(dateLabel ? ' · ' : '');
-            parts.push(`Par ${author}`);
-          }
-          parts.push('</p>');
-        }
-        parts.push(`<p class="mt-4 text-sm text-slate-300">${excerpt}</p>`);
-        parts.push(`<a class="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-amber-300 hover:text-amber-200" href="/blog/${encodeURIComponent(post.slug)}">Lire l’article →</a>`);
-        parts.push('</article>');
-      }
-      parts.push('</section>');
-    }
-
-    parts.push('</main>');
-    return parts.join('');
-  }
-
-  private buildBlogPostHtml(data: {
-    title: string;
-    contentHtml: string;
-    date: string | null;
-    updatedAt: string | null;
-    tags: string[];
-    coverImageUrl: string | null;
-    authorName?: string | null;
-  }): string {
-    const parts: string[] = [];
-    const publishedLabel = this.formatDateLabel(data.date, { dateStyle: 'long' });
-    const updatedLabel = this.formatDateLabel(data.updatedAt, { dateStyle: 'long' });
-    parts.push('<main class="blog-post-prerender mx-auto max-w-3xl space-y-10 px-4 py-16">');
-    parts.push('<header class="space-y-4 text-center">');
-    parts.push(`<p class="text-xs uppercase tracking-[0.18em] text-amber-300">Chronique Libre Antenne</p>`);
-    parts.push(`<h1 class="text-3xl font-bold text-white">${this.escapeHtml(data.title)}</h1>`);
-    if (data.authorName || publishedLabel || updatedLabel) {
-      parts.push('<p class="text-xs uppercase tracking-[0.2em] text-slate-500">');
-      if (publishedLabel) {
-        parts.push(`Publié le ${this.escapeHtml(publishedLabel)}`);
-      }
-      if (updatedLabel && updatedLabel !== publishedLabel) {
-        parts.push(publishedLabel ? ' · ' : '');
-        parts.push(`Mise à jour le ${this.escapeHtml(updatedLabel)}`);
-      }
-      if (data.authorName) {
-        parts.push((publishedLabel || updatedLabel) ? ' · ' : '');
-        parts.push(`Par ${this.escapeHtml(data.authorName)}`);
-      }
-      parts.push('</p>');
-    }
-    if (data.coverImageUrl) {
-      parts.push(
-        `<img alt="Illustration de l’article" src="${this.escapeHtml(data.coverImageUrl)}" loading="lazy" class="mx-auto mt-6 max-h-80 w-full rounded-3xl object-cover" />`,
-      );
-    }
-    if (data.tags.length > 0) {
-      parts.push('<div class="mt-6 flex flex-wrap justify-center gap-2">');
-      for (const tag of data.tags) {
-        parts.push(`<span class="rounded-full bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200">#${this.escapeHtml(tag)}</span>`);
-      }
-      parts.push('</div>');
-    }
-    parts.push('</header>');
-
-    parts.push('<article class="prose prose-invert mx-auto max-w-none prose-headings:text-white prose-a:text-amber-300">');
-    parts.push(data.contentHtml);
-    parts.push('</article>');
-
-    parts.push('<footer class="rounded-3xl border border-slate-800/40 bg-slate-950/60 p-6 text-sm text-slate-300">');
-    parts.push('<p>Envie de participer ? Rejoins la communauté sur Discord et publie ta chronique via l’outil dédié.</p>');
-    parts.push('<a class="mt-3 inline-flex items-center gap-2 font-semibold text-amber-300 hover:text-amber-200" href="/blog/publier">Publier un article →</a>');
-    parts.push('</footer>');
-
-    parts.push('</main>');
-    return parts.join('');
-  }
-
   private buildProfilePageHtml(data: {
     userId: string;
     profileName: string;
@@ -2363,43 +1886,6 @@ export default class AppServer {
     return parts.join('');
   }
 
-  private buildBlogSubmissionHtml(): string {
-    const parts: string[] = [];
-    parts.push('<main class="blog-submission-prerender mx-auto max-w-3xl space-y-10 px-4 py-16">');
-    parts.push('<section class="rounded-3xl border border-slate-800/60 bg-slate-950/70 p-8 text-center">');
-    parts.push('<p class="text-xs uppercase tracking-[0.2em] text-amber-300">Contribution immédiate</p>');
-    parts.push('<h1 class="mt-3 text-3xl font-bold text-white">Publier un article sur le blog Libre Antenne</h1>');
-    parts.push('<p class="mt-4 text-sm text-slate-300">Partage un moment marquant, un portrait ou un guide pratique : ta contribution est en ligne dès l’envoi.</p>');
-    parts.push('</section>');
-
-    parts.push('<section class="space-y-6 rounded-3xl border border-slate-800/40 bg-slate-950/60 p-6 text-sm text-slate-200">');
-    parts.push('<h2 class="text-lg font-semibold text-white">Comment ça marche ?</h2>');
-    parts.push('<ol class="list-decimal space-y-3 pl-6 text-left text-slate-300">');
-    parts.push('<li>Décris ton idée : titre, accroche, tags et visuel éventuel.</li>');
-    parts.push('<li>Rédige ton article en Markdown avec un ton authentique et sourcé.</li>');
-    parts.push('<li>Publie : l’article rejoint immédiatement le blog Libre Antenne.</li>');
-    parts.push('</ol>');
-    parts.push('</section>');
-
-    parts.push('<section class="rounded-3xl border border-slate-800/40 bg-slate-950/60 p-6 text-sm text-slate-200">');
-    parts.push('<h2 class="text-lg font-semibold text-white">Prépare un contenu de qualité</h2>');
-    parts.push('<ul class="list-disc space-y-2 pl-6 text-left">');
-    parts.push('<li>Format recommandé : 800 à 1 200 mots avec des intertitres clairs.</li>');
-    parts.push('<li>Ajoute des sources ou liens utiles si tu cites une information.</li>');
-    parts.push('<li>Reste fidèle à l’esprit communautaire : respect, bienveillance et transparence.</li>');
-    parts.push('</ul>');
-    parts.push('<a class="mt-4 inline-flex items-center gap-2 font-semibold text-amber-300 hover:text-amber-200" href="/blog">Voir les articles publiés →</a>');
-    parts.push('</section>');
-
-    parts.push('<section class="rounded-3xl border border-slate-800/40 bg-slate-950/60 p-6 text-sm text-slate-200">');
-    parts.push('<h2 class="text-lg font-semibold text-white">Après la publication</h2>');
-    parts.push('<p class="text-slate-300">Ton article apparaît immédiatement dans le blog. L’équipe éditoriale peut ensuite le relire, le partager et le mettre en avant pendant le direct.</p>');
-    parts.push('</section>');
-
-    parts.push('</main>');
-    return parts.join('');
-  }
-
   private async buildHomePagePrerender(): Promise<{
     html: string;
     listenerCount: number;
@@ -2454,382 +1940,6 @@ export default class AppServer {
 
     const html = this.buildHomePageHtml({ listenerCount, speakers, latestPosts, pulse });
     return { html, listenerCount, latestPosts, speakers, participants, listenerHistory, pulse };
-  }
-
-  private async buildMembersPagePrerender(search: string | null): Promise<string> {
-    try {
-      const normalizedSearch = this.normalizeMemberSearchQuery(search);
-      const result = await this.discordBridge.listGuildMembers({
-        limit: 30,
-        search: normalizedSearch.length > 0 ? normalizedSearch : null,
-      });
-      const hiddenIds = await this.adminService.getHiddenMemberIds();
-      const visibleMembers = result.members.filter((member) => !hiddenIds.has(member.id));
-
-      let recentMessagesByUser: Record<string, UserMessageActivityEntry[]> = {};
-      if (this.voiceActivityRepository) {
-        const userIds = visibleMembers
-          .map((member) => member.id)
-          .filter((id): id is string => typeof id === 'string' && id.length > 0);
-        if (userIds.length > 0) {
-          try {
-            recentMessagesByUser = await this.voiceActivityRepository.listRecentUserMessages({
-              userIds,
-              limitPerUser: 3,
-            });
-          } catch (error) {
-            console.warn('Failed to load recent messages for members prerender', error);
-          }
-        }
-      }
-
-      const members = visibleMembers.slice(0, 18).map((member) => {
-        const displayName = member.displayName || member.nickname || member.username || `Membre ${member.id}`;
-        const messages = recentMessagesByUser[member.id] ?? [];
-        const highlight = messages.length > 0 ? messages[messages.length - 1] : null;
-        const highlightTimestamp = highlight?.timestamp instanceof Date
-          ? highlight.timestamp.toISOString()
-          : null;
-        return {
-          id: member.id,
-          displayName,
-          username: member.username ?? null,
-          avatarUrl: member.avatarUrl ?? null,
-          joinedAt: member.joinedAt ?? null,
-          highlightMessage: highlight
-            ? { content: highlight.content ?? '', timestamp: highlightTimestamp }
-            : null,
-        };
-      });
-
-      return this.buildMembersPageHtml({ search, members });
-    } catch (error) {
-      console.error('Failed to build members prerender', error);
-      return this.buildMembersPageHtml({ search, members: [] });
-    }
-  }
-
-  private async buildBlogListingPrerender(tags: string[]): Promise<{
-    html: string;
-    posts: BlogPostSummary[];
-    availableTags: string[];
-    selectedTags: string[];
-  }> {
-    let posts: BlogPostSummary[] = [];
-    let availableTags: string[] = [];
-    try {
-      const result = await this.blogService.listPosts({
-        tags: tags.length > 0 ? tags : null,
-        sortBy: 'date',
-        sortOrder: 'desc',
-        limit: 24,
-      });
-      posts = result.posts;
-      availableTags = result.availableTags;
-    } catch (error) {
-      console.error('Failed to build blog listing prerender', error);
-      posts = [];
-      availableTags = [];
-    }
-
-    const normalizedPosts = posts.map((post) => ({
-      title: post.title,
-      slug: post.slug,
-      excerpt: post.seoDescription ?? post.excerpt,
-      date: post.date,
-      author: this.config.siteName,
-    }));
-    const html = this.buildBlogListingHtml({ tags, posts: normalizedPosts, availableTags });
-    return { html, posts, availableTags, selectedTags: tags };
-  }
-
-  private async buildClassementsPagePrerender(
-    options: NormalizedHypeLeaderboardQueryOptions,
-  ): Promise<{ html: string; bootstrap: ClassementsPageBootstrap }> {
-    const normalizedOptions: NormalizedHypeLeaderboardQueryOptions = {
-      ...options,
-      limit: Math.min(Math.max(options.limit ?? 100, 1), 100),
-    };
-
-    let result: HypeLeaderboardResult | null = null;
-    try {
-      result = await this.getCachedHypeLeaders(normalizedOptions);
-    } catch (error) {
-      console.error('Failed to build classements prerender', error);
-      result = null;
-    }
-
-    const leaders = (result?.leaders ?? []).slice(0, 100).map((leader, index) => this.normalizeClassementLeader(leader, index));
-    const snapshot = result
-      ? {
-          bucketStart: result.snapshot.bucketStart.toISOString(),
-          comparedTo: result.snapshot.comparedTo ? result.snapshot.comparedTo.toISOString() : null,
-        }
-      : { bucketStart: null, comparedTo: null };
-
-    const query = {
-      search: options.search ?? '',
-      sortBy: options.sortBy,
-      sortOrder: options.sortOrder,
-      period: options.periodDays === null ? 'all' : String(options.periodDays ?? '30'),
-    };
-
-    const html = this.buildClassementsPageHtml({ leaders, snapshot, query });
-    return { html, bootstrap: { query, leaders, snapshot } };
-  }
-
-  private buildClassementsPageHtml(data: {
-    leaders: ClassementLeaderBootstrap[];
-    snapshot: { bucketStart: string | null; comparedTo: string | null } | null;
-    query: { search: string; sortBy: HypeLeaderboardSortBy; sortOrder: HypeLeaderboardSortOrder; period: string };
-  }): string {
-    const parts: string[] = [];
-    const numberFormatter = new Intl.NumberFormat('fr-FR', {
-      maximumFractionDigits: 2,
-      minimumFractionDigits: 0,
-    });
-
-    const formatScore = (value: unknown): string => {
-      const numericValue = Number(value);
-      if (!Number.isFinite(numericValue)) {
-        return '0';
-      }
-      if (Math.abs(numericValue) >= 1000) {
-        return numberFormatter.format(Math.round(numericValue));
-      }
-      return numberFormatter.format(numericValue);
-    };
-
-    const formatSigned = (value: unknown): string => {
-      const numericValue = Number(value);
-      if (!Number.isFinite(numericValue)) {
-        return '0';
-      }
-      const formatted = formatScore(Math.abs(numericValue));
-      if (numericValue > 0) {
-        return `+${formatted}`;
-      }
-      if (numericValue < 0) {
-        return `-${formatted}`;
-      }
-      return formatted;
-    };
-
-    const padRank = (value: number): string => String(Math.max(1, value)).padStart(2, '0');
-
-    const searchValue = data.query.search ?? '';
-    const sortBy = data.query.sortBy;
-    const sortOrder = data.query.sortOrder;
-    const allowedPeriods = new Set(['all', '7', '30', '90', '365']);
-    const period = allowedPeriods.has(data.query.period) ? data.query.period : '30';
-    const metaLabel = this.buildClassementsMetaLabel(data.leaders.length, data.snapshot);
-
-    parts.push('<div class="classements-page flex flex-col gap-10">');
-    parts.push('<section class="rounded-3xl bg-white/5 p-[1px]">');
-    parts.push('<div class="relative overflow-hidden rounded-[1.45rem] bg-slate-950/80 p-8 shadow-neon">');
-    parts.push('<div class="pointer-events-none absolute inset-0 bg-gradient-to-br from-sky-500/15 via-fuchsia-500/10 to-purple-500/20"></div>');
-    parts.push('<div class="relative flex flex-col gap-8 sm:flex-row sm:items-center sm:justify-between">');
-    parts.push('<div class="max-w-2xl space-y-6">');
-    parts.push('<p class="text-xs uppercase tracking-[0.35em] text-slate-400">Classement officiel</p>');
-    parts.push('<h1 class="text-3xl font-black leading-tight text-white sm:text-4xl">Top 100 des personnes les plus hype & cool</h1>');
-    parts.push(
-      '<p class="text-base text-slate-300 sm:text-lg">Ce classement mesure l’énergie que chaque voix apporte au serveur : l’impact sur la fréquentation, la durée de parole et la vibe générale.</p>',
-    );
-    parts.push('</div>');
-    parts.push('</div>');
-    parts.push('</div>');
-    parts.push('</section>');
-
-    parts.push('<section class="space-y-6">');
-    parts.push('<div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">');
-    parts.push('<h2 class="text-2xl font-bold text-white">Classement Hype</h2>');
-    parts.push(`<span class="text-sm text-slate-400">${this.escapeHtml(metaLabel)}</span>`);
-    parts.push('</div>');
-
-    parts.push('<div class="grid gap-4 rounded-3xl border border-white/10 bg-slate-950/70 p-6 md:grid-cols-4 xl:grid-cols-5">');
-    parts.push('<label class="flex flex-col gap-2 md:col-span-2">');
-    parts.push('<span class="text-xs uppercase tracking-[0.3em] text-slate-400">Recherche</span>');
-    parts.push(
-      `<input type="search" inputmode="search" autocomplete="off" spellcheck="false" placeholder="Rechercher un pseudo" class="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-2 text-sm text-white placeholder-slate-500 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40" value="${this.escapeHtml(searchValue)}" />`,
-    );
-    parts.push('</label>');
-
-    const sortOptions: Array<{ value: HypeLeaderboardSortBy; label: string }> = [
-      { value: 'schScoreNorm', label: 'Score hype' },
-      { value: 'arrivalEffect', label: "Effet d'arrivée" },
-      { value: 'departureEffect', label: 'Effet de départ' },
-      { value: 'activityScore', label: "Score d'activité" },
-      { value: 'displayName', label: 'Pseudo' },
-    ];
-
-    parts.push('<label class="flex flex-col gap-2">');
-    parts.push('<span class="text-xs uppercase tracking-[0.3em] text-slate-400">Trier par</span>');
-    parts.push('<select class="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-2 text-sm text-white transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40">');
-    for (const option of sortOptions) {
-      const selected = option.value === sortBy ? ' selected' : '';
-      parts.push(`<option value="${option.value}"${selected}>${this.escapeHtml(option.label)}</option>`);
-    }
-    parts.push('</select>');
-    parts.push('</label>');
-
-    const sortOrderLabel = sortOrder === 'asc' ? 'Ordre ascendant' : 'Ordre descendant';
-    const sortOrderIcon = sortOrder === 'asc' ? '↑' : '↓';
-    const sortOrderPressed = sortOrder === 'asc' ? 'true' : 'false';
-    parts.push('<div class="flex flex-col gap-2">');
-    parts.push('<span class="text-xs uppercase tracking-[0.3em] text-slate-400">Ordre</span>');
-    parts.push(
-      `<button type="button" class="flex items-center justify-between gap-2 rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-2 text-sm font-medium text-white transition hover:border-sky-500/60 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40" aria-pressed="${sortOrderPressed}">`,
-    );
-    parts.push(`<span class="pointer-events-none select-none">${this.escapeHtml(sortOrderLabel)}</span>`);
-    parts.push(`<span aria-hidden="true" class="text-base leading-none">${sortOrderIcon}</span>`);
-    parts.push('</button>');
-    parts.push('</div>');
-
-    const periodOptions = [
-      { value: 'all', label: 'Toujours' },
-      { value: '7', label: '7 jours' },
-      { value: '30', label: '30 jours' },
-      { value: '90', label: '90 jours' },
-      { value: '365', label: '365 jours' },
-    ];
-    parts.push('<label class="flex flex-col gap-2">');
-    parts.push('<span class="text-xs uppercase tracking-[0.3em] text-slate-400">Période</span>');
-    parts.push('<select class="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-2 text-sm text-white transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40">');
-    for (const option of periodOptions) {
-      const selected = option.value === period ? ' selected' : '';
-      parts.push(`<option value="${option.value}"${selected}>${option.label}</option>`);
-    }
-    parts.push('</select>');
-    parts.push('</label>');
-    parts.push('</div>');
-
-    if (data.leaders.length === 0) {
-      parts.push('<div class="grid gap-6">');
-      parts.push(
-        '<div class="rounded-3xl border border-dashed border-white/10 bg-slate-950/60 px-10 py-16 text-center">',
-      );
-      parts.push('<div class="mx-auto h-14 w-14 rounded-full border border-white/10 bg-white/5"></div>');
-      parts.push('<p class="mt-6 text-lg font-semibold text-white">Pas encore de hype mesurée</p>');
-      parts.push(
-        '<p class="mt-2 text-sm text-slate-400">Connecte-toi au salon vocal pour lancer les festivités.</p>',
-      );
-      parts.push('</div>');
-      parts.push('</div>');
-      parts.push('</section>');
-      parts.push('</div>');
-      return parts.join('');
-    }
-
-    parts.push('<div class="grid gap-6">');
-    for (const [index, leader] of data.leaders.entries()) {
-      const rank = leader.rank || index + 1;
-      const style = rank <= 3 ? AppServer.classementsTopThreeStyles[rank - 1] : null;
-      const highlight = style?.highlight ?? 'border-white/5 bg-slate-900/50';
-      const accent = style?.accent ?? 'from-transparent to-transparent';
-      const ring = style?.ring ?? 'ring-2 ring-white/10';
-      const badgeClass = style?.badge ?? 'bg-slate-900/90 text-white border border-white/20';
-      const trend = this.describeClassementTrend(leader.positionTrend);
-      const normalizedUsername = leader.username
-        ? leader.username.startsWith('@')
-          ? leader.username
-          : `@${leader.username}`
-        : null;
-      const activityScore = formatScore(leader.activityScore);
-      const avatarUrl = this.selectClassementsAvatar(leader);
-      const hasAvatar = typeof avatarUrl === 'string' && avatarUrl.length > 0;
-      const seed = this.computeClassementAvatarSeed(leader, rank);
-      const fallbackBackground = this.selectFallbackAvatarBackground(seed);
-      const altName = (() => {
-        const name = leader.displayName?.trim();
-        if (name) {
-          return name;
-        }
-        const username = normalizedUsername ? normalizedUsername.replace(/^@/, '') : '';
-        return username || `profil ${padRank(rank)}`;
-      })();
-
-      const userId = typeof leader.userId === 'string' ? leader.userId : '';
-      const profileHref = userId ? `/profil/${encodeURIComponent(userId)}` : null;
-      if (profileHref) {
-        parts.push(
-          `<a class="leader-card-link" href="${this.escapeHtml(profileHref)}" aria-label="Voir le profil de ${this.escapeHtml(altName)}">`,
-        );
-      }
-
-      parts.push(
-        `<article data-rank="${rank}" class="leader-card relative overflow-hidden rounded-3xl border ${highlight}">`,
-      );
-      parts.push(`<div class="absolute inset-0 bg-gradient-to-r ${accent} opacity-[0.22]"></div>`);
-      parts.push('<div class="relative flex flex-col gap-6 p-6">');
-      parts.push('<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">');
-      parts.push('<div class="flex items-center gap-4">');
-      parts.push('<div class="relative">');
-      parts.push(
-        `<div class="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-950/70 ${ring} ring-offset-2 ring-offset-slate-950">`,
-      );
-      if (hasAvatar && avatarUrl) {
-        parts.push(
-          `<img src="${this.escapeHtml(avatarUrl)}" alt="Avatar de ${this.escapeHtml(altName)}" loading="lazy" class="h-full w-full object-cover" />`,
-        );
-      } else {
-        parts.push(
-          `<span class="flex h-full w-full items-center justify-center bg-gradient-to-br ${fallbackBackground} text-lg font-semibold text-white/90">${this.escapeHtml(this.getClassementLeaderInitials(leader))}</span>`,
-        );
-      }
-      parts.push('</div>');
-      parts.push(
-        `<span class="absolute -bottom-1 -right-1 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-xs font-bold shadow-lg shadow-black/50 ${badgeClass}">#${padRank(rank)}</span>`,
-      );
-      parts.push('</div>');
-      parts.push('<div class="space-y-1.5">');
-      parts.push(`<h3 class="text-lg font-semibold text-white">${this.escapeHtml(leader.displayName ?? 'Inconnu·e')}</h3>`);
-      if (normalizedUsername) {
-        parts.push(`<p class="text-xs font-medium text-slate-400/80">${this.escapeHtml(normalizedUsername)}</p>`);
-      }
-      parts.push(
-        `<p class="text-[0.65rem] uppercase tracking-[0.3em] text-slate-400/70">Activité ${this.escapeHtml(activityScore)}</p>`,
-      );
-      parts.push('</div>');
-      parts.push('</div>');
-      parts.push(
-        `<div class="flex flex-col items-start gap-1 rounded-full border border-white/10 bg-slate-950/60 px-4 py-2 text-[0.65rem] font-semibold leading-tight text-white/80 sm:items-end sm:self-start sm:text-right">`,
-      );
-      parts.push(
-        `<span class="flex items-center gap-1 ${trend.className}"><span aria-hidden="true">${trend.icon}</span><span>${this.escapeHtml(trend.delta)}</span></span>`,
-      );
-      parts.push(
-        `<span class="text-[0.55rem] uppercase tracking-[0.25em] text-slate-400/70">${this.escapeHtml(trend.label)}</span>`,
-      );
-      parts.push('</div>');
-      parts.push('</div>');
-      parts.push('<dl class="grid grid-cols-2 gap-5 text-sm sm:grid-cols-4">');
-      parts.push('<div>');
-      parts.push('<dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Score hype</dt>');
-      parts.push(`<dd class="mt-1 text-base font-semibold text-sky-300">${this.escapeHtml(formatScore(leader.schScoreNorm))}</dd>`);
-      parts.push('</div>');
-      parts.push('<div>');
-      parts.push('<dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Effet arrivée</dt>');
-      parts.push(`<dd class="mt-1 text-base font-semibold text-purple-200">${this.escapeHtml(formatSigned(leader.arrivalEffect))}</dd>`);
-      parts.push('</div>');
-      parts.push('<div>');
-      parts.push('<dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Effet départ</dt>');
-      parts.push(`<dd class="mt-1 text-base font-semibold text-emerald-200">${this.escapeHtml(formatSigned(leader.departureEffect))}</dd>`);
-      parts.push('</div>');
-      parts.push('<div>');
-      parts.push('<dt class="text-xs uppercase tracking-[0.3em] text-slate-400">Indice d&#39;activité</dt>');
-      parts.push(`<dd class="mt-1 text-base font-semibold text-fuchsia-300">${this.escapeHtml(activityScore)}</dd>`);
-      parts.push('</div>');
-      parts.push('</dl>');
-      parts.push('</div>');
-      parts.push('</article>');
-      if (profileHref) {
-        parts.push('</a>');
-      }
-    }
-    parts.push('</div>');
-    parts.push('</section>');
-    parts.push('</div>');
-    return parts.join('');
   }
 
   private parseShopCheckoutFeedback(
@@ -3773,39 +2883,6 @@ export default class AppServer {
     return parts.join('');
   }
 
-  private normalizeClassementLeader(leader: HypeLeaderWithTrend, index: number): ClassementLeaderBootstrap {
-    const rank = Number.isFinite(leader.rank) ? Math.max(1, Math.floor(Number(leader.rank))) : index + 1;
-    const absoluteRank = Number.isFinite(leader.absoluteRank)
-      ? Math.max(1, Math.floor(Number(leader.absoluteRank)))
-      : null;
-    const positionTrend = leader.positionTrend
-      ? {
-          movement: leader.positionTrend.movement ?? 'same',
-          delta: Number.isFinite(leader.positionTrend.delta) ? Number(leader.positionTrend.delta) : null,
-          comparedAt: leader.positionTrend.comparedAt
-            ? leader.positionTrend.comparedAt.toISOString()
-            : null,
-        }
-      : null;
-
-    return {
-      userId: leader.userId,
-      displayName: leader.displayName ?? null,
-      username: leader.username ?? null,
-      rank,
-      absoluteRank,
-      avatar: leader.avatar ?? null,
-      avatarUrl: leader.avatarUrl ?? null,
-      profileAvatar: leader.profile?.avatar ?? null,
-      activityScore: Number.isFinite(leader.activityScore) ? Number(leader.activityScore) : 0,
-      arrivalEffect: Number.isFinite(leader.arrivalEffect) ? Number(leader.arrivalEffect) : 0,
-      departureEffect: Number.isFinite(leader.departureEffect) ? Number(leader.departureEffect) : 0,
-      schScoreNorm: Number.isFinite(leader.schScoreNorm) ? Number(leader.schScoreNorm) : 0,
-      retentionMinutes: Number.isFinite(leader.retentionMinutes) ? Number(leader.retentionMinutes) : 0,
-      sessions: Number.isFinite(leader.sessions) ? Number(leader.sessions) : 0,
-      positionTrend,
-    };
-  }
 
   private buildProfileSummary(
     range: { since: Date; until: Date },
@@ -5699,169 +4776,14 @@ export default class AppServer {
       }
     });
 
-    this.app.get('/classements', async (req, res) => {
+    this.app.get('/classements', (req, res) => {
       this.setClientNoCache(res);
-      const search = this.extractString(req.query?.search);
-      const metadata: SeoPageMetadata = {
-        title: `${this.config.siteName} · Classements hype & statistiques en direct`,
-        description:
-          "Explore les classements hype de Libre Antenne : rétention, présence et interventions marquantes de la communauté.",
-        path: '/classements',
-        canonicalUrl: this.toAbsoluteUrl('/classements'),
-        robots: search ? 'noindex,follow' : undefined,
-        keywords: this.combineKeywords(
-          'classement Libre Antenne',
-          'statistiques Discord',
-          'hype score',
-          'radio libre',
-          this.config.siteName,
-        ),
-        openGraphType: 'website',
-        breadcrumbs: [
-          { name: 'Accueil', path: '/' },
-          { name: 'Classements', path: '/classements' },
-        ],
-        structuredData: [
-          {
-            '@context': 'https://schema.org',
-            '@type': 'Dataset',
-            name: `${this.config.siteName} – Classements hype`,
-            description:
-              'Classements temps réel des participations vocales et textuelles sur Libre Antenne.',
-            license: 'https://creativecommons.org/licenses/by/4.0/',
-            url: this.toAbsoluteUrl('/classements'),
-            creator: {
-              '@type': 'Organization',
-              name: this.config.siteName,
-              url: this.config.publicBaseUrl,
-            },
-            distribution: [
-              {
-                '@type': 'DataDownload',
-                encodingFormat: 'application/json',
-                contentUrl: this.toAbsoluteUrl('/api/voice-activity/hype-leaders'),
-              },
-            ],
-          },
-        ],
-      };
-
-      try {
-        const options = this.parseLeaderboardRequest(req);
-        const prerender = await this.buildClassementsPagePrerender(options);
-        const preloadState: AppPreloadState = {
-          route: {
-            name: 'classements',
-            params: {
-              search: prerender.bootstrap.query.search ?? '',
-              sortBy: prerender.bootstrap.query.sortBy,
-              sortOrder: prerender.bootstrap.query.sortOrder,
-              period: prerender.bootstrap.query.period,
-            },
-          },
-          pages: { classements: prerender.bootstrap },
-        };
-        this.respondWithAppShell(res, metadata, {
-          appHtml: prerender.html,
-          preloadState,
-        });
-      } catch (error) {
-        console.error('Failed to prerender classements page', error);
-        this.respondWithAppShell(res, metadata);
-      }
+      this.respondWithPageRemoved(res, req.path);
     });
 
-    this.app.get(['/membres', '/members'], async (req, res) => {
-      const rawSearch = this.extractString(req.query?.search);
-      const search = rawSearch ? rawSearch.slice(0, 80) : null;
-      const isEnglishRoute = req.path === '/members';
-      const pagePath = isEnglishRoute ? '/members' : '/membres';
-      const canonicalPath = '/membres';
-      const canonicalUrl = this.toAbsoluteUrl(canonicalPath);
-      const pageLanguage = isEnglishRoute ? 'en-US' : this.config.siteLanguage;
-      const pageLocale = isEnglishRoute ? 'en_US' : this.config.siteLocale;
-      const alternateLanguages = [
-        { locale: 'fr-FR', url: this.toAbsoluteUrl('/membres') },
-        { locale: 'en-US', url: this.toAbsoluteUrl('/members') },
-      ];
-      const baseDescription = isEnglishRoute
-        ? 'Browse the active members of Libre Antenne, their live presence on voice channels and their latest Discord messages.'
-        : 'Parcours les membres actifs de Libre Antenne, leurs présences vocales et leurs derniers messages Discord.';
-      const description = search
-        ? isEnglishRoute
-          ? `Results for “${search}” in the Libre Antenne community: profiles, messages and audio activity.`
-          : `Résultats pour « ${search} » dans la communauté Libre Antenne : profils, messages et activité audio.`
-        : baseDescription;
-      const keywords = isEnglishRoute
-        ? this.combineKeywords(
-            this.config.siteName,
-            'Libre Antenne members',
-            'Discord community',
-            'audio profile',
-            search ? `member ${search}` : null,
-          )
-        : this.combineKeywords(
-            this.config.siteName,
-            'membres Libre Antenne',
-            'communauté Discord',
-            'profil audio',
-            search ? `membre ${search}` : null,
-          );
-      const metadata: SeoPageMetadata = {
-        title: isEnglishRoute
-          ? `${this.config.siteName} · Active members & Discord profiles`
-          : `${this.config.siteName} · Membres actifs & profils Discord`,
-        description,
-        path: pagePath,
-        canonicalUrl,
-        robots: search ? 'noindex,follow' : undefined,
-        keywords,
-        openGraphType: 'website',
-        locale: pageLocale,
-        language: pageLanguage,
-        alternateLocales: isEnglishRoute ? [this.config.siteLocale] : ['en_US'],
-        alternateLanguages,
-        breadcrumbs: isEnglishRoute
-          ? [
-              { name: 'Home', path: '/' },
-              { name: 'Members', path: '/members' },
-            ]
-          : [
-              { name: 'Accueil', path: '/' },
-              { name: 'Membres', path: '/membres' },
-            ],
-        structuredData: [
-          {
-            '@context': 'https://schema.org',
-            '@type': 'CollectionPage',
-            name: isEnglishRoute
-              ? `${this.config.siteName} – Members`
-              : `${this.config.siteName} – Membres`,
-            description: search
-              ? isEnglishRoute
-                ? `Search results for ${search} across Libre Antenne members.`
-                : `Résultats de recherche pour ${search} parmi les membres de Libre Antenne.`
-              : isEnglishRoute
-                ? 'Directory of active voices in the Libre Antenne audio community.'
-                : 'Annuaire des membres actifs de la communauté audio Libre Antenne.',
-            url: canonicalUrl,
-            about: {
-              '@type': 'Organization',
-              name: this.config.siteName,
-              url: this.config.publicBaseUrl,
-            },
-            inLanguage: pageLanguage,
-          },
-        ],
-      };
-
-      try {
-        const appHtml = await this.buildMembersPagePrerender(search);
-        this.respondWithAppShell(res, metadata, { appHtml });
-      } catch (error) {
-        console.error('Failed to prerender members page', error);
-        this.respondWithAppShell(res, metadata);
-      }
+    this.app.get(['/membres', '/members'], (req, res) => {
+      this.setClientNoCache(res);
+      this.respondWithPageRemoved(res, req.path);
     });
 
     this.app.get('/salons', async (_req, res) => {
@@ -6190,271 +5112,24 @@ export default class AppServer {
         this.respondWithAppShell(res, metadata, { appHtml, preloadState });
       });
 
-    this.app.get('/blog', async (req, res) => {
-      const tags = this.extractStringArray(req.query?.tag ?? req.query?.tags ?? null);
-      const tagSnippet = tags.length > 0 ? `Focus sur ${tags.join(', ')}.` : '';
-      const metadata: SeoPageMetadata = {
-        title: `${this.config.siteName} · Blog & chroniques de la radio libre`,
-        description:
-          (tags.length > 0
-            ? `Articles Libre Antenne consacrés à ${tags.join(', ')} : coulisses du direct, récits de nuit et interviews.`
-            : 'Retrouve les coulisses, récits et actualités de la radio libre Libre Antenne.'),
-        path: '/blog',
-        canonicalUrl: this.toAbsoluteUrl('/blog'),
-        keywords: this.combineKeywords(
-          this.config.siteName,
-          'blog Libre Antenne',
-          'radio libre',
-          'histoires de nuit',
-          ...tags,
-        ),
-        openGraphType: 'website',
-        breadcrumbs: [
-          { name: 'Accueil', path: '/' },
-          { name: 'Blog', path: '/blog' },
-        ],
-        structuredData: [
-          {
-            '@context': 'https://schema.org',
-            '@type': 'Blog',
-            name: `${this.config.siteName} – Blog`,
-            description:
-              tags.length > 0
-                ? `Articles thématiques (${tags.join(', ')}) publiés par la communauté Libre Antenne.`
-                : 'Blog communautaire de Libre Antenne : actualités, stories et guides du direct.',
-            url: this.toAbsoluteUrl('/blog'),
-            inLanguage: this.config.siteLanguage,
-            about: {
-              '@type': 'Organization',
-              name: this.config.siteName,
-              url: this.config.publicBaseUrl,
-            },
-            keywords: tags.length > 0 ? tags : undefined,
-          },
-        ],
-        additionalMeta: tagSnippet
-          ? [
-              {
-                name: 'news_keywords',
-                content: tags.join(', '),
-              },
-            ]
-          : undefined,
-      };
-
-      try {
-        const prerender = await this.buildBlogListingPrerender(tags);
-        const preloadState: AppPreloadState = {
-          route: { name: 'blog', params: { slug: null } },
-          pages: {
-            blog: {
-              posts: prerender.posts,
-              availableTags: prerender.availableTags,
-              selectedTags: prerender.selectedTags,
-            },
-          },
-        };
-        this.respondWithAppShell(res, metadata, { appHtml: prerender.html, preloadState });
-      } catch (error) {
-        console.error('Failed to prerender blog listing', error);
-        this.respondWithAppShell(res, metadata);
-      }
+    this.app.get('/blog', (req, res) => {
+      this.setClientNoCache(res);
+      this.respondWithPageRemoved(res, req.path);
     });
 
-    this.app.get('/blog/publier', (_req, res) => {
-      const metadata: SeoPageMetadata = {
-        title: `${this.config.siteName} · Publier un article`,
-        description:
-          'Rédige et publie instantanément un article sur le blog Libre Antenne pour partager ton regard avec la communauté.',
-        path: '/blog/publier',
-        canonicalUrl: this.toAbsoluteUrl('/blog/publier'),
-        keywords: this.combineKeywords(
-          this.config.siteName,
-          'publier article Libre Antenne',
-          'chronique radio libre',
-          'contribution blog communauté',
-        ),
-        openGraphType: 'article',
-        breadcrumbs: [
-          { name: 'Accueil', path: '/' },
-          { name: 'Blog', path: '/blog' },
-          { name: 'Publier un article', path: '/blog/publier' },
-        ],
-        structuredData: [
-          {
-            '@context': 'https://schema.org',
-            '@type': 'HowTo',
-            name: 'Publier un article sur le blog Libre Antenne',
-            description: 'Étapes pour mettre en ligne un article communautaire sur Libre Antenne.',
-            step: [
-              { '@type': 'HowToStep', name: 'Préparer le contenu', text: 'Choisis un titre, une accroche et des tags pertinents.' },
-              { '@type': 'HowToStep', name: 'Rédiger en Markdown', text: 'Écris ton article en soignant la forme et les sources.' },
-              { '@type': 'HowToStep', name: 'Publier', text: 'Valide le formulaire pour mettre ton article en ligne immédiatement.' },
-            ],
-          },
-        ],
-      };
-
-      const appHtml = this.buildBlogSubmissionHtml();
-      const preloadState: AppPreloadState = { route: { name: 'blog-submit', params: {} } };
-      this.respondWithAppShell(res, metadata, { appHtml, preloadState });
+    this.app.get('/blog/publier', (req, res) => {
+      this.setClientNoCache(res);
+      this.respondWithPageRemoved(res, req.path);
     });
 
-    this.app.get(['/blog/proposer', '/blog/soumettre'], (_req, res) => {
-      res.redirect(301, '/blog/publier');
+    this.app.get(['/blog/proposer', '/blog/soumettre'], (req, res) => {
+      this.setClientNoCache(res);
+      this.respondWithPageRemoved(res, req.path);
     });
 
-    this.app.get('/blog/:slug', async (req, res) => {
-      const rawSlug = typeof req.params.slug === 'string' ? req.params.slug.trim() : '';
-      if (!rawSlug) {
-        this.respondWithAppShell(
-          res,
-          {
-            title: 'Article introuvable · Libre Antenne',
-            description: "Impossible de trouver cet article du blog Libre Antenne.",
-            path: req.path,
-            canonicalUrl: this.toAbsoluteUrl('/blog'),
-            robots: 'noindex,follow',
-            breadcrumbs: [
-              { name: 'Accueil', path: '/' },
-              { name: 'Blog', path: '/blog' },
-            ],
-          },
-          404,
-        );
-        return;
-      }
-
-      try {
-        const post = await this.blogService.getPost(rawSlug);
-        if (!post) {
-          this.respondWithAppShell(
-            res,
-            {
-              title: 'Article introuvable · Libre Antenne',
-              description: "L'article demandé n'existe plus ou a été déplacé.",
-              path: req.path,
-              canonicalUrl: this.toAbsoluteUrl('/blog'),
-              robots: 'noindex,follow',
-              breadcrumbs: [
-                { name: 'Accueil', path: '/' },
-                { name: 'Blog', path: '/blog' },
-                { name: rawSlug, path: req.path },
-              ],
-            },
-            404,
-          );
-          return;
-        }
-
-        const canonicalPath = `/blog/${post.slug}`;
-        const description = post.seoDescription
-          ?? post.excerpt
-          ?? `Chronique Libre Antenne : ${post.title}.`;
-        const articleImage = post.coverImageUrl
-          ? [
-              {
-                url: post.coverImageUrl,
-                alt: `Illustration de l'article ${post.title}`,
-              },
-            ]
-          : undefined;
-        const metadata: SeoPageMetadata = {
-          title: `${post.title} · Blog Libre Antenne`,
-          description,
-          path: canonicalPath,
-          canonicalUrl: this.toAbsoluteUrl(canonicalPath),
-          keywords: this.combineKeywords(
-            post.title,
-            this.config.siteName,
-            'blog Libre Antenne',
-            ...(post.tags ?? []),
-          ),
-          openGraphType: 'article',
-          images: articleImage,
-          breadcrumbs: [
-            { name: 'Accueil', path: '/' },
-            { name: 'Blog', path: '/blog' },
-            { name: post.title, path: canonicalPath },
-          ],
-          article: {
-            publishedTime: post.date ?? undefined,
-            modifiedTime: post.updatedAt ?? post.date ?? undefined,
-            section: 'Blog',
-            tags: post.tags,
-          },
-          authorName: this.config.siteName,
-          publisherName: this.config.siteName,
-          structuredData: [
-            {
-              '@context': 'https://schema.org',
-              '@type': 'Article',
-              headline: post.title,
-              description,
-              datePublished: post.date ?? undefined,
-              dateModified: post.updatedAt ?? post.date ?? undefined,
-              url: this.toAbsoluteUrl(canonicalPath),
-              inLanguage: this.config.siteLanguage,
-              author: {
-                '@type': 'Organization',
-                name: this.config.siteName,
-                url: this.config.publicBaseUrl,
-              },
-              publisher: {
-                '@type': 'Organization',
-                name: this.config.siteName,
-                url: this.config.publicBaseUrl,
-                logo: {
-                  '@type': 'ImageObject',
-                  url: this.toAbsoluteUrl('/icons/icon-512.png'),
-                },
-              },
-              image: articleImage?.map((image) => this.toAbsoluteUrl(image.url)),
-              keywords: post.tags,
-              mainEntityOfPage: this.toAbsoluteUrl(canonicalPath),
-              articleSection: 'Blog',
-            },
-          ],
-        };
-
-        const appHtml = this.buildBlogPostHtml({
-          title: post.title,
-          contentHtml: post.contentHtml,
-          date: post.date,
-          updatedAt: post.updatedAt,
-          tags: post.tags ?? [],
-          coverImageUrl: post.coverImageUrl ?? null,
-          authorName: this.config.siteName,
-        });
-
-        const preloadState: AppPreloadState = {
-          route: { name: 'blog', params: { slug: post.slug } },
-          pages: {
-            blog: {
-              activePost: post,
-            },
-          },
-        };
-
-        this.respondWithAppShell(res, metadata, { appHtml, preloadState });
-      } catch (error) {
-        console.error('Failed to render blog post page', error);
-        this.respondWithAppShell(
-          res,
-          {
-            title: `${this.config.siteName} · Blog`,
-            description: 'Une erreur est survenue lors du chargement de cet article.',
-            path: '/blog',
-            canonicalUrl: this.toAbsoluteUrl('/blog'),
-            robots: 'noindex,follow',
-            breadcrumbs: [
-              { name: 'Accueil', path: '/' },
-              { name: 'Blog', path: '/blog' },
-            ],
-          },
-          500,
-        );
-      }
+    this.app.get('/blog/:slug', (req, res) => {
+      this.setClientNoCache(res);
+      this.respondWithPageRemoved(res, req.path);
     });
 
     this.app.get(['/profil/:userId', '/profile/:userId'], async (req, res) => {
@@ -6466,11 +5141,10 @@ export default class AppServer {
             title: 'Profil introuvable · Libre Antenne',
             description: "Impossible de charger ce profil Libre Antenne.",
             path: req.path,
-            canonicalUrl: this.toAbsoluteUrl('/membres'),
+            canonicalUrl: this.toAbsoluteUrl(req.path),
             robots: 'noindex,follow',
             breadcrumbs: [
               { name: 'Accueil', path: '/' },
-              { name: 'Membres', path: '/membres' },
             ],
           },
           404,
@@ -6485,11 +5159,10 @@ export default class AppServer {
             title: 'Profil masqué · Libre Antenne',
             description: 'Ce membre préfère garder son profil confidentiel.',
             path: req.path,
-            canonicalUrl: this.toAbsoluteUrl('/membres'),
+            canonicalUrl: this.toAbsoluteUrl(req.path),
             robots: 'noindex,follow',
             breadcrumbs: [
               { name: 'Accueil', path: '/' },
-              { name: 'Membres', path: '/membres' },
             ],
           },
           404,
@@ -6528,11 +5201,10 @@ export default class AppServer {
               title: 'Profil introuvable · Libre Antenne',
               description: "Impossible de trouver ce membre dans la communauté Libre Antenne.",
               path: req.path,
-              canonicalUrl: this.toAbsoluteUrl('/membres'),
+              canonicalUrl: this.toAbsoluteUrl(req.path),
               robots: 'noindex,follow',
               breadcrumbs: [
                 { name: 'Accueil', path: '/' },
-                { name: 'Membres', path: '/membres' },
               ],
             },
             404,
@@ -6608,7 +5280,6 @@ export default class AppServer {
             : undefined,
           breadcrumbs: [
             { name: 'Accueil', path: '/' },
-            { name: 'Membres', path: '/membres' },
             { name: profileName, path: canonicalPath },
           ],
           profile: {
@@ -6683,14 +5354,13 @@ export default class AppServer {
         this.respondWithAppShell(
           res,
           {
-            title: `${this.config.siteName} · Membres`,
+            title: 'Profil indisponible · Libre Antenne',
             description: 'Impossible de charger ce profil pour le moment.',
-            path: '/membres',
-            canonicalUrl: this.toAbsoluteUrl('/membres'),
+            path: req.path,
+            canonicalUrl: this.toAbsoluteUrl(req.path),
             robots: 'noindex,follow',
             breadcrumbs: [
               { name: 'Accueil', path: '/' },
-              { name: 'Membres', path: '/membres' },
             ],
           },
           500,
@@ -6879,27 +5549,6 @@ export default class AppServer {
       icon: 'Coins',
     },
   } as const;
-
-  private static readonly classementsTopThreeStyles = [
-    {
-      highlight: 'border-[#0085C7] bg-slate-900/70 shadow-lg shadow-[0_0_45px_rgba(0,133,199,0.35)]',
-      accent: 'from-[#0085C7]/35 via-[#0085C7]/10 to-transparent',
-      ring: 'ring-4 ring-[#0085C7]/50',
-      badge: 'bg-gradient-to-br from-sky-400 via-[#0085C7] to-cyan-400 text-slate-950',
-    },
-    {
-      highlight: 'border-[#F4C300] bg-slate-900/70 shadow-lg shadow-[0_0_45px_rgba(244,195,0,0.35)]',
-      accent: 'from-[#F4C300]/35 via-[#F4C300]/10 to-transparent',
-      ring: 'ring-4 ring-[#F4C300]/40',
-      badge: 'bg-gradient-to-br from-amber-300 via-[#F4C300] to-yellow-200 text-slate-950',
-    },
-    {
-      highlight: 'border-black bg-slate-900/70 shadow-lg shadow-[0_0_45px_rgba(0,0,0,0.45)]',
-      accent: 'from-black/40 via-slate-900/60 to-transparent',
-      ring: 'ring-4 ring-white/20',
-      badge: 'bg-gradient-to-br from-slate-700 via-slate-500 to-slate-300 text-white/90',
-    },
-  ] as const;
 
   private static readonly fallbackAvatarBackgrounds = [
     'from-sky-500/60 via-slate-900/60 to-indigo-500/60',
