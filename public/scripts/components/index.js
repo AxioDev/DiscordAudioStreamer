@@ -1804,9 +1804,8 @@ const MEMBERS_PAGE_SIZE = 24;
 
 const NAV_LINKS = [
   { label: 'Accueil', route: 'home', href: '/' },
-  { label: 'Membres', route: 'members', href: '/membres' },
-  { label: 'Classements', route: 'classements', href: '/classements' },
   { label: 'Salons', route: 'salons', href: '/salons' },
+  { label: 'Statistiques', route: 'statistiques', href: '/statistiques' },
 ];
 
 const getRouteFromHash = () => {

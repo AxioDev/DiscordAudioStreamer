@@ -12,10 +12,7 @@ import {
   Download,
   RefreshCcw,
   AudioLines,
-  Users,
-  BadgeCheck,
   Hash,
-  MessageSquare,
   Activity,
 } from './core/deps.js';
 import {
@@ -40,18 +37,12 @@ import { HomePage } from './pages/home.js';
 const ROUTE_LOADERS = {
   about: () => import('./pages/about.js').then((module) => module?.AboutPage ?? null),
   ban: () => import('./pages/ban.js').then((module) => module?.BanPage ?? null),
-  blog: () => import('./pages/blog.js').then((module) => module?.BlogPage ?? null),
-  'blog-submit': () =>
-    import('./pages/blog-submit.js').then((module) => module?.BlogSubmissionPage ?? null),
-  classements: () =>
-    import('./pages/classements.js').then((module) => module?.ClassementsPage ?? null),
   cgu: () => import('./pages/cgu.js').then((module) => module?.CguPage ?? null),
   'cgv-vente': () =>
     import('./pages/cgv-vente.js').then((module) => module?.CgvVentePage ?? null),
   'mentions-legales': () =>
     import('./pages/mentions-legales.js').then((module) => module?.MentionsLegalesPage ?? null),
   salons: () => import('./pages/salons.js').then((module) => module?.SalonsPage ?? null),
-  members: () => import('./pages/members.js').then((module) => module?.MembersPage ?? null),
   profile: () => import('./pages/profile.js').then((module) => module?.ProfilePage ?? null),
   shop: () => import('./pages/shop.js').then((module) => module?.ShopPage ?? null),
   statistiques: () =>
@@ -60,16 +51,12 @@ const ROUTE_LOADERS = {
 
 const NAV_LINKS = [
   { label: 'Accueil', route: 'home', href: '/', icon: AudioLines },
-  { label: 'Membres', route: 'members', href: '/membres', icon: Users },
-  { label: 'Classements', route: 'classements', href: '/classements', icon: BadgeCheck },
   { label: 'Salons', route: 'salons', href: '/salons', icon: Hash },
   { label: 'Statistiques', route: 'statistiques', href: '/statistiques', icon: Activity },
-  { label: 'Blog', route: 'blog', href: '/blog', icon: MessageSquare },
 ];
 
 const PRERENDER_CLASS_TOKENS = [
   'prerender',
-  'classements-page',
   'shop-page',
   'about-page',
   'cgu-page',
@@ -862,9 +849,6 @@ const App = () => {
         return;
       }
       loadPageComponent(name);
-      if (name === 'blog') {
-        loadPageComponent('blog-submit');
-      }
     },
     [loadPageComponent],
   );
@@ -918,11 +902,9 @@ const App = () => {
     };
 
     const targets = [
-      'members',
       'shop',
-      'classements',
       'statistiques',
-      'blog',
+      'salons',
       'profile',
       'ban',
       'about',
@@ -1753,8 +1735,7 @@ const App = () => {
           </a>
           <nav class="hidden items-center gap-6 lg:flex">
           ${NAV_LINKS.map((link, index) => {
-            const isActive =
-              route.name === link.route || (link.route === 'blog' && route.name === 'blog-submit');
+            const isActive = route.name === link.route;
             const href = link.href;
             const baseClasses = 'text-sm font-medium transition hover:text-white';
             const stateClass = isActive ? 'text-white' : 'text-slate-300';
@@ -1840,8 +1821,7 @@ const App = () => {
         </div>
         <nav class="mt-8 flex flex-col gap-1" aria-label="Navigation mobile">
           ${NAV_LINKS.map((link, index) => {
-            const isActive =
-              route.name === link.route || (link.route === 'blog' && route.name === 'blog-submit');
+            const isActive = route.name === link.route;
             const href = link.href;
             const baseClasses = 'flex items-center gap-3 rounded-xl px-3 py-3 text-base font-medium transition';
             const stateClass = isActive
@@ -1882,21 +1862,6 @@ const App = () => {
               ? renderAsyncPage('ban')
               : route.name === 'about'
               ? renderAsyncPage('about')
-              : route.name === 'blog'
-              ? renderAsyncPage('blog', {
-                  params: route.params,
-                  bootstrap: BOOTSTRAP_PAGES.blog ?? null,
-                  onNavigateToPost: (slug) =>
-                    navigateToRoute('blog', { slug }, { scrollToTop: true }),
-                  onNavigateToSubmission: () =>
-                    navigateToRoute('blog-submit', {}, { scrollToTop: true }),
-                })
-              : route.name === 'blog-submit'
-              ? renderAsyncPage('blog-submit', {
-                  onNavigateToBlog: () => navigateToRoute('blog', {}, { scrollToTop: true }),
-                })
-              : route.name === 'members'
-              ? renderAsyncPage('members', { onViewProfile: handleProfileOpen })
               : route.name === 'shop'
               ? renderAsyncPage('shop', { bootstrap: BOOTSTRAP_PAGES.shop ?? null })
               : route.name === 'profile'
@@ -1911,16 +1876,6 @@ const App = () => {
                   bootstrap: BOOTSTRAP_PAGES.statistiques ?? null,
                   onSyncRoute: (nextParams, options = {}) =>
                     navigateToRoute('statistiques', nextParams, {
-                      replace: true,
-                      scrollToTop: options.scrollToTop ?? false,
-                    }),
-                })
-              : route.name === 'classements'
-              ? renderAsyncPage('classements', {
-                  params: route.params,
-                  bootstrap: BOOTSTRAP_PAGES.classements ?? null,
-                  onSyncRoute: (nextParams, options = {}) =>
-                    navigateToRoute('classements', nextParams, {
                       replace: true,
                       scrollToTop: options.scrollToTop ?? false,
                     }),
