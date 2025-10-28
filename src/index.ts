@@ -577,26 +577,10 @@ function registerServices(container: ServiceContainer): void {
   container.register<AppServer>('appServer', {
     factory: (ctx) => {
       const cfg = ctx.resolve<Config>('config');
-      const repository = ctx.resolve<VoiceActivityRepository>('voiceActivityRepository');
       return new AppServer({
         config: cfg,
         transcoder: ctx.resolve<FfmpegTranscoder>('transcoder'),
-        speakerTracker: ctx.resolve<SpeakerTracker>('speakerTracker'),
-        sseService: ctx.resolve<SseService>('sseService'),
-        anonymousSpeechManager: ctx.resolve<AnonymousSpeechManager>('anonymousSpeechManager'),
-        discordBridge: ctx.resolve<DiscordAudioBridge>('discordBridge'),
-        shopService: ctx.resolve<ShopService>('shopService'),
-        voiceActivityRepository: cfg.database.url ? repository : null,
         listenerStatsService: ctx.resolve<ListenerStatsService>('listenerStatsService'),
-        blogRepository: ctx.resolve<BlogRepository | null>('blogRepository'),
-        blogService: ctx.resolve<BlogService>('blogService'),
-        blogSubmissionService: ctx.resolve<BlogSubmissionService>('blogSubmissionService'),
-        blogModerationService: ctx.resolve<BlogModerationService>('blogModerationService'),
-        dailyArticleService: ctx.resolve<DailyArticleService>('dailyArticleService'),
-        userPersonaService: ctx.resolve<UserPersonaService>('userPersonaService'),
-        adminService: ctx.resolve<AdminService>('adminService'),
-        statisticsService: ctx.resolve<StatisticsService>('statisticsService'),
-        userAudioRecorder: ctx.resolve<UserAudioRecorder | null>('userAudioRecorder'),
       });
     },
     start: (server) => {

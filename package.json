@@ -15,10 +15,8 @@
   "type": "commonjs",
   "main": "dist/server.js",
   "scripts": {
-    "build:client": "node scripts/build-client.mjs",
     "build:server": "tsc",
-    "build": "npm run build:client && npm run build:server",
-    "postbuild": "node scripts/run-lighthouse.mjs",
+    "build": "npm run build:server",
     "prestart": "npm run build",
     "migrate:blog": "ts-node scripts/migrate-proposals-to-posts.ts",
     "sync:vectors": "ts-node scripts/sync-discord-vectors.ts",
@@ -27,7 +25,7 @@
     "precompute:hype-leaderboard:daily": "ts-node scripts/precompute-hype-leaderboard.ts --schedule",
     "generate:missing-covers": "ts-node scripts/generate-missing-covers.ts",
     "start": "node dist/server.js",
-    "dev": "npm run build:client && ts-node src/server.ts",
+    "dev": "ts-node src/server.ts",
     "verify:performance": "node scripts/run-lighthouse.mjs",
     "audit:performance": "node scripts/run-lighthouse.mjs",
     "test": "ts-node test/discordVectorIngestionService.test.ts"
@@ -52,7 +50,6 @@
     "dotenv": "^16.5.0",
     "esbuild": "^0.24.0",
     "express": "^5.1.0",
-    "express-minify-html-terser": "^1.0.2",
     "ffmpeg-static": "^5.2.0",
     "helmet": "^7.2.0",
     "htm": "^3.1.1",
